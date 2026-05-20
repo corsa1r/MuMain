@@ -3368,13 +3368,25 @@ void ReceiveAttackDamageExtended(const BYTE* ReceiveBuffer)
     }
     else
     {
-        c->ShieldStatus = static_cast<float>(Data->HealthStatus) / 250.f;
+        c->ShieldStatus = static_cast<float>(Data->ShieldStatus) / 250.f;
+    }
+
+    if (Data->MaximumHealth > 0)
+    {
+        c->HpMax     = static_cast<int>(Data->MaximumHealth);
+        c->HpCurrent = static_cast<int>(Data->CurrentHealth);
+    }
+
+    // HP-sync packet (0 damage): only update HP fields, skip visual damage effects
+    if (Damage == 0 && ShieldDamage == 0)
+    {
+        return;
     }
 
     if (gMapManager.InChaosCastle())
     {
         ReceiveAttackDamageCastle(c, o, Success, Key, Damage, ShieldDamage, DamageType, bRepeatedly, bEndRepeatedly, bDoubleEnable, bComboEnable);
-        
+
     }
     else
     {

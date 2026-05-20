@@ -28,6 +28,7 @@
 #include "GameLogic/NPCs/npcBreeder.h"
 #include "GameLogic/Pets/GIPetManager.h"
 #include "Character/CSParts.h"
+#include "Character/EnemyHealthBar.h"
 #include "UI/Legacy/UIMapName.h"	// rozy
 #include "GameLogic/Events/Cinematic/CDirection.h"
 #include "World/MapInfra/MapManager.h"
@@ -8463,6 +8464,7 @@ void RenderInterface(bool Render)
 
     RenderOutSides();
     RenderPartyHP();
+    g_EnemyHealthBar.RenderAll();
 
     RenderSwichState();
     battleCastle::RenderBuildTimes();

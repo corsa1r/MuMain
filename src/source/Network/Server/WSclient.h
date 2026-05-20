@@ -645,6 +645,8 @@ typedef struct {
     BYTE          ShieldStatus; // 7 status of the remaining shield in fractions of 1/250
     DWORD         HealthDamage; // 8
     DWORD         ShieldDamage; // 12
+    DWORD         CurrentHealth; // 16
+    DWORD         MaximumHealth; // 20
 } PRECEIVE_ATTACK_EXTENDED, * LPPRECEIVE_ATTACK_EXTENDED;
 
 //receive die

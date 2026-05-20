@@ -210,6 +210,8 @@ public:
     float       Run;
     float       HealthStatus;
     float       ShieldStatus;
+    int         HpCurrent;
+    int         HpMax;
 
     vec3_t		TargetPosition;
     vec3_t      Light;
