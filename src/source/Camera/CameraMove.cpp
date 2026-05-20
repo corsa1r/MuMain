@@ -194,8 +194,8 @@ bool CCameraMove::LoadCameraWalkScript(const std::wstring& filename)
         return false;
     }
 
-    size_t waypointCount = 0;
-    if (fread(&waypointCount, sizeof(size_t), 1, fileHandle.get()) != 1)
+    uint32_t waypointCount = 0;
+    if (fread(&waypointCount, sizeof(uint32_t), 1, fileHandle.get()) != 1)
     {
         return false;
     }
@@ -233,10 +233,10 @@ bool CCameraMove::SaveCameraWalkScript(const std::wstring& filename)
     }
 
     const DWORD signature = 0x00535743;
-    const size_t waypointCount = m_listWayPoint.size();
+    const uint32_t waypointCount = static_cast<uint32_t>(m_listWayPoint.size());
 
     if (fwrite(&signature, sizeof(DWORD), 1, fileHandle.get()) != 1 ||
-        fwrite(&waypointCount, sizeof(size_t), 1, fileHandle.get()) != 1)
+        fwrite(&waypointCount, sizeof(uint32_t), 1, fileHandle.get()) != 1)
     {
         return false;
     }

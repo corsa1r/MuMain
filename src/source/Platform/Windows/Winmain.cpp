@@ -44,6 +44,10 @@
 #include "Core/Input/Input.h"
 #include "Core/Time/Timer.h"
 #include "UI/Legacy/UIMng.h"
+#include <DbgHelp.h>
+#include <Psapi.h>
+#pragma comment(lib, "DbgHelp.lib")
+#pragma comment(lib, "Psapi.lib")
 
 
 #include "World/MapInfra/w_MapHeaders.h"
@@ -1071,8 +1075,130 @@ void UpdateResolutionDependentSystems()
     CUIMng::Instance().RepositionSceneUI();
 }
 
+static void WriteRawLog(HANDLE hFile, const wchar_t* msg)
+{
+    DWORD written;
+    WriteFile(hFile, msg, static_cast<DWORD>(wcslen(msg) * sizeof(wchar_t)), &written, nullptr);
+}
+
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep)
+{
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    wchar_t logPath[MAX_PATH];
+    wchar_t dumpPath[MAX_PATH];
+    if (lastSlash)
+    {
+        size_t dirLen = static_cast<size_t>(lastSlash - exePath) + 1;
+        wcsncpy_s(logPath, exePath, dirLen);
+        logPath[dirLen] = L'\0';
+        wcscpy_s(dumpPath, logPath);
+        wcscat_s(logPath, L"crash.log");
+        wcscat_s(dumpPath, L"crash.dmp");
+    }
+    else
+    {
+        wcscpy_s(logPath, L"crash.log");
+        wcscpy_s(dumpPath, L"crash.dmp");
+    }
+
+    // Write minidump
+    HANDLE hDump = CreateFileW(dumpPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (hDump != INVALID_HANDLE_VALUE)
+    {
+        MINIDUMP_EXCEPTION_INFORMATION mei{};
+        mei.ThreadId          = GetCurrentThreadId();
+        mei.ExceptionPointers = ep;
+        mei.ClientPointers    = FALSE;
+        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hDump,
+                          static_cast<MINIDUMP_TYPE>(MiniDumpWithDataSegs | MiniDumpWithFullMemoryInfo),
+                          &mei, nullptr, nullptr);
+        CloseHandle(hDump);
+    }
+
+    // Write crash.log using raw Win32 (safe in crash context)
+    HANDLE hLog = CreateFileW(logPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (hLog != INVALID_HANDLE_VALUE)
+    {
+        // UTF-16 BOM
+        WORD bom = 0xFEFF;
+        DWORD w;
+        WriteFile(hLog, &bom, 2, &w, nullptr);
+
+        wchar_t buf[1024];
+        DWORD code = ep->ExceptionRecord->ExceptionCode;
+        void* addr = ep->ExceptionRecord->ExceptionAddress;
+
+        swprintf_s(buf, L"CRASH: exception 0x%08X at address 0x%p\r\n", code, addr);
+        WriteRawLog(hLog, buf);
+
+        // Log faulting module
+        HMODULE hMods[256];
+        DWORD cbNeeded;
+        if (EnumProcessModules(GetCurrentProcess(), hMods, sizeof(hMods), &cbNeeded))
+        {
+            DWORD count = cbNeeded / sizeof(HMODULE);
+            for (DWORD i = 0; i < count; ++i)
+            {
+                MODULEINFO mi{};
+                GetModuleInformation(GetCurrentProcess(), hMods[i], &mi, sizeof(mi));
+                auto base = reinterpret_cast<uintptr_t>(mi.lpBaseOfDll);
+                auto end  = base + mi.SizeOfImage;
+                auto faultAddr = reinterpret_cast<uintptr_t>(addr);
+                if (faultAddr >= base && faultAddr < end)
+                {
+                    wchar_t modName[MAX_PATH];
+                    GetModuleFileNameExW(GetCurrentProcess(), hMods[i], modName, MAX_PATH);
+                    swprintf_s(buf, L"Faulting module: %ls (base=0x%p, offset=0x%llX)\r\n",
+                               modName, mi.lpBaseOfDll,
+                               static_cast<unsigned long long>(faultAddr - base));
+                    WriteRawLog(hLog, buf);
+                    break;
+                }
+            }
+        }
+
+        // Stack trace with symbol resolution
+        WriteRawLog(hLog, L"Stack frames:\r\n");
+        SymInitialize(GetCurrentProcess(), nullptr, TRUE);
+
+        void* stack[62];
+        USHORT frames = CaptureStackBackTrace(0, 62, stack, nullptr);
+
+        char symBuf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(wchar_t)]{};
+        SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(symBuf);
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen   = MAX_SYM_NAME;
+
+        for (USHORT i = 0; i < frames; ++i)
+        {
+            auto addr64 = reinterpret_cast<DWORD64>(stack[i]);
+            DWORD64 displacement = 0;
+            if (SymFromAddr(GetCurrentProcess(), addr64, &displacement, sym))
+            {
+                swprintf_s(buf, L"  [%02u] 0x%p  %hs + 0x%llX\r\n",
+                           i, stack[i], sym->Name,
+                           static_cast<unsigned long long>(displacement));
+            }
+            else
+            {
+                swprintf_s(buf, L"  [%02u] 0x%p\r\n", i, stack[i]);
+            }
+            WriteRawLog(hLog, buf);
+        }
+        SymCleanup(GetCurrentProcess());
+
+        WriteRawLog(hLog, L"\r\nSee crash.dmp for full analysis in Visual Studio.\r\n");
+        CloseHandle(hLog);
+    }
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLine, int nCmdShow)
 {
+    SetUnhandledExceptionFilter(CrashHandler);
     wchar_t lpszExeVersion[256] = L"unknown";
 
     wchar_t* lpszCommandLine = GetCommandLine();

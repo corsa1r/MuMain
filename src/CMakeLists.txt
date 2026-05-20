@@ -218,6 +218,10 @@ target_compile_definitions(Main PRIVATE
 )
 
 if (MSVC)
+  # Generate PDB debug info for all configs (needed for crash stack traces)
+  target_compile_options(Main PRIVATE /Zi)
+  target_link_options(Main PRIVATE /DEBUG)
+
   target_compile_definitions(Main PRIVATE
     WIN32
     _WINDOWS

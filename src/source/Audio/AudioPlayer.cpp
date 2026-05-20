@@ -77,6 +77,11 @@ namespace AudioPlayer
         if (IsReady())
             return;
 
+        // WASAPI crashes on some Windows configs; use DirectSound which is more stable.
+        // Must be set before SDL_InitSubSystem(SDL_INIT_AUDIO).
+        if (!GetEnvironmentVariableA("SDL_AUDIODRIVER", nullptr, 0))
+            _putenv_s("SDL_AUDIODRIVER", "dsound");
+
         if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
             return;
 

@@ -41,3 +41,5 @@ build-mingw/
 **/*.log
 # Local-only files
 docs/reviews/
+
+*.bat
