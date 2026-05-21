@@ -8920,7 +8920,7 @@ void ReceiveDuelRound(const BYTE* ReceiveBuffer)
     }
 }
 
-static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element)
+static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element, uint8_t radius)
 {
     const CHARACTER* c = FindCharacterByKey(static_cast<int>(targetId));
     if (c == nullptr || !c->Object.Live)
@@ -8955,8 +8955,11 @@ static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element)
         break;
     }
 
-    CreateEffect(MODEL_COMBO, pos, angle, light);
-    PlayBuffer(SOUND_COMBO);
+    if (radius > 4)
+    {
+        CreateEffect(MODEL_COMBO, pos, angle, light);
+        PlayBuffer(SOUND_COMBO);
+    }
 }
 
 static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
@@ -8986,7 +8989,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     {
         const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
         const auto element  = static_cast<EPrimeElement>(buf[6]);
-        SpawnDetonationEffect(targetId, element);
+        const auto radius   = static_cast<uint8_t>(buf[7]);
+        SpawnDetonationEffect(targetId, element, radius);
     }
 }
 
