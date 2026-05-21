@@ -7,6 +7,7 @@
 
 #include "stdafx.h"
 #include "Core/Globals/_enum.h"
+#include "GameLogic/Combat/PrimeStatusStore.h"
 #include <eh.h>
 #include "UI/Legacy/UIManager.h"
 #include "Guild/GuildCache.h"
@@ -11403,6 +11404,7 @@ void DeleteCharacter(int Key)
         OBJECT* o = &c->Object;
         if (o->Live && c->Key == Key)
         {
+            GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(c->Key));
             o->Live = false;
 
             BoneManager::UnregisterBone(c);
@@ -11423,6 +11425,7 @@ void DeleteCharacter(int Key)
 
 void DeleteCharacter(CHARACTER* c, OBJECT* o)
 {
+    GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(c->Key));
     o->Live = false;
 
     BoneManager::UnregisterBone(c);

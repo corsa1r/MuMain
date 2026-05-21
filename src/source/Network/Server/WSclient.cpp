@@ -8920,12 +8920,53 @@ void ReceiveDuelRound(const BYTE* ReceiveBuffer)
     }
 }
 
+static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element)
+{
+    const CHARACTER* c = FindCharacterByKey(static_cast<int>(targetId));
+    if (c == nullptr || !c->Object.Live)
+    {
+        return;
+    }
+
+    vec3_t pos, angle, light;
+    VectorCopy(c->Object.Position, pos);
+    VectorCopy(c->Object.Angle, angle);
+    VectorCopy(c->Object.Light, light);
+
+    switch (element)
+    {
+    case EPrimeElement::Fire:
+        CreateInferno(pos, 1);
+        PlayBuffer(SOUND_METEORITE01);
+        break;
+    case EPrimeElement::Ice:
+        CreateInferno(pos, 5);
+        PlayBuffer(SOUND_ICE);
+        break;
+    case EPrimeElement::Lightning:
+        CreateInferno(pos, 2);
+        PlayBuffer(SOUND_THUNDER01);
+        break;
+    case EPrimeElement::Physical:
+        CreateInferno(pos, 6);
+        PlayBuffer(SOUND_THUNDERS01);
+        break;
+    default:
+        break;
+    }
+
+    CreateEffect(MODEL_COMBO, pos, angle, light);
+    PlayBuffer(SOUND_COMBO);
+}
+
 static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
 {
-    constexpr int32_t kAppliedSize = 12;
-    constexpr int32_t kClearedSize = 7;
-    constexpr BYTE    kSubOpApplied = 0x01;
-    constexpr BYTE    kSubOpCleared = 0x02;
+    constexpr int32_t kAppliedSize   = 12;
+    constexpr int32_t kClearedSize   = 7;
+    constexpr int32_t kDetonatedSize = 8;
+    constexpr BYTE    kSubOpApplied   = 0x01;
+    constexpr BYTE    kSubOpCleared   = 0x02;
+    constexpr BYTE    kSubOpDetonated = 0x03;
 
     const BYTE subOp = buf[3];
 
@@ -8940,6 +8981,12 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
         const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
         const auto element  = static_cast<EPrimeElement>(buf[6]);
         GameLogic::PrimeStatus::Clear(targetId, element);
+    }
+    else if (subOp == kSubOpDetonated && size >= kDetonatedSize)
+    {
+        const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const auto element  = static_cast<EPrimeElement>(buf[6]);
+        SpawnDetonationEffect(targetId, element);
     }
 }
 

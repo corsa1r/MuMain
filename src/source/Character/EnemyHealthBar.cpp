@@ -12,45 +12,37 @@
 
 namespace
 {
-    constexpr float kBarWidth    = 80.f;
-    constexpr float kBarHeight   = 6.6f;   // 40% less than original 11px
-    constexpr float kBorderSize  = 1.f;
-    constexpr float kHeadZOffset = 40.f;
-    constexpr float kFontHeight  = 8.f;    // font height in reference units (REFERENCE_HEIGHT=480, scales up at higher res)
-    constexpr float kNameGap     = 1.f;    // ~2-3 actual pixels gap between name bottom and bar top
-    constexpr float kNameOffset  = kFontHeight + kNameGap;
+    constexpr float kBarWidth     = 80.f;
+    constexpr float kBarHeight    = 6.6f;
+    constexpr float kBorderSize   = 1.f;
+    constexpr float kHeadZOffset  = 40.f;
+    constexpr float kFontHeight   = 8.f;
+    constexpr float kNameGap      = 1.f;
+    constexpr float kNameOffset   = kFontHeight + kNameGap;
+    constexpr float kSquareSize   = 7.f;
+    constexpr float kSquareGap    = 2.f;
 
     struct BarEntry
     {
-        float         refX, refY;
-        float         fillRatio;
-        int           hpCurrent, hpMax;
-        wchar_t       name[MAX_MONSTER_NAME + 1];
-        EPrimeElement primeElement;
+        float            refX, refY;
+        float            fillRatio;
+        int              hpCurrent, hpMax;
+        wchar_t          name[MAX_MONSTER_NAME + 1];
+        PrimeElementMask primeMask;
     };
 
-    // Returns the display suffix and its RGB color for a given prime element.
-    // Returns nullptr when no prime is active (element == None).
-    const wchar_t* PrimeLabel(EPrimeElement element, BYTE& r, BYTE& g, BYTE& b)
+    struct ElementDef
     {
-        switch (element)
-        {
-        case EPrimeElement::Fire:
-            r = 255; g = 120; b = 0;
-            return L" (Fire)";
-        case EPrimeElement::Ice:
-            r = 100; g = 200; b = 255;
-            return L" (Ice)";
-        case EPrimeElement::Lightning:
-            r = 255; g = 220; b = 0;
-            return L" (Lightning)";
-        case EPrimeElement::Physical:
-            r = 200; g = 200; b = 200;
-            return L" (Physical)";
-        default:
-            return nullptr;
-        }
-    }
+        EPrimeElement elem;
+        float r, g, b;
+    };
+
+    constexpr ElementDef kElementDefs[] = {
+        { EPrimeElement::Fire,      1.000f, 0.471f, 0.000f },
+        { EPrimeElement::Ice,       0.392f, 0.784f, 1.000f },
+        { EPrimeElement::Lightning, 1.000f, 0.863f, 0.000f },
+        { EPrimeElement::Physical,  0.784f, 0.784f, 0.784f },
+    };
 
     bool ProjectEnemyHead(CHARACTER* c, float& outRefX, float& outRefY)
     {
@@ -104,12 +96,12 @@ void CEnemyHealthBar::RenderAll() const
         fillRatio = std::max(0.f, std::min(1.f, fillRatio));
 
         BarEntry& e = entries[count++];
-        e.refX        = refX;
-        e.refY        = refY;
-        e.fillRatio   = fillRatio;
-        e.hpCurrent   = c->HpCurrent;
-        e.hpMax       = c->HpMax;
-        e.primeElement = GameLogic::PrimeStatus::Get(static_cast<uint16_t>(c->Key));
+        e.refX      = refX;
+        e.refY      = refY;
+        e.fillRatio = fillRatio;
+        e.hpCurrent = c->HpCurrent;
+        e.hpMax     = c->HpMax;
+        e.primeMask = GameLogic::PrimeStatus::GetMask(static_cast<uint16_t>(c->Key));
         wcscpy_s(e.name, MAX_MONSTER_NAME + 1, c->ID);
     }
 
@@ -143,34 +135,15 @@ void CEnemyHealthBar::RenderAll() const
         glColor4f(1.f, 1.f, 1.f, 1.f);
         g_pRenderText->SetBgColor(0);
 
-        // Monster name above the bar, with prime element label appended if active
-        BYTE pr = 255, pg = 255, pb = 255;
-        const wchar_t* primeLabel = PrimeLabel(e.primeElement, pr, pg, pb);
-
-        if (primeLabel == nullptr)
-        {
-            g_pRenderText->SetTextColor(255, 255, 255, 255);
-            g_pRenderText->RenderText(
-                static_cast<int>(left),
-                static_cast<int>(top - kNameOffset),
-                e.name,
-                static_cast<int>(kBarWidth),
-                0,
-                RT3_SORT_CENTER);
-        }
-        else
-        {
-            wchar_t nameWithPrime[MAX_MONSTER_NAME + 16];
-            mu_swprintf(nameWithPrime, L"%s%s", e.name, primeLabel);
-            g_pRenderText->SetTextColor(pr, pg, pb, 255);
-            g_pRenderText->RenderText(
-                static_cast<int>(left),
-                static_cast<int>(top - kNameOffset),
-                nameWithPrime,
-                static_cast<int>(kBarWidth),
-                0,
-                RT3_SORT_CENTER);
-        }
+        // Monster name above the bar — always white, never modified
+        g_pRenderText->SetTextColor(255, 255, 255, 255);
+        g_pRenderText->RenderText(
+            static_cast<int>(left),
+            static_cast<int>(top - kNameOffset),
+            e.name,
+            static_cast<int>(kBarWidth),
+            0,
+            RT3_SORT_CENTER);
 
         // HP numbers inside the bar
         wchar_t text[32];
@@ -179,7 +152,6 @@ void CEnemyHealthBar::RenderAll() const
         else
             mu_swprintf(text, L"?/?");
 
-        // Vertically center text over bar: offset = (barHeight - fontHeight) / 2
         const int hpTextY = static_cast<int>(top + (kBarHeight - kFontHeight) * 0.5f);
         g_pRenderText->SetTextColor(255, 255, 255, 255);
         g_pRenderText->RenderText(
@@ -189,6 +161,26 @@ void CEnemyHealthBar::RenderAll() const
             static_cast<int>(kBarWidth),
             0,
             RT3_SORT_CENTER);
+
+        // Element squares — small colored tiles to the right of the bar, vertically centred
+        if (e.primeMask != 0)
+        {
+            float iconX = left + kBarWidth + kSquareGap;
+            const float iconY = top + (kBarHeight - kSquareSize) * 0.5f;
+
+            DisableAlphaBlend();
+
+            for (const auto& def : kElementDefs)
+            {
+                if (!(e.primeMask & ElementBit(def.elem)))
+                    continue;
+                glColor3f(def.r, def.g, def.b);
+                RenderColor(iconX, iconY, kSquareSize, kSquareSize);
+                iconX += kSquareSize + kSquareGap;
+            }
+
+            EnableAlphaBlend3();
+        }
     }
 
     g_pRenderText->SetTextColor(255, 255, 255, 255);
