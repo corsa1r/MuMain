@@ -2,6 +2,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include "GameLogic/Skills/SkillComboStore.h"
 #include "UI/Legacy/UIManager.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
@@ -6083,6 +6084,20 @@ void RenderSkillInfo(int sx, int sy, int Type, int SkillNum, int iRenderPoint /*
     TextListColor[TextNum] = TEXT_COLOR_BLUE; TextBold[TextNum] = true; TextNum++;
     mu_swprintf(TextList[TextNum], L"\n"); TextNum++; SkipNum++;
 
+    {
+        const auto skillNum  = static_cast<uint16_t>(CharacterAttribute->Skill[Type]);
+        const auto comboType = GameLogic::SkillCombo::GetComboType(skillNum);
+        if (comboType != ESkillComboType::None)
+        {
+            const auto comboElem = GameLogic::SkillCombo::GetComboElement(skillNum);
+            const wchar_t* label = (comboType == ESkillComboType::Primer) ? L"Primer" : L"Detonator";
+            mu_swprintf(TextList[TextNum], L"%ls - %ls", label, GameLogic::SkillCombo::ElementName(comboElem));
+            TextListColor[TextNum] = GameLogic::SkillCombo::TooltipColor(comboElem);
+            TextNum++;
+            mu_swprintf(TextList[TextNum], L"\n"); TextNum++; SkipNum++;
+        }
+    }
+
     WORD Dexterity;
     WORD Energy;
     WORD Strength;
@@ -6939,17 +6954,19 @@ void BuildGroundItemLabelDescriptor(OBJECT* o, ITEM* ip, GroundItemLabelDescript
     descriptor.BgColor = MakeRgba(0, 0, 0, 255);
 
     // Use the item name by default
+    const int itemIndex = o->Type - MODEL_ITEM;
+    const wchar_t* itemName = (itemIndex >= 0 && itemIndex < MAX_ITEM) ? ItemAttribute[itemIndex].Name : L"";
     if (o->Type == MODEL_ZEN) // Zen
     {
-        FormatGroundItemLabelText(descriptor.Name, L"%ls %d", ItemAttribute[o->Type - MODEL_ITEM].Name, ItemLevel);
+        FormatGroundItemLabelText(descriptor.Name, L"%ls %d", itemName, ItemLevel);
     }
     else if (ItemLevel == 0)
     {
-        CopyGroundItemLabelText(descriptor.Name, ItemAttribute[o->Type - MODEL_ITEM].Name);
+        CopyGroundItemLabelText(descriptor.Name, itemName);
     }
     else
     {
-        FormatGroundItemLabelText(descriptor.Name, L"%ls +%d", ItemAttribute[o->Type - MODEL_ITEM].Name, ItemLevel);
+        FormatGroundItemLabelText(descriptor.Name, L"%ls +%d", itemName, ItemLevel);
     }
 
     if (boldTextItems.count(o->Type) > 0)

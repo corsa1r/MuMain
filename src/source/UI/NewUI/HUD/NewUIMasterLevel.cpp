@@ -9,6 +9,7 @@
 #include "Audio/DSPlaySound.h"
 #include "UI/NewUI/Dialogs/NewUICommonMessageBox.h"
 #include "GameLogic/Skills/SkillManager.h"
+#include "GameLogic/Skills/SkillComboStore.h"
 
 namespace 
 {
@@ -712,6 +713,18 @@ void SEASON3B::CNewUIMasterLevel::RenderToolTip()
         TextBold[lineCount] = true;
 
         lineCount++;
+
+        {
+            const auto comboType = GameLogic::SkillCombo::GetComboType(static_cast<uint16_t>(Skill));
+            if (comboType != ESkillComboType::None)
+            {
+                const auto comboElem = GameLogic::SkillCombo::GetComboElement(static_cast<uint16_t>(Skill));
+                const wchar_t* label = (comboType == ESkillComboType::Primer) ? L"Primer" : L"Detonator";
+                mu_swprintf(TextList[lineCount], L"%ls - %ls", label, GameLogic::SkillCombo::ElementName(comboElem));
+                TextListColor[lineCount] = GameLogic::SkillCombo::TooltipColor(comboElem);
+                lineCount++;
+            }
+        }
 
         mu_swprintf(TextList[lineCount], mtit->second.Info1, p->SkillRank, skillLevel, it->second.MaxLevel);
 

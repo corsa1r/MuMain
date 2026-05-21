@@ -249,8 +249,8 @@ void SEASON3B::CNewUIMiniMap::LoadImages(const wchar_t* Filename)
             wchar_t Text[256];
             mu_swprintf(Text, L"%ls - File corrupted.", Fname);
             g_ErrorReport.Write(Text);
-            MessageBox(g_hWnd, Text, NULL, MB_OK);
-            SendMessage(g_hWnd, WM_DESTROY, 0, 0);
+            g_ErrorReport.Write(L"\r\n");
+            // Don't destroy the game — log and continue with no minimap markers
         }
         else
         {

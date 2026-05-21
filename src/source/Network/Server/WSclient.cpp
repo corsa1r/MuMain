@@ -20,6 +20,7 @@
 #include "Audio/DSPlaySound.h"
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
+#include "GameLogic/Skills/SkillComboStore.h"
 #include "GameLogic/Events/MatchEvent.h"
 #include "Engine/AI/GOBoid.h"
 #include "GameLogic/Quests/CSQuest.h"
@@ -8964,12 +8965,15 @@ static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element, uint
 
 static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
 {
-    constexpr int32_t kAppliedSize   = 12;
-    constexpr int32_t kClearedSize   = 7;
-    constexpr int32_t kDetonatedSize = 8;
-    constexpr BYTE    kSubOpApplied   = 0x01;
-    constexpr BYTE    kSubOpCleared   = 0x02;
-    constexpr BYTE    kSubOpDetonated = 0x03;
+    constexpr int32_t kAppliedSize       = 12;
+    constexpr int32_t kClearedSize       = 7;
+    constexpr int32_t kDetonatedSize     = 8;
+    constexpr int32_t kComboConfigHeader = 5;
+    constexpr int32_t kComboConfigEntry  = 4;
+    constexpr BYTE    kSubOpApplied       = 0x01;
+    constexpr BYTE    kSubOpCleared       = 0x02;
+    constexpr BYTE    kSubOpDetonated     = 0x03;
+    constexpr BYTE    kSubOpSkillCombo    = 0x05;
 
     const BYTE subOp = buf[3];
 
@@ -8991,6 +8995,19 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
         const auto element  = static_cast<EPrimeElement>(buf[6]);
         const auto radius   = static_cast<uint8_t>(buf[7]);
         SpawnDetonationEffect(targetId, element, radius);
+    }
+    else if (subOp == kSubOpSkillCombo && size >= kComboConfigHeader)
+    {
+        const uint8_t count = buf[4];
+        GameLogic::SkillCombo::ResetAll();
+        for (int i = 0; i < count && (kComboConfigHeader + (i + 1) * kComboConfigEntry) <= size; ++i)
+        {
+            const BYTE* entry       = buf + kComboConfigHeader + i * kComboConfigEntry;
+            const auto skillNumber  = static_cast<uint16_t>((entry[0] << 8) | entry[1]);
+            const auto comboType    = static_cast<ESkillComboType>(entry[2]);
+            const auto comboElement = static_cast<ESkillComboElement>(entry[3]);
+            GameLogic::SkillCombo::SetComboInfo(skillNumber, comboType, comboElement);
+        }
     }
 }
 
