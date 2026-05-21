@@ -82,6 +82,7 @@
 
 #include "UI/NewUI/Inventory/NewUILuckyItemWnd.h"
 #include "UI/NewUI/NewUIMuHelper.h"
+#include "UI/NewUI/HUD/DpsMeterWindow.h"
 
 namespace SEASON3B
 {
@@ -219,7 +220,10 @@ namespace SEASON3B
         CNewUIMuHelper* m_pNewUIMuHelper;
         CNewUIMuHelperExt* m_pNewUIMuHelperExt;
         CNewUIMuHelperSkillList* m_pNewUIMuHelperSkillList;
+        CDpsMeterWindow* m_pDpsMeterWindow;
     public:
+        CDpsMeterWindow* GetDpsMeterWindow() const { return m_pDpsMeterWindow; }
+
         CNewUIChatInputBox* GetUI_NewChatInputBox() const;
         CNewUIChatLogWindow* GetUI_NewChatLogWindow() const;
         CNewUISystemLogWindow* GetUI_NewSystemLogWindow() const;

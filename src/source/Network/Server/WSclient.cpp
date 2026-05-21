@@ -3396,6 +3396,33 @@ void ReceiveAttackDamageExtended(const BYTE* ReceiveBuffer)
     }
 }
 
+void ReceiveDpsUpdate(const BYTE* ReceiveBuffer)
+{
+    auto* data = reinterpret_cast<const PDPS_UPDATE*>(ReceiveBuffer);
+
+    CDpsMeterWindow* dpsWindow = g_pNewUISystem->GetDpsMeterWindow();
+    if (dpsWindow == nullptr)
+        return;
+
+    const WORD  objectId = data->ObjectId;
+    const DWORD dps      = data->Dps;
+
+    const wchar_t* name;
+    if (objectId == SEASON3B::DPS_SELF_OBJECT_ID)
+    {
+        name = Hero->ID;
+    }
+    else
+    {
+        const int index = FindCharacterIndex(objectId);
+        if (index >= MAX_CHARACTERS_CLIENT)
+            return;
+        name = CharactersClient[index].ID;
+    }
+
+    dpsWindow->UpdateEntry(objectId, name, dps);
+}
+
 void ReceiveAction(const BYTE* ReceiveBuffer, int Size)
 {
     auto Data = (LPPRECEIVE_ACTION)ReceiveBuffer;
@@ -13493,6 +13520,9 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
         break;
     case PACKET_ATTACK://attack character
         ReceiveAttackDamageExtended(ReceiveBuffer);
+        break;
+    case 0x0A://DPS update
+        ReceiveDpsUpdate(ReceiveBuffer);
         break;
     case 0x18://action character
         ReceiveAction(ReceiveBuffer, Size);

@@ -649,6 +649,15 @@ typedef struct {
     DWORD         MaximumHealth; // 20
 } PRECEIVE_ATTACK_EXTENDED, * LPPRECEIVE_ATTACK_EXTENDED;
 
+#pragma pack(push, 1)
+// DPS update packet — code 0x0A, 9 bytes total.
+typedef struct {
+    PBMSG_HEADER Header;  // [0-2] C1 09 0A
+    WORD         ObjectId; // [3-4] little-endian; 0x0200 = local player
+    DWORD        Dps;      // [5-8] little-endian DPS value
+} PDPS_UPDATE, * LPPDPS_UPDATE;
+#pragma pack(pop)
+
 //receive die
 typedef struct {
     PBMSG_HEADER  Header;

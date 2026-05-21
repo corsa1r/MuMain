@@ -117,6 +117,7 @@ CNewUISystem::CNewUISystem()
     m_pNewGensRanking = nullptr;
 #endif //PBG_ADD_GENSRANKING
     m_pNewUnitedMarketPlaceWindow = nullptr;
+    m_pDpsMeterWindow = nullptr;
 }
 
 CNewUISystem::~CNewUISystem()
@@ -524,6 +525,10 @@ bool CNewUISystem::LoadMainSceneInterface()
     if (m_pNewUIMuHelperSkillList->Create(m_pNewUIMng, m_pNewUI3DRenderMng) == false)
         return false;
 
+    m_pDpsMeterWindow = new CDpsMeterWindow;
+    if (m_pDpsMeterWindow->Create(m_pNewUIMng) == false)
+        return false;
+
     return true;
 }
 
@@ -578,6 +583,7 @@ void CNewUISystem::UnloadMainSceneInterface()
     SAFE_DELETE(m_pNewSiegeWarfare);
     SAFE_DELETE(m_pNewItemEnduranceInfo);
     SAFE_DELETE(m_pNewBuffWindow);
+    SAFE_DELETE(m_pDpsMeterWindow);
     SAFE_DELETE(m_pNewCursedTempleResultWindow);
     SAFE_DELETE(m_pNewCursedTempleWindow);
     SAFE_DELETE(m_pNewCursedTempleEnterWindow);
@@ -1929,6 +1935,7 @@ bool CNewUISystem::IsImpossibleHideInterface(DWORD dwKey)
         || dwKey == INTERFACE_GOLD_BOWMAN
         || dwKey == INTERFACE_GOLD_BOWMAN_LENA
         || dwKey == INTERFACE_EMPIREGUARDIAN_TIMER
+        || dwKey == INTERFACE_DPS_METER
         )
     {
         return true;
