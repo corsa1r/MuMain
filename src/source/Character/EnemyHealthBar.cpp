@@ -7,6 +7,7 @@
 
 #include "Camera/CameraProjection.h"
 #include "Engine/Object/ZzzCharacter.h"
+#include "GameLogic/Combat/PrimeStatusStore.h"
 #include "UI/Legacy/UIControls.h"
 
 namespace
@@ -21,11 +22,35 @@ namespace
 
     struct BarEntry
     {
-        float   refX, refY;
-        float   fillRatio;
-        int     hpCurrent, hpMax;
-        wchar_t name[MAX_MONSTER_NAME + 1];
+        float         refX, refY;
+        float         fillRatio;
+        int           hpCurrent, hpMax;
+        wchar_t       name[MAX_MONSTER_NAME + 1];
+        EPrimeElement primeElement;
     };
+
+    // Returns the display suffix and its RGB color for a given prime element.
+    // Returns nullptr when no prime is active (element == None).
+    const wchar_t* PrimeLabel(EPrimeElement element, BYTE& r, BYTE& g, BYTE& b)
+    {
+        switch (element)
+        {
+        case EPrimeElement::Fire:
+            r = 255; g = 120; b = 0;
+            return L" (Fire)";
+        case EPrimeElement::Ice:
+            r = 100; g = 200; b = 255;
+            return L" (Ice)";
+        case EPrimeElement::Lightning:
+            r = 255; g = 220; b = 0;
+            return L" (Lightning)";
+        case EPrimeElement::Physical:
+            r = 200; g = 200; b = 200;
+            return L" (Physical)";
+        default:
+            return nullptr;
+        }
+    }
 
     bool ProjectEnemyHead(CHARACTER* c, float& outRefX, float& outRefY)
     {
@@ -79,11 +104,12 @@ void CEnemyHealthBar::RenderAll() const
         fillRatio = std::max(0.f, std::min(1.f, fillRatio));
 
         BarEntry& e = entries[count++];
-        e.refX      = refX;
-        e.refY      = refY;
-        e.fillRatio = fillRatio;
-        e.hpCurrent = c->HpCurrent;
-        e.hpMax     = c->HpMax;
+        e.refX        = refX;
+        e.refY        = refY;
+        e.fillRatio   = fillRatio;
+        e.hpCurrent   = c->HpCurrent;
+        e.hpMax       = c->HpMax;
+        e.primeElement = GameLogic::PrimeStatus::Get(static_cast<uint16_t>(c->Key));
         wcscpy_s(e.name, MAX_MONSTER_NAME + 1, c->ID);
     }
 
@@ -117,15 +143,34 @@ void CEnemyHealthBar::RenderAll() const
         glColor4f(1.f, 1.f, 1.f, 1.f);
         g_pRenderText->SetBgColor(0);
 
-        // Monster name 2px above the bar
-        g_pRenderText->SetTextColor(255, 255, 255, 255);
-        g_pRenderText->RenderText(
-            static_cast<int>(left),
-            static_cast<int>(top - kNameOffset),
-            e.name,
-            static_cast<int>(kBarWidth),
-            0,
-            RT3_SORT_CENTER);
+        // Monster name above the bar, with prime element label appended if active
+        BYTE pr = 255, pg = 255, pb = 255;
+        const wchar_t* primeLabel = PrimeLabel(e.primeElement, pr, pg, pb);
+
+        if (primeLabel == nullptr)
+        {
+            g_pRenderText->SetTextColor(255, 255, 255, 255);
+            g_pRenderText->RenderText(
+                static_cast<int>(left),
+                static_cast<int>(top - kNameOffset),
+                e.name,
+                static_cast<int>(kBarWidth),
+                0,
+                RT3_SORT_CENTER);
+        }
+        else
+        {
+            wchar_t nameWithPrime[MAX_MONSTER_NAME + 16];
+            mu_swprintf(nameWithPrime, L"%s%s", e.name, primeLabel);
+            g_pRenderText->SetTextColor(pr, pg, pb, 255);
+            g_pRenderText->RenderText(
+                static_cast<int>(left),
+                static_cast<int>(top - kNameOffset),
+                nameWithPrime,
+                static_cast<int>(kBarWidth),
+                0,
+                RT3_SORT_CENTER);
+        }
 
         // HP numbers inside the bar
         wchar_t text[32];

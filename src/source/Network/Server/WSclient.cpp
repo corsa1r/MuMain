@@ -19,6 +19,7 @@
 
 #include "Audio/DSPlaySound.h"
 
+#include "GameLogic/Combat/PrimeStatusStore.h"
 #include "GameLogic/Events/MatchEvent.h"
 #include "Engine/AI/GOBoid.h"
 #include "GameLogic/Quests/CSQuest.h"
@@ -8919,6 +8920,29 @@ void ReceiveDuelRound(const BYTE* ReceiveBuffer)
     }
 }
 
+static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
+{
+    constexpr int32_t kAppliedSize = 12;
+    constexpr int32_t kClearedSize = 7;
+    constexpr BYTE    kSubOpApplied = 0x01;
+    constexpr BYTE    kSubOpCleared = 0x02;
+
+    const BYTE subOp = buf[3];
+
+    if (subOp == kSubOpApplied && size >= kAppliedSize)
+    {
+        const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const auto element  = static_cast<EPrimeElement>(buf[6]);
+        GameLogic::PrimeStatus::Set(targetId, element);
+    }
+    else if (subOp == kSubOpCleared && size >= kClearedSize)
+    {
+        const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const auto element  = static_cast<EPrimeElement>(buf[6]);
+        GameLogic::PrimeStatus::Clear(targetId, element);
+    }
+}
+
 void ReceiveCreateShopTitleViewport(const BYTE* ReceiveBuffer)
 {
     auto Header = (LPPSHOPTITLE_HEADERINFO)ReceiveBuffer;
@@ -13882,6 +13906,9 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
         }
     }
     break;
+    case 0xAB:
+        ReceivePrimeStatus(ReceiveBuffer, Size);
+        break;
     case 0xF7:
     {
         auto Data = (LPPHEADER_DEFAULT_SUBCODE)ReceiveBuffer;
