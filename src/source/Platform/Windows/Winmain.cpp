@@ -12,6 +12,7 @@
 #include "UI/Legacy/UIManager.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Textures/ZzzTexture.h"
+#include "Render/SoftShadow/SoftShadow.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "Scenes/SceneCore.h"
 #include "Render/Models/ZzzBMD.h"
@@ -157,6 +158,7 @@ GLvoid KillGLWindow(GLvoid)
 {
     if (g_hRC)
     {
+        SoftShadow::Shutdown();
         wglMakeCurrent(nullptr, nullptr);
         if (!wglDeleteContext(g_hRC))
         {
@@ -1383,6 +1385,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     pfd.iPixelType = PFD_TYPE_RGBA;
     pfd.cColorBits = 16;
     pfd.cDepthBits = 16;
+    pfd.cStencilBits = 8;
 
     if (!(g_hDC = GetDC(g_hWnd)))
     {
@@ -1431,6 +1434,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     SetFocus(g_hWnd);
 
     g_ErrorReport.Write(L"> OpenGL init success.\r\n");
+
+    // Soft-shadow FBO + blur. Failure here is non-fatal — RenderBodyShadow
+    // falls back to the legacy straight-to-back-buffer path.
+    if (SoftShadow::Init())
+    {
+        SoftShadow::Resize(WindowWidth, WindowHeight);
+        g_ErrorReport.Write(L"> SoftShadow init success.\r\n");
+    }
+    else
+    {
+        g_ErrorReport.Write(L"> SoftShadow init failed — falling back to legacy shadows.\r\n");
+    }
+
     g_ErrorReport.AddSeparator();
     g_ErrorReport.WriteOpenGLInfo();
     g_ErrorReport.AddSeparator();

@@ -7,6 +7,7 @@
 #include "SceneCommon.h"
 #include "Camera/CameraUtility.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
+#include "Render/SoftShadow/SoftShadow.h"
 #include "Engine/Object/ZzzObject.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "Render/Terrain/ZzzLodTerrain.h"
@@ -397,6 +398,17 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     bool renderWeatherEffects = true;
 #endif
 
+    // Soft-shadow accumulation: redirect every BMD::RenderBodyShadow into
+    // the offscreen FBO. After all shadow-emitting passes finish, the FBO
+    // is blurred and composited over the back buffer.
+    //
+    // NB: width/height here are *reference* coords (REFERENCE_WIDTH = 640,
+    // height ~432). BeginOpengl converts them to actual pixel dimensions
+    // using WindowWidth/WindowHeight when setting the GL viewport, so the
+    // FBO must match the real window pixels — not the reference values.
+    SoftShadow::Resize(WindowWidth, WindowHeight);
+    SoftShadow::BeginFrame();
+
     if (IsWaterTerrain() == false && renderTerrain)
     {
         if (gMapManager.WorldActive == WD_39KANTURU_3RD)
@@ -447,6 +459,10 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
 
     if (renderStatic)
         { FRAME_PROFILE(Objects); RenderObjects_AfterCharacter(); }
+
+    // All shadow-emitting passes are done. Blur and composite over the
+    // back buffer before joints/effects/sprites overlay on top.
+    SoftShadow::Composite();
 
     RenderJoints(byWaterMap);
 
