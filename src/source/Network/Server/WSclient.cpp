@@ -9013,6 +9013,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     constexpr BYTE    kSubOpCleared       = 0x02;
     constexpr BYTE    kSubOpDetonated     = 0x03;
     constexpr BYTE    kSubOpSkillCombo    = 0x05;
+    constexpr BYTE    kSubOpMonsterLevel  = 0x06;
+    constexpr int32_t kMonsterLevelSize   = 8;
 
     const BYTE subOp = buf[3];
 
@@ -9045,6 +9047,20 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
             const auto comboType    = static_cast<ESkillComboType>(entry[2]);
             const auto comboElement = static_cast<ESkillComboElement>(entry[3]);
             GameLogic::SkillCombo::SetComboInfo(skillNumber, comboType, comboElement);
+        }
+    }
+    else if (subOp == kSubOpMonsterLevel && size >= kMonsterLevelSize)
+    {
+        // Server-truth monster level: overwrite the MonsterScript-derived
+        // fallback in c->MonsterLevel so the EnemyHealthBar prefix reflects
+        // the configured server value (and any future admin-panel changes
+        // re-broadcast via the same packet).
+        const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const auto level    = static_cast<uint16_t>((buf[6] << 8) | buf[7]);
+        const int index = FindCharacterIndex(targetId);
+        if (index >= 0 && index < MAX_CHARACTERS_CLIENT)
+        {
+            CharactersClient[index].MonsterLevel = level;
         }
     }
 }

@@ -176,6 +176,12 @@ public:
     short   	TargetCharacter;
 
     WORD        Level;
+    // Designed monster level from MonsterScript[Type].Level (the configured
+    // server-side level). Separate from `Level` above because the legacy
+    // code uses `Level` as a variant flag on certain monsters (e.g. Gorgon
+    // level==2 enables a fire-glow effect) — overloading that field would
+    // misfire those visuals when we plug in real levels.
+    WORD        MonsterLevel;
     EMonsterType        MonsterIndex;
     int        Damage;
     int        Hit;

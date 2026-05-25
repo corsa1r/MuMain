@@ -13036,11 +13036,13 @@ void Setting_Monster(CHARACTER* c, EMonsterType Type, int PositionX, int Positio
     if (c != NULL)
     {
         o = &c->Object;
+        c->MonsterLevel = 0;
         for (int i = 0; i < MAX_MONSTER; i++)
         {
             if (Type == MonsterScript[i].Type)
             {
                 wcscpy_s(c->ID, MAX_MONSTER_NAME + 1, MonsterScript[i].Name);
+                c->MonsterLevel = MonsterScript[i].Level;
                 break;
             }
         }

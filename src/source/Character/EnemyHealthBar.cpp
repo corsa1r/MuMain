@@ -27,7 +27,9 @@ namespace
         float            refX, refY;
         float            fillRatio;
         int              hpCurrent, hpMax;
-        wchar_t          name[MAX_MONSTER_NAME + 1];
+        // Holds either "Name" or "(level) Name" — the +12 chars give room
+        // for the worst-case 5-digit level + parens + space + null.
+        wchar_t          label[MAX_MONSTER_NAME + 12];
         PrimeElementMask primeMask;
     };
 
@@ -102,7 +104,19 @@ void CEnemyHealthBar::RenderAll() const
         e.hpCurrent = c->HpCurrent;
         e.hpMax     = c->HpMax;
         e.primeMask = GameLogic::PrimeStatus::GetMask(static_cast<uint16_t>(c->Key));
-        wcscpy_s(e.name, MAX_MONSTER_NAME + 1, c->ID);
+        // Prefix the configured server-side monster level so players can
+        // gauge a fight at a glance — "(13) Death Tree" instead of just
+        // "Death Tree". MonsterLevel == 0 means the script entry didn't
+        // populate one (or this isn't a script-defined monster), in which
+        // case render the plain name.
+        if (c->MonsterLevel > 0)
+        {
+            mu_swprintf(e.label, L"(%u) %s", c->MonsterLevel, c->ID);
+        }
+        else
+        {
+            wcscpy_s(e.label, MAX_MONSTER_NAME + 12, c->ID);
+        }
     }
 
     if (count == 0)
@@ -140,7 +154,7 @@ void CEnemyHealthBar::RenderAll() const
         g_pRenderText->RenderText(
             static_cast<int>(left),
             static_cast<int>(top - kNameOffset),
-            e.name,
+            e.label,
             static_cast<int>(kBarWidth),
             0,
             RT3_SORT_CENTER);
