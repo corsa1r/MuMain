@@ -32,6 +32,7 @@ FrameTimingState g_frameTiming;
 #include "Core/Input/Input.h"
 #include "UI/Legacy/UIMng.h"
 #include "Network/Server/WSclient.h"
+#include "Network/Server/Heartbeat.h"
 #include "GameLogic/Events/w_CursedTemple.h"
 #include "Network/Server/ServerListManager.h"
 #include "UI/NewUI/NewUISystem.h"
@@ -601,17 +602,89 @@ static void RenderFpsCounter()
 }
 
 /**
+ * @brief Renders the heartbeat ping latency in the top-right corner of the
+ * screen during gameplay. Colour-codes the value so a glance is enough:
+ *   <  80 ms = green, < 200 ms = white, >= 200 ms = orange.
+ * Hidden until the first pong is received so the player doesn't see a
+ * stale "ms" before the link has settled.
+ */
+static void RenderLatencyMeter()
+{
+    if (SceneFlag != MAIN_SCENE)
+        return;
+
+    const int latencyMs = Heartbeat::GetLatencyMs();
+    if (latencyMs < 0)
+        return;
+
+    wchar_t szLine[32];
+    swprintf(szLine, L"%d ms", latencyMs);
+
+    BeginBitmap();
+    g_pRenderText->SetFont(g_hFontBold);
+    g_pRenderText->SetBgColor(0, 0, 0, 100);
+    if (latencyMs < 80)
+        g_pRenderText->SetTextColor(120, 255, 120, 220);
+    else if (latencyMs < 200)
+        g_pRenderText->SetTextColor(255, 255, 255, 220);
+    else
+        g_pRenderText->SetTextColor(255, 180, 80, 220);
+
+    constexpr int boxWidth = 45;
+    constexpr int margin   = 6;
+    g_pRenderText->RenderText(REFERENCE_WIDTH - boxWidth - margin,
+                              DEBUG_TEXT_Y_START,
+                              szLine,
+                              boxWidth,
+                              0,
+                              RT3_SORT_RIGHT);
+
+    g_pRenderText->SetFont(g_hFont);
+    g_pRenderText->SetTextColor(255, 255, 255, 255);
+    EndBitmap();
+}
+
+/**
  * @brief Checks and handles server connection loss.
  */
+// File-scope latches so the diagnostic display can show their state.
+static BOOL g_dcWasConnected = FALSE;
+static BOOL g_dcClosedFired  = FALSE;
+
+BOOL DebugGetWasConnected() { return g_dcWasConnected; }
+BOOL DebugGetClosedFired()  { return g_dcClosedFired; }
+
 static void CheckServerConnection()
 {
-    if (SocketClient == nullptr || !SocketClient->IsConnected())
+    // Application-level heartbeat: catches frozen/paused servers that the
+    // TCP layer can't detect (kernel-handled keepalive ACKs come back from
+    // a docker-paused container even though the OpenMU process is frozen).
+    // If we go > kPongTimeoutMs without a pong, treat the link as dead.
+    const bool heartbeatTimedOut = Heartbeat::TickAndCheckTimeout();
+    const bool socketAlive       = SocketClient != nullptr && SocketClient->IsConnected();
+
+    if (socketAlive)
     {
-        static BOOL s_bClosed = FALSE;
-        if (!s_bClosed)
+        g_dcWasConnected = TRUE;
+    }
+
+    // Only act on disconnect signals after we have actually been connected
+    // at least once this session. Before then, the "no socket" state is
+    // expected (loading / login / character-select before the game server
+    // handshake completes) and isn't a disconnect.
+    if (!g_dcWasConnected)
+    {
+        return;
+    }
+
+    if (!socketAlive || heartbeatTimedOut)
+    {
+        if (!g_dcClosedFired)
         {
-            s_bClosed = TRUE;
-            g_ErrorReport.Write(L"> Connection closed. ");
+            g_dcClosedFired = TRUE;
+            g_ErrorReport.Write(heartbeatTimedOut
+                ? L"> Connection lost: heartbeat timed out. "
+                : L"> Connection closed. ");
             g_ErrorReport.WriteCurrentTime();
             g_ConsoleDebug->Write(MCD_NORMAL, L"Connection closed");
             CUIMng::Instance().PopUpMsgWin(MESSAGE_SERVER_LOST);
@@ -963,6 +1036,18 @@ void MainScene(HDC hDC)
     {
         UpdateLoginAndCharacterScenes();
     }
+    else if (SceneFlag == MAIN_SCENE && CUIMng::Instance().IsMsgWinShown())
+    {
+        // The legacy UIMng update loop is normally skipped in MAIN_SCENE
+        // (gameplay uses the NewUI g_pWindowMgr instead), so the disconnect
+        // popup would render but never receive input. Drive UIMng::Update
+        // only while a MsgWin is actively shown — keeps the popup modal,
+        // doesn't disturb gameplay UI when no popup is up.
+        double dDeltaTick = g_pTimer->GetTimeElapsed();
+        dDeltaTick = MIN(dDeltaTick, 200.0 * FPS_ANIMATION_FACTOR);
+        CInput::Instance().Update();
+        CUIMng::Instance().Update(dDeltaTick);
+    }
 
     UpdateWaterAnimation();
 
@@ -981,6 +1066,7 @@ void MainScene(HDC hDC)
         Success = RenderCurrentScene(hDC);
         RenderDebugInfo();
         RenderFpsCounter();
+        RenderLatencyMeter();
 
         if (Success)
         {

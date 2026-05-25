@@ -21,6 +21,7 @@
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
 #include "GameLogic/Skills/SkillComboStore.h"
+#include "Network/Server/Heartbeat.h"
 #include "GameLogic/Events/MatchEvent.h"
 #include "Engine/AI/GOBoid.h"
 #include "GameLogic/Quests/CSQuest.h"
@@ -934,6 +935,11 @@ int HeroIndex;
 
 BOOL ReceiveJoinMapServer(std::span<const BYTE> ReceiveBuffer)
 {
+    // Reset the heartbeat timers whenever we successfully (re)join the
+    // world — covers the back-to-server-select → re-enter flow that keeps
+    // the process alive and would otherwise carry stale ping state.
+    Heartbeat::Reset();
+
     MouseLButton = false;
     HeroIndex = rand() % MAX_CHARACTERS_CLIENT;
     CHARACTER* c = &CharactersClient[HeroIndex];
@@ -9015,6 +9021,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     constexpr BYTE    kSubOpSkillCombo    = 0x05;
     constexpr BYTE    kSubOpMonsterLevel  = 0x06;
     constexpr int32_t kMonsterLevelSize   = 8;
+    constexpr BYTE    kSubOpHeartbeatPong = 0x07;
+    constexpr int32_t kHeartbeatPongSize  = 6;
 
     const BYTE subOp = buf[3];
 
@@ -9062,6 +9070,14 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
         {
             CharactersClient[index].MonsterLevel = level;
         }
+    }
+    else if (subOp == kSubOpHeartbeatPong && size >= kHeartbeatPongSize)
+    {
+        // Heartbeat pong — server echoes the sequence we sent in the ping.
+        // Heartbeat::OnPong records the RTT for the HUD latency display and
+        // resets the no-response timer that detects frozen servers.
+        const auto sequence = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        Heartbeat::OnPong(sequence);
     }
 }
 

@@ -123,6 +123,19 @@ public unsafe partial class ConnectionManager
     {
         var tcpClient = new TcpClient(host, port);
 
+        // Enable TCP keepalive so a silently-dropped connection (server crash,
+        // wifi drop, sleeping laptop) surfaces as a Disconnected event within
+        // ~45 seconds instead of leaving the socket hung forever. Without
+        // these the OpenMU Connection layer never raises Disconnected on a
+        // half-open link and the client just runs locally with no popup.
+        //
+        // 15s idle then probe every 10s, fail after 3 retries → ~45s detect.
+        var socket = tcpClient.Client;
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 10);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+
         var socketConnection = SocketConnection.Create(tcpClient.Client);
 
         var encryptor = isEncrypted ? new PipelinedXor32Encryptor(new PipelinedSimpleModulusEncryptor(socketConnection.Output, PipelinedSimpleModulusEncryptor.DefaultClientKey).Writer) : null;

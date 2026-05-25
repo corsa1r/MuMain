@@ -283,6 +283,15 @@ void CUIMng::CreateMainScene()
 {
     RemoveWinList();
 
+    // Re-create MsgWin for the gameplay scene so server-lost notifications
+    // have a destination. Legacy code skipped this entirely, leaving the
+    // popup unable to render or take input in-game.
+    CInput& rInput = CInput::Instance();
+    m_MsgWin.Create();
+    m_WinList.AddHead(&m_MsgWin);
+    m_MsgWin.SetPosition((rInput.GetScreenWidth() - 352) / 2,
+                         (rInput.GetScreenHeight() - 113) / 2);
+
     m_CharInfoBalloonMng.Release();
 
     m_nScene = UIM_SCENE_MAIN;
@@ -779,7 +788,13 @@ void CUIMng::PopUpMsgWin(int nMsgCode, wchar_t* pszMsg)
     if (UIM_SCENE_NONE == m_nScene || UIM_SCENE_TITLE == m_nScene || UIM_SCENE_LOADING == m_nScene)
         return;
 
-    if (UIM_SCENE_MAIN == m_nScene)	return;
+    // The legacy code skipped this popup entirely during gameplay — fine for
+    // most login/character-screen-only codes, but it also swallowed the
+    // server-lost notification, leaving disconnected players staring at a
+    // frozen game with no idea what happened. Let critical codes through
+    // even in MAIN scene; everything else keeps the legacy behaviour.
+    if (UIM_SCENE_MAIN == m_nScene && nMsgCode != MESSAGE_SERVER_LOST)
+        return;
 
     m_MsgWin.PopUp(nMsgCode, pszMsg);
 }
