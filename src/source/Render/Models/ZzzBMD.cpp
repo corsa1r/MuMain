@@ -2383,29 +2383,27 @@ void BMD::RenderBodyShadow(const int blendMesh, const int hiddenMesh, const int 
 
     EnableAlphaTest(false);
     DisableTexture();
-    DisableDepthMask();
 
-    // Writing straight into the soft-shadow FBO. Stencil EQUAL ref=0 + INCR
-    // gives us once-per-pixel writes (no self-overlap, no cross-character
-    // overlap). Blend is disabled — alpha blending against the FBO's black
-    // clear color would square the alpha (e.g. 0.35² = 0.12), giving a
-    // barely-visible shadow after blur+composite. With blend off we write
-    // RGBA directly, so alpha is preserved exactly. The Gaussian blur pass
-    // in SoftShadow::Composite handles edge softening; no need for the
-    // earlier ring trick.
+    // Writing straight into the soft-shadow FBO. Blend is disabled — alpha
+    // blending against the FBO's black clear color would square the alpha
+    // (e.g. 0.45² = 0.20), washing out the shadow after blur+composite. With
+    // blend off we write RGBA directly, so alpha is preserved exactly.
+    //
+    // Depth writes are deliberately left ON (BeginShadowDraw forces them on)
+    // so the FBO depth attachment captures the ground Z of each shadow pixel.
+    // SoftShadow::Composite compares that against scene depth to discard the
+    // shadow where the casting body is in front of it — fixing the
+    // "shadow rendered over the character" issue without any z-fighting hack.
+    //
+    // Non-stacking still works: blend is off, so any pixel touched twice by
+    // overlapping shadows just gets overwritten with the same dark RGBA. No
+    // alpha accumulation, no stencil needed.
     glDisable(GL_BLEND);
-    glEnable(GL_STENCIL_TEST);
-    glStencilFunc(GL_EQUAL, 0, 0xFF);
-    glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-    glStencilMask(0xFF);
 
     glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
     BeginRender(1.f);
     drawShadowGeometry();
     EndRender();
-
-    glDisable(GL_STENCIL_TEST);
-    EnableDepthMask();
 
     SoftShadow::EndShadowDraw();
 }

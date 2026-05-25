@@ -98,15 +98,22 @@ namespace
     int  s_width = 0;
     int  s_height = 0;
 
-    GLuint s_shadowFBO    = 0;
-    GLuint s_shadowColor  = 0;
-    GLuint s_shadowStencil = 0;  // stencil renderbuffer
-    GLuint s_pingFBO      = 0;
-    GLuint s_pingColor    = 0;
+    GLuint s_shadowFBO     = 0;
+    GLuint s_shadowColor   = 0;
+    GLuint s_shadowDepth   = 0;  // depth texture for shadow FBO (per-pixel ground Z)
+    GLuint s_pingFBO       = 0;
+    GLuint s_pingColor     = 0;
+    GLuint s_sceneDepth    = 0;  // depth texture blit target for scene depth
+    GLuint s_sceneDepthFBO = 0;  // FBO wrapping s_sceneDepth as DEPTH_ATTACHMENT
 
     GLuint s_blurProgram   = 0;
     GLint  s_blurLocSampler = -1;
     GLint  s_blurLocStep    = -1;  // vec2 — texel size along blur axis
+
+    GLuint s_compositeProgram = 0;
+    GLint  s_compositeLocColor  = -1;
+    GLint  s_compositeLocShadowZ = -1;
+    GLint  s_compositeLocSceneZ  = -1;
 
     // Stack of previously-bound framebuffers so BeginShadowDraw/EndShadowDraw
     // can nest safely. In practice the depth never exceeds 1, but storing it
@@ -115,7 +122,7 @@ namespace
     GLint     s_savedBlendSrc = GL_ONE;
     GLint     s_savedBlendDst = GL_ZERO;
     GLboolean s_savedBlendEnabled = GL_FALSE;
-    GLint     s_savedStencilMask = 0xFF;
+    GLboolean s_savedDepthMask = GL_TRUE;
     GLboolean s_savedColorMask[4] = {1, 1, 1, 1};
 
     // ── Shader sources ──────────────────────────────────────────────────
@@ -165,6 +172,41 @@ void main()
 }
 )";
 
+    // Composite shader: stamps the blurred shadow over the back buffer, but
+    // discards pixels where the scene depth (back buffer, includes character
+    // bodies) is in front of the shadow depth (ground plane Z). That prevents
+    // the shadow from tinting the body that cast it.
+    const char* kCompositeVS = R"(
+#version 120
+varying vec2 vUV;
+void main()
+{
+    gl_Position = gl_Vertex;
+    vUV = gl_MultiTexCoord0.xy;
+}
+)";
+
+    const char* kCompositeFS = R"(
+#version 120
+uniform sampler2D uShadowColor;
+uniform sampler2D uShadowDepth;
+uniform sampler2D uSceneDepth;
+varying vec2 vUV;
+
+void main()
+{
+    vec4 sc = texture2D(uShadowColor, vUV);
+    if (sc.a < 0.001) discard;
+    float shadowD = texture2D(uShadowDepth, vUV).r;
+    float sceneD  = texture2D(uSceneDepth,  vUV).r;
+    // If no shadow geometry was drawn here, shadowD will still be 1.0 — skip
+    // the occlusion check so we don't accidentally discard the blurred halo
+    // that extends beyond the original silhouette.
+    if (shadowD < 0.9999 && sceneD < shadowD - 0.001) discard;
+    gl_FragColor = sc;
+}
+)";
+
     // ── Helpers ─────────────────────────────────────────────────────────
     GLuint CompileShader(GLenum stage, const char* src)
     {
@@ -185,10 +227,10 @@ void main()
         return sh;
     }
 
-    GLuint BuildBlurProgram()
+    GLuint LinkProgram(const char* vsSrc, const char* fsSrc)
     {
-        GLuint vs = CompileShader(GL_VERTEX_SHADER, kBlurVS);
-        GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kBlurFS);
+        GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSrc);
+        GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSrc);
         if (!vs || !fs) return 0;
 
         GLuint prog = pglCreateProgram();
@@ -216,16 +258,35 @@ void main()
     {
         if (s_shadowFBO)     { pglDeleteFramebuffers(1, &s_shadowFBO);  s_shadowFBO = 0; }
         if (s_pingFBO)       { pglDeleteFramebuffers(1, &s_pingFBO);    s_pingFBO = 0; }
+        if (s_sceneDepthFBO) { pglDeleteFramebuffers(1, &s_sceneDepthFBO); s_sceneDepthFBO = 0; }
         if (s_shadowColor)   { glDeleteTextures(1, &s_shadowColor);     s_shadowColor = 0; }
+        if (s_shadowDepth)   { glDeleteTextures(1, &s_shadowDepth);     s_shadowDepth = 0; }
         if (s_pingColor)     { glDeleteTextures(1, &s_pingColor);       s_pingColor = 0; }
-        if (s_shadowStencil) { pglDeleteRenderbuffers(1, &s_shadowStencil); s_shadowStencil = 0; }
+        if (s_sceneDepth)    { glDeleteTextures(1, &s_sceneDepth);      s_sceneDepth = 0; }
+    }
+
+    GLuint CreateDepthTexture(int w, int h)
+    {
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, w, h, 0,
+                     GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        // NEAREST so the per-pixel depth comparison isn't softened by a filter.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        return tex;
     }
 
     bool CreateTargets(int w, int h)
     {
         DestroyTargets();
 
-        // Shadow accumulation: RGBA8 color + 8-bit stencil renderbuffer.
+        // Shadow accumulation: RGBA8 color + depth texture. Depth is needed so
+        // the composite pass can compare shadow-ground Z against scene Z and
+        // discard pixels where a body is in front of its own shadow.
         glGenTextures(1, &s_shadowColor);
         glBindTexture(GL_TEXTURE_2D, s_shadowColor);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -234,14 +295,12 @@ void main()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-        pglGenRenderbuffers(1, &s_shadowStencil);
-        pglBindRenderbuffer(GL_RENDERBUFFER, s_shadowStencil);
-        pglRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+        s_shadowDepth = CreateDepthTexture(w, h);
 
         pglGenFramebuffers(1, &s_shadowFBO);
         pglBindFramebuffer(GL_FRAMEBUFFER, s_shadowFBO);
         pglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_shadowColor, 0);
-        pglFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_shadowStencil);
+        pglFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,  GL_TEXTURE_2D, s_shadowDepth, 0);
         if (pglCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         {
             OutputDebugStringA("[SoftShadow] shadow FBO incomplete\n");
@@ -264,6 +323,24 @@ void main()
         if (pglCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         {
             OutputDebugStringA("[SoftShadow] ping FBO incomplete\n");
+            pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return false;
+        }
+
+        // Scene-depth target: receives a blit of the back buffer's depth at
+        // composite time. Wrapped in its own FBO so glBlitFramebuffer has a
+        // depth-attached destination.
+        s_sceneDepth = CreateDepthTexture(w, h);
+        pglGenFramebuffers(1, &s_sceneDepthFBO);
+        pglBindFramebuffer(GL_FRAMEBUFFER, s_sceneDepthFBO);
+        pglFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_sceneDepth, 0);
+        // No color attachment — explicitly tell GL we're depth-only or some
+        // drivers will mark the FBO incomplete.
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        if (pglCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            OutputDebugStringA("[SoftShadow] scene-depth FBO incomplete\n");
             pglBindFramebuffer(GL_FRAMEBUFFER, 0);
             return false;
         }
@@ -304,21 +381,28 @@ namespace SoftShadow
             s_available = false;
             return false;
         }
-        s_blurProgram = BuildBlurProgram();
-        if (!s_blurProgram)
+        s_blurProgram = LinkProgram(kBlurVS, kBlurFS);
+        s_compositeProgram = LinkProgram(kCompositeVS, kCompositeFS);
+        if (!s_blurProgram || !s_compositeProgram)
         {
             s_available = false;
             return false;
         }
         s_blurLocSampler = pglGetUniformLocation(s_blurProgram, "uTex");
         s_blurLocStep    = pglGetUniformLocation(s_blurProgram, "uStep");
+
+        s_compositeLocColor    = pglGetUniformLocation(s_compositeProgram, "uShadowColor");
+        s_compositeLocShadowZ  = pglGetUniformLocation(s_compositeProgram, "uShadowDepth");
+        s_compositeLocSceneZ   = pglGetUniformLocation(s_compositeProgram, "uSceneDepth");
+
         s_available = true;
         return true;
     }
 
     void Shutdown()
     {
-        if (s_blurProgram) { pglDeleteProgram(s_blurProgram); s_blurProgram = 0; }
+        if (s_blurProgram)      { pglDeleteProgram(s_blurProgram);      s_blurProgram = 0; }
+        if (s_compositeProgram) { pglDeleteProgram(s_compositeProgram); s_compositeProgram = 0; }
         DestroyTargets();
         s_available = false;
     }
@@ -344,15 +428,14 @@ namespace SoftShadow
     {
         if (!IsAvailable()) return;
         pglBindFramebuffer(GL_FRAMEBUFFER, s_shadowFBO);
-        // Force masks fully open so the clear actually touches every
-        // channel/bit. Caller code elsewhere may have left colorMask or
-        // stencilMask half-disabled, which would silently skip the clear
-        // and leave the FBO with whatever garbage initial contents it had.
+        // Force masks fully open so the clear actually touches every channel.
+        // Caller code elsewhere may have left colorMask or depthMask off,
+        // which would silently skip the clear.
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glStencilMask(0xFF);
+        glDepthMask(GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        glClearStencil(0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        glClearDepth(1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         pglBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
@@ -363,11 +446,14 @@ namespace SoftShadow
         glGetIntegerv(GL_BLEND_SRC, &s_savedBlendSrc);
         glGetIntegerv(GL_BLEND_DST, &s_savedBlendDst);
         s_savedBlendEnabled = glIsEnabled(GL_BLEND);
-        glGetIntegerv(GL_STENCIL_WRITEMASK, &s_savedStencilMask);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &s_savedDepthMask);
         glGetBooleanv(GL_COLOR_WRITEMASK, s_savedColorMask);
 
         pglBindFramebuffer(GL_FRAMEBUFFER, s_shadowFBO);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        // Need depth writes so the FBO depth attachment captures the ground
+        // Z of each shadow pixel — the composite pass relies on it.
+        glDepthMask(GL_TRUE);
     }
 
     void EndShadowDraw()
@@ -376,12 +462,12 @@ namespace SoftShadow
         pglBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(s_savedFBO));
         s_savedFBO = 0;
 
-        // Restore caller's blend, stencil-mask, color-mask state. The body
+        // Restore caller's blend, depth-mask, color-mask state. The body
         // pass that interleaves with shadow draws relies on these being
         // exactly as they were before we hijacked the framebuffer.
         glBlendFunc(s_savedBlendSrc, s_savedBlendDst);
         if (s_savedBlendEnabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-        glStencilMask(static_cast<GLuint>(s_savedStencilMask));
+        glDepthMask(s_savedDepthMask);
         glColorMask(s_savedColorMask[0], s_savedColorMask[1], s_savedColorMask[2], s_savedColorMask[3]);
     }
 
@@ -443,27 +529,45 @@ namespace SoftShadow
         pglUniform2f(s_blurLocStep, 0.0f, 1.0f / static_cast<float>(s_height));
         DrawFullscreenQuad();
 
-        // ── Composite: shadowColor → back buffer (alpha blend) ───────────
+        // ── Capture scene depth ──────────────────────────────────────────
+        // Blit the default framebuffer's depth into our scene-depth texture
+        // so the composite shader can read it as a sampler2D.
+        pglBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        pglBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_sceneDepthFBO);
+        pglBlitFramebuffer(0, 0, s_width, s_height,
+                           0, 0, s_width, s_height,
+                           GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+        // ── Composite: shadowColor + depth tests → back buffer ───────────
         pglBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, s_width, s_height);
-        pglUseProgram(0);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        pglUseProgram(s_compositeProgram);
+
+        pglActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, s_shadowColor);
-        // Fixed-function fullscreen quad (no shader) — the texture already
-        // contains pre-multiplied dark color, so just stamp it.
-        glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
-        glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
-        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-        glBegin(GL_TRIANGLE_STRIP);
-            glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
-            glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
-            glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
-            glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
-        glEnd();
-        glMatrixMode(GL_PROJECTION); glPopMatrix();
-        glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+        pglUniform1i(s_compositeLocColor, 0);
+
+        pglActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, s_shadowDepth);
+        pglUniform1i(s_compositeLocShadowZ, 1);
+
+        pglActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, s_sceneDepth);
+        pglUniform1i(s_compositeLocSceneZ, 2);
+
+        DrawFullscreenQuad();
+
+        // Unbind extra texture units we touched and return to unit 0 so we
+        // don't leave foreign state behind for the next legacy draw.
+        glBindTexture(GL_TEXTURE_2D, 0);
+        pglActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        pglActiveTexture(GL_TEXTURE0);
+        pglUseProgram(0);
 
         // Restore.
         glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexBind));
