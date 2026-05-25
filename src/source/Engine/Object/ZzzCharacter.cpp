@@ -11943,6 +11943,12 @@ void CreateCharacterPointer(CHARACTER* c, int Type, unsigned char PositionX, uns
 
 CHARACTER* CreateCharacter(int Key, int Type, unsigned char PositionX, unsigned char PositionY, float Rotation)
 {
+    // Same slot-recycle issue as CreateMonster: a recycled network ID would
+    // otherwise inherit the previous occupant's prime mask. The check is
+    // cheap and the mask never resurrects for the same player twice in a row
+    // since live primes are pushed by the server.
+    GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(Key));
+
     for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
     {
         CHARACTER* c = &CharactersClient[i];
@@ -13051,6 +13057,12 @@ CHARACTER* CreateMonster(EMonsterType Type, int PositionX, int PositionY, int Ke
     CHARACTER* c = NULL;
     OBJECT* o;
     int Level;
+
+    // Clear any prime marks left behind by a prior occupant of this slot.
+    // Network IDs are recycled when monsters leave scope without a delete
+    // packet (e.g. player walked far away), and the prime mask is indexed
+    // by raw ID, so a new monster would otherwise inherit ghost prime icons.
+    GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(Key));
 
     c = g_CursedTemple->CreateCharacters(Type, PositionX, PositionY, Key);
     if (c != NULL)

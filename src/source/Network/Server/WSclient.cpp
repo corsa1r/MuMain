@@ -3264,7 +3264,18 @@ void ReceiveAttackDamage(CHARACTER* c, OBJECT* o, const bool success, const int 
 
             if (bComboEnable)
             {
-                scale = 50.f;
+                // Pop-in: combo damage spawns much larger than its resting
+                // size. The shared MovePoints decay (5/frame) shrinks it to
+                // the 15-unit floor over ~17 frames, producing a "BAM →
+                // settle" effect as the number floats up.
+                //
+                // Color is intentionally NOT overridden — the number keeps
+                // the damage-type color set above (cyan perfect, blue
+                // critical, green excellent, orange/red normal, etc.) so a
+                // combo critical reads as a combo critical, not a generic
+                // gold combo. The COMBO label rendered by RenderPointLabels
+                // stays gold, which is what makes combo damage identifiable.
+                scale = 100.f;
             }
         }
 
@@ -3282,15 +3293,13 @@ void ReceiveAttackDamage(CHARACTER* c, OBJECT* o, const bool success, const int 
         {
             if (bComboEnable)
             {
-                vec3_t Position, Light2;
-                VectorCopy(o->Position, Position);
-                Vector(Light[0] - 0.4f, Light[1] - 0.4f, Light[2] - 0.4f, Light2);
-                CreatePoint(Position, damage, Light2, scale);
-                Position[2] += 10.f;
-                Vector(Light[0] - 0.2f, Light[1] - 0.2f, Light[2] - 0.2f, Light2);
-                CreatePoint(Position, damage, Light2, scale + 5.f);
-                Position[2] += 10.f;
-                CreatePoint(Position, damage, Light, scale + 10.f);
+                // Single bright gold number with glow halo (rendered by
+                // RenderPoints when bCombo is set). The bCombo render path
+                // already draws a dark aura + bright top pass, so we don't
+                // need the legacy three-stack.
+                CreatePoint(o->Position, damage, Light, scale,
+                            /*bMove*/ true, /*bRepeatedly*/ false,
+                            /*bCombo*/ true);
             }
             else if (bDoubleEnable)    //  Double Damage
             {
@@ -3303,7 +3312,13 @@ void ReceiveAttackDamage(CHARACTER* c, OBJECT* o, const bool success, const int 
                 CreatePoint(Position, damage, Light2, scale + 5.f);
             }
 
-            CreatePoint(o->Position, damage, Light, scale);
+            // Combo path renders its own glow+number through the bCombo
+            // CreatePoint above — skip the legacy trailing popup so the same
+            // damage value doesn't appear twice.
+            if (!bComboEnable)
+            {
+                CreatePoint(o->Position, damage, Light, scale);
+            }
         }
 
         if (shieldDamage > 0)

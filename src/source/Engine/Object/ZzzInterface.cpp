@@ -8465,6 +8465,7 @@ void RenderInterface(bool Render)
     RenderOutSides();
     RenderPartyHP();
     g_EnemyHealthBar.RenderAll();
+    RenderPointLabels();
 
     RenderSwichState();
     battleCastle::RenderBuildTimes();

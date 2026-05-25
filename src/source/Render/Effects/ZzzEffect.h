@@ -39,8 +39,9 @@ bool DeleteParticle(int iType);
 
 void RenderLeaves();
 bool MoveLeaves();
-void CreatePoint(vec3_t Position, int Value, vec3_t Color, float scale = 15.f, bool bMove = true, bool bRepeatedly = false);
+void CreatePoint(vec3_t Position, int Value, vec3_t Color, float scale = 15.f, bool bMove = true, bool bRepeatedly = false, bool bCombo = false);
 void RenderPoints(BYTE byRenderOneMore = 0);
+void RenderPointLabels();  // UI overlay pass: draws "COMBO" above combo popups
 void MovePoints();
 
 void CreatePointer(int Type, vec3_t Position, float Angle, vec3_t Light, float Scale = 1.f);

@@ -474,6 +474,13 @@ typedef struct
     int iNumBone;
     bool bRepeatedly;
     float fRepeatedlyHeight;
+    // Damage-popup specific. SpawnDelay > 0 hides the popup and freezes its
+    // motion until it ticks down — used to stagger overlapping numbers so a
+    // detonator's own hit and its combo damage don't render on top of each
+    // other. bCombo marks the popup as combo damage so the render path can
+    // style it (gold, brighter, larger).
+    float SpawnDelay;
+    bool  bCombo;
 } PARTICLE;
 
 typedef struct
