@@ -26,6 +26,7 @@
 #include "Engine/Object/ZzzCharacter.h"      // CharactersClient, Hero
 #include "Engine/Object/w_ObjectInfo.h"      // OBJECT, CHARACTER
 #include "Core/Globals/_enum.h"              // MAX_WORLD_OBJECTS
+#include "World/MapInfra/MapManager.h"       // gMapManager, WD_* enum
 
 #include "SourceBank.h"                      // LoadSourceBank, FindSourceWorldByModelIndex
 
@@ -1073,6 +1074,15 @@ namespace MuEditor::CustomMap
         // editor was standing in when the slot was loaded.
         LoadWorldTextures(BuildCustomRelativeDir(mapId));
 
+        // Override the live WorldActive to a neutral value so all the
+        // per-world client behaviors (Atlans swim, Devias snow, Hellas
+        // water, Cursed Temple sprites, etc.) stop firing on our custom
+        // map. Lorencia (WD_0LORENCIA) is the lightest neutral choice —
+        // a basic continent the codebase treats as the default fallback.
+        // This is purely a client-side override; the server's notion of
+        // where we are is unchanged (and irrelevant in offline mode).
+        gMapManager.WorldActive = WD_0LORENCIA;
+
         // Side-load source-world object banks the slot depends on, then
         // load each per-source .obj with Type fixup. Done AFTER the main
         // .obj loaded above — order doesn't actually matter (each goes
@@ -1160,6 +1170,13 @@ namespace MuEditor::CustomMap
         std::swprintf(worldDir, std::size(worldDir),
             L"World%d", worldFolderIndex);
         LoadWorldTextures(worldDir);
+
+        // Align WorldActive with the world we just loaded so the
+        // per-world client behaviors (water in Atlans, snow in Devias,
+        // etc.) match the visuals. If the previous load was a custom
+        // map, we'd otherwise be stuck with the neutralized
+        // WD_0LORENCIA override.
+        gMapManager.WorldActive = worldFolderIndex - 1;
 
         return true;
     }
