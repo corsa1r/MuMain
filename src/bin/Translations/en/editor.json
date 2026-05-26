@@ -197,10 +197,12 @@
   "dev_brush_mode_paint": "Paint Attribute",
   "dev_brush_mode_place": "Place Object",
   "dev_brush_mode_delete": "Delete Object",
+  "dev_brush_mode_texture": "Paint Texture",
 
   "dev_section_sources": "Source Worlds",
   "dev_section_place": "Place Static Object",
   "dev_section_delete": "Delete Static Object",
+  "dev_section_texture": "Texture Painter",
 
   "dev_sources_intro": "Side-load object banks from classic worlds. Each bank uses 160 slots above MAX_MODELS; up to 6 source banks can be loaded at once.",
   "dev_sources_world_index": "World #",
@@ -225,6 +227,9 @@
   "dev_place_filter_hint": "Filter by name or texture...",
   "dev_place_filter_clear": "Clear",
   "dev_place_no_matches": "No slots match the filter.",
+
+  "dev_texture_selected": "Selected tile",
+  "dev_texture_click_help": "Select 'Paint Texture' brush mode above, then left-click/drag the world to paint the chosen tile.",
 
   "dev_offline_banner_title": "OFFLINE AUTHORING MODE",
   "dev_offline_banner_body": "Client/server desync expected. Outbound movement is muted and server snap-backs are dropped while a custom slot is bound. Switch via File > Load Map to a classic world to resume online play."

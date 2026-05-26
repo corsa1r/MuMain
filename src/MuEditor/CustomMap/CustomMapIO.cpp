@@ -748,6 +748,43 @@ namespace
             MuEditor::CustomMap::GetCustomMapMapPath(mapId), encrypted);
     }
 
+    // Snapshots the live texture-mapping buffers into the .map
+    // cleartext format used by OpenTerrainMapping. Mirror image of
+    // BuildBlankMapFileCleartext — header is the same; payload comes
+    // from TerrainMappingLayer1/2/Alpha[]. Alpha gets requantized from
+    // its in-memory float (0..1) back to the on-disk BYTE (0..255).
+    std::vector<BYTE> BuildLiveMapFileCleartext(int mapId)
+    {
+        std::vector<BYTE> buf(MAPPING_FILE_SIZE, 0);
+        buf[0] = MAPPING_FILE_VERSION;
+        buf[1] = FileMapNumber(mapId);
+
+        BYTE* p = buf.data() + MAPPING_HEADER_SIZE;
+        std::memcpy(p, TerrainMappingLayer1, MAPPING_LAYER_BYTES);
+        p += MAPPING_LAYER_BYTES;
+        std::memcpy(p, TerrainMappingLayer2, MAPPING_LAYER_BYTES);
+        p += MAPPING_LAYER_BYTES;
+
+        for (int i = 0; i < TERRAIN_TILE_COUNT; ++i)
+        {
+            float a = TerrainMappingAlpha[i];
+            if (a < 0.f) a = 0.f;
+            else if (a > 1.f) a = 1.f;
+            p[i] = static_cast<BYTE>(a * 255.f);
+        }
+        return buf;
+    }
+
+    bool WriteLiveMapFile(int mapId)
+    {
+        std::vector<BYTE> cleartext = BuildLiveMapFileCleartext(mapId);
+        std::vector<BYTE> encrypted(cleartext.size());
+        MapFileEncrypt(encrypted.data(), cleartext.data(),
+                       static_cast<int>(cleartext.size()));
+        return WriteBinary(
+            MuEditor::CustomMap::GetCustomMapMapPath(mapId), encrypted);
+    }
+
     bool WriteBlankHeightOZB(int mapId)
     {
         return WriteBinary(
@@ -925,6 +962,12 @@ namespace MuEditor::CustomMap
             EncryptAttStream(BuildAttCleartext(mapId, TerrainWall));
         if (!WriteBinary(GetCustomMapAttPath(mapId), attEncrypted))
             return false;
+
+        // Texture mapping (.map): persists the live painter state from
+        // TerrainMappingLayer1/2/Alpha. Without this, painted textures
+        // get wiped on the next Load because the on-disk .map still
+        // carries whatever was last written (initially WriteBlankMapFile).
+        if (!WriteLiveMapFile(mapId)) return false;
 
         // Partition live ObjectBlock into the main stream + one stream
         // per source-world bank that currently owns at least one live

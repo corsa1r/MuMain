@@ -111,7 +111,8 @@ public:
     {
         return m_BrushPaintOnDrag
             || m_PlaceOnClickEnabled
-            || m_DeleteOnClickEnabled;
+            || m_DeleteOnClickEnabled
+            || m_PaintTextureOnDrag;
     }
 
     // Render toggle accessors
@@ -170,6 +171,8 @@ private:
     void RenderDeleteObjectPanel();
     void HandlePlaceObjectInput();
     void HandleDeleteObjectInput();
+    void HandlePaintTextureInput();
+    void RenderTexturePainterPanel();
     void HidePlacementPreview();    // call when mode exits or source vanishes
     void PushUndo(DevEditorUndoAction action);
     void PerformUndo();
@@ -231,6 +234,14 @@ private:
     // m_DeleteRadius (world units) gets its Live flipped to false.
     bool  m_DeleteOnClickEnabled = false;
     float m_DeleteRadius         = 150.0f;
+
+    // Texture painter: writes TerrainMappingLayer1[tile] = the selected
+    // BITMAP_MAPTILE offset (0..29). The .map file already round-trips
+    // this; no save plumbing changes needed. Brush radius reuses
+    // m_BrushRadius from the attribute painter so a single value
+    // controls every painter mode.
+    bool  m_PaintTextureOnDrag   = false;
+    int   m_TextureBrushIndex    = 0;     // 0..29 = BITMAP_MAPTILE + N
 
     // Ghost preview: while place mode is active, we instantiate an OBJECT
     // via CreateObject and continuously update its position/rotation/etc.

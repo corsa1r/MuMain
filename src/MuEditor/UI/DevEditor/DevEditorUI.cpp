@@ -24,7 +24,10 @@
 #include "Engine/Object/ZzzObject.h"       // CreateObject, ObjectBlock
 #include "Engine/Object/w_ObjectInfo.h"    // OBJECT
 #include "Render/Models/ZzzBMD.h"          // BMD, Models[]
+#include "Render/Sprites/GlobalBitmap.h"   // CGlobalBitmap, BITMAP_t
 #include <gl/GL.h>
+
+extern CGlobalBitmap Bitmaps;
 
 #include <cstdio>
 #include <cctype>
@@ -1116,17 +1119,20 @@ void CDevEditorUI::RenderTerrainPainterTab()
     ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
                      &m_BrushRadius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
 
-    // Brush-mode radio — exactly one of paint / place / delete (or off).
+    // Brush-mode radio — exactly one of paint attr / place / delete /
+    // paint texture (or off).
     int curMode = 0;
     if      (m_BrushPaintOnDrag)     curMode = 1;
     else if (m_PlaceOnClickEnabled)  curMode = 2;
     else if (m_DeleteOnClickEnabled) curMode = 3;
+    else if (m_PaintTextureOnDrag)   curMode = 4;
     int newMode = curMode;
     ImGui::TextDisabled("%s", EDITOR_TEXT("dev_brush_mode_header"));
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_off"),    &newMode, 0); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),  &newMode, 1); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),  &newMode, 2); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"), &newMode, 3);
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_off"),     &newMode, 0); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),   &newMode, 1); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),   &newMode, 2); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"),  &newMode, 3); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4);
     if (newMode != curMode) SetExclusiveBrushMode(newMode);
 
     RenderUndoControls();
@@ -1210,6 +1216,12 @@ void CDevEditorUI::RenderTerrainPainterTab()
         RenderDeleteObjectPanel();
         ImGui::Unindent();
     }
+    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_texture")))
+    {
+        ImGui::Indent();
+        RenderTexturePainterPanel();
+        ImGui::Unindent();
+    }
 }
 
 void CDevEditorUI::HandlePaintBrushInput()
@@ -1241,14 +1253,16 @@ void CDevEditorUI::HandlePaintBrushInput()
 
     HandlePlaceObjectInput();
     HandleDeleteObjectInput();
+    HandlePaintTextureInput();
 }
 
 void CDevEditorUI::SetExclusiveBrushMode(int mode)
 {
-    // Modes: 0 = none, 1 = paint, 2 = place, 3 = delete.
-    m_BrushPaintOnDrag    = (mode == 1);
-    m_PlaceOnClickEnabled = (mode == 2);
+    // Modes: 0 = none, 1 = paint attr, 2 = place, 3 = delete, 4 = paint texture.
+    m_BrushPaintOnDrag     = (mode == 1);
+    m_PlaceOnClickEnabled  = (mode == 2);
     m_DeleteOnClickEnabled = (mode == 3);
+    m_PaintTextureOnDrag   = (mode == 4);
 
     // Leaving place mode must hide the ghost preview immediately,
     // otherwise the half-transparent OBJECT lingers in ObjectBlock
@@ -1682,6 +1696,147 @@ void CDevEditorUI::HandleDeleteObjectInput()
         action.kind = DevEditorUndoAction::Kind::DeleteObject;
         action.obj  = nearest;
         PushUndo(action);
+    }
+}
+
+void CDevEditorUI::RenderTexturePainterPanel()
+{
+    // Texture brush palette — 30 BITMAP_MAPTILE slots loaded from
+    // whichever world's tile bitmaps were copied into the slot at
+    // Create / Load time. Click a thumbnail to pick the brush; click
+    // on the world (with brush mode = Paint Texture) to write that
+    // index into TerrainMappingLayer1[tile]. Save persists via .map.
+    constexpr int   TILE_SLOT_COUNT      = 30;
+    constexpr int   TILE_GRID_COLUMNS    = 5;
+    constexpr float TILE_THUMB_SIZE      = 56.0f;
+    constexpr float TILE_GRID_HEIGHT     = 280.0f;
+
+    if (m_TextureBrushIndex < 0)
+        m_TextureBrushIndex = 0;
+    if (m_TextureBrushIndex >= TILE_SLOT_COUNT)
+        m_TextureBrushIndex = TILE_SLOT_COUNT - 1;
+
+    ImGui::TextDisabled("%s: %d",
+                        EDITOR_TEXT("dev_texture_selected"),
+                        m_TextureBrushIndex);
+
+    ImGui::BeginChild("##texgrid",
+                      ImVec2(0, TILE_GRID_HEIGHT), true);
+    for (int i = 0; i < TILE_SLOT_COUNT; ++i)
+    {
+        if ((i % TILE_GRID_COLUMNS) != 0) ImGui::SameLine();
+
+        // FindTexture (not GetTexture) returns nullptr for unloaded
+        // slots — GetTexture substitutes a static error sentinel whose
+        // FileName leaks into the hover tooltip ("CGlobalBitmap::Get-
+        // Texture Error!!!"). For an empty slot we want a clean miss.
+        BITMAP_t* bmp = Bitmaps.FindTexture(BITMAP_MAPTILE + i);
+        const bool hasTex = (bmp != nullptr && bmp->TextureNumber != 0);
+        const bool selected = (i == m_TextureBrushIndex);
+
+        ImGui::PushID(i);
+
+        // Highlight the selected swatch with a colored border that
+        // ImageButton's frame padding turns into a visible ring.
+        if (selected)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                ImVec4(0.20f, 0.55f, 0.85f, 1.0f));
+
+        if (hasTex)
+        {
+            // ImTextureID is uint64_t in this ImGui build (modern API);
+            // a static_cast from the GLuint texture name is the right
+            // bridge — the OpenGL backend uses the integer directly.
+            const ImTextureID texId =
+                static_cast<ImTextureID>(bmp->TextureNumber);
+            if (ImGui::ImageButton("##swatch", texId,
+                    ImVec2(TILE_THUMB_SIZE, TILE_THUMB_SIZE)))
+            {
+                m_TextureBrushIndex = i;
+            }
+        }
+        else
+        {
+            // Slot exists in the engine bank but no bitmap loaded —
+            // still selectable so the user can paint with "empty"
+            // (which renders blank / uses Layer2 only).
+            char label[8];
+            std::snprintf(label, sizeof(label), "%d", i);
+            if (ImGui::Button(label,
+                    ImVec2(TILE_THUMB_SIZE, TILE_THUMB_SIZE)))
+            {
+                m_TextureBrushIndex = i;
+            }
+        }
+
+        if (selected) ImGui::PopStyleColor();
+
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::BeginTooltip();
+            ImGui::Text("Slot %d", i);
+            if (bmp != nullptr && bmp->FileName[0] != L'\0')
+            {
+                // BITMAP_t::FileName is wchar_t — convert to UTF-8 for
+                // ImGui::Text. Tile filenames are ASCII in practice
+                // ("TileGrass01.jpg", "TileRock07.jpg"), so a narrow
+                // pass-through is sufficient.
+                char narrow[128];
+                int j = 0;
+                for (; bmp->FileName[j] != L'\0' &&
+                       j + 1 < static_cast<int>(sizeof(narrow)); ++j)
+                {
+                    const wchar_t w = bmp->FileName[j];
+                    narrow[j] = (w >= 0x20 && w < 0x7F)
+                              ? static_cast<char>(w) : '?';
+                }
+                narrow[j] = '\0';
+                ImGui::TextDisabled("%s", narrow);
+            }
+            ImGui::EndTooltip();
+        }
+
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    // Reuse the attribute brush radius — one knob across painter modes.
+    ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
+                     &m_BrushRadius, 1, 16);
+
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_texture_click_help"));
+}
+
+void CDevEditorUI::HandlePaintTextureInput()
+{
+    if (!m_PaintTextureOnDrag) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+
+    const BrushTarget cursor = ResolveCursorTile();
+    if (!cursor.valid) return;
+
+    const int radius = m_BrushRadius < 1 ? 1 : m_BrushRadius;
+    const int origin = radius - 1;
+    const int extent = radius * 2 - 1;
+    const unsigned char brush =
+        static_cast<unsigned char>(m_TextureBrushIndex);
+
+    // Stamp a square footprint around the cursor — same shape as the
+    // attribute painter so the radius slider feels consistent across
+    // modes. Bounds-check each tile (we don't want to wrap).
+    for (int dy = 0; dy < extent; ++dy)
+    {
+        const int y = cursor.tileY - origin + dy;
+        if (y < 0 || y >= TERRAIN_SIZE) continue;
+        for (int dx = 0; dx < extent; ++dx)
+        {
+            const int x = cursor.tileX - origin + dx;
+            if (x < 0 || x >= TERRAIN_SIZE) continue;
+            TerrainMappingLayer1[x + y * TERRAIN_SIZE] = brush;
+        }
     }
 }
 
