@@ -80,6 +80,20 @@ extern CMurdererMove g_MurdererMove;
 extern vec3_t MousePosition, MouseTarget;
 extern bool SelectFlag;
 
+// Editor offline-authoring gate. Returns true when a custom map slot is
+// being authored, telling the network layer to mute outbound movement so
+// the server (which still thinks we're on the previously-warped world)
+// doesn't rubber-band the hero across our painted attributes. Implemented
+// in MuEditor/UI/DevEditor/DevEditorUI.cpp; returns false in non-editor
+// builds.
+extern "C" bool DevEditor_IsOfflineAuthoring();
+
+// Editor paint-on-drag gate. Returns true when the terrain painter's
+// "Paint on left-mouse drag" toggle is on. When true, LMB is consumed by
+// the painter and the engine's click-to-move / attack paths must swallow
+// it instead of routing it to pathfinding / SendMove.
+extern "C" bool DevEditor_IsPaintingTerrain();
+
 extern void RegisterBuff(eBuffState buff, OBJECT* o, const int bufftime = 0);
 extern void UnRegisterBuff(eBuffState buff, OBJECT* o);
 
@@ -1891,6 +1905,14 @@ int	getTargetCharacterKey(CHARACTER* c, int selected)
 void SendCharacterMove(unsigned short Key, float Angle, unsigned char PathNum, unsigned char* PathX, unsigned char* PathY, unsigned char TargetX, unsigned char TargetY)
 {
     if (PathNum < 1)
+        return;
+
+    // Offline authoring: don't tell the server we moved. The local hero
+    // walks the painted TerrainWall freely; the server never disagrees
+    // because it never hears us. Only Hero is gated — NPC/monster move
+    // routing isn't affected (they go through their own paths and the
+    // server is still authoritative over them).
+    if (Key == Hero->Key && DevEditor_IsOfflineAuthoring())
         return;
 
     if (PathNum >= MAX_PATH_FIND)
@@ -6698,6 +6720,16 @@ bool SkillKeyPush(int Skill)
 
 void Attack(CHARACTER* c)
 {
+    // Painter is consuming LMB this frame — drop the click before any
+    // attack/movement logic reads it. Right-click is left untouched so
+    // skill-targeting and camera still work while painting.
+    if (DevEditor_IsPaintingTerrain())
+    {
+        MouseLButtonPush = false;
+        MouseLButton = false;
+        return;
+    }
+
     if ((MouseOnWindow || !SEASON3B::CheckMouseIn(0, 0, GetScreenWidth(), 429)) && MouseLButtonPush)
     {
         MouseRButtonPop = false;
@@ -7514,6 +7546,18 @@ void MoveHero()
 
     if (!MouseOnWindow && false == g_pNewUISystem->CheckMouseUse())
     {
+        // Painter consumes LMB drag — don't pathfind / move toward the
+        // clicked tile. Swallow the click before the success block reads
+        // it; LButtonPress timing is reset so the auto-move history
+        // doesn't carry over once the user toggles paint-on-drag off.
+        if (DevEditor_IsPaintingTerrain())
+        {
+            MouseLButtonPush = false;
+            MouseLButton = false;
+            LButtonPopTime = WorldTime;
+            LButtonPressTime = 0.f;
+        }
+
         bool Success = false;
         if (MouseUpdateTime >= MouseUpdateTimeMax)
         {

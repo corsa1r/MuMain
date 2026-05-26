@@ -15,6 +15,31 @@
 #include "Data/GameConfig/GameConfig.h"
 #include "UI/Console/MuEditorConsoleUI.h"
 
+// Map authoring
+#include "CustomMap/CustomMapIO.h"
+#include "CustomMap/SourceBank.h"
+#include "Core/Globals/_define.h"          // TW_* flags, TERRAIN_SIZE
+#include "Render/Terrain/ZzzLodTerrain.h"  // AddTerrainAttribute, SelectXF/YF
+#include "Render/Textures/ZzzOpenglUtil.h" // EnableAlphaBlend / DisableTexture etc.
+#include "Engine/Object/ZzzObject.h"       // CreateObject, ObjectBlock
+#include "Engine/Object/w_ObjectInfo.h"    // OBJECT
+#include "Render/Models/ZzzBMD.h"          // BMD, Models[]
+#include <gl/GL.h>
+
+#include <cstdio>
+#include <cctype>
+
+// Cursor-on-terrain picking state set by the terrain renderer each frame.
+extern bool SelectFlag;
+
+// Engine edit-mode flag. When non-EDIT_NONE, MainScene runs an extra
+// RenderTerrain(true) pass each frame that ray-casts the mouse against
+// terrain tiles and updates SelectXF/SelectYF. We toggle this between
+// EDIT_WALL and EDIT_NONE based on the paint-on-drag state so the brush
+// always reads the current cursor tile, not a stale value from the last
+// click-to-move.
+extern int EditFlag;
+
 // External C functions
 extern "C" CameraManager& CameraManager_Instance();
 extern "C" OrbitalCamera* GetOrbitalCameraInstance();
@@ -54,6 +79,161 @@ namespace
 
     // World-to-tile scale (100 world units = 1 tile)
     constexpr float WORLD_TO_TILE_DIVISOR = 100.0f;
+
+    // Modal popup ids — ImGui uses the string as both the lookup key and
+    // the visible title bar text. The "###" suffix keeps the ID stable
+    // while the leading text becomes the user-facing title (looked up via
+    // EDITOR_TEXT at render time).
+    constexpr const char* NEW_MAP_POPUP_ID  = "###dev_new_map_modal";
+    constexpr const char* LOAD_MAP_POPUP_ID = "###dev_load_map_modal";
+
+    // Custom-map slot id input bounds. Matches CustomMapIO's BYTE header field;
+    // also keeps us clear of the 0..4 range whose .att files trip the classic
+    // loader's per-world sentinel tile checks.
+    constexpr int CUSTOM_MAP_ID_INPUT_MIN = 5;
+    constexpr int CUSTOM_MAP_ID_INPUT_MAX = 254;
+
+    // Brush options. Restricted to the low-byte attrs because the legacy
+    // AddTerrainAttribute(int,int,BYTE) helper truncates anything wider.
+    struct BrushAttribute
+    {
+        WORD        bits;
+        const char* label;
+    };
+    constexpr BrushAttribute kBrushAttributes[] =
+    {
+        { TW_SAFEZONE, "TW_SAFEZONE  (safe zone)"   },
+        { TW_NOMOVE,   "TW_NOMOVE    (blocked)"     },
+        { TW_NOGROUND, "TW_NOGROUND  (void)"        },
+        { TW_WATER,    "TW_WATER     (water)"       },
+        { TW_ACTION,   "TW_ACTION    (action tile)" },
+        { TW_HEIGHT,   "TW_HEIGHT    (height pin)"  },
+        { TW_CAMERA_UP,"TW_CAMERA_UP (camera lift)" },
+    };
+    constexpr int kBrushAttributeCount =
+        static_cast<int>(sizeof(kBrushAttributes) / sizeof(kBrushAttributes[0]));
+
+    // Painter brush limits.
+    constexpr int  BRUSH_RADIUS_MIN = 1;
+    constexpr int  BRUSH_RADIUS_MAX = 16;
+
+    // Attribute-overlay color table. One entry per displayable TW_* bit.
+    // First matching bit wins per tile (no blending — keeps the visual
+    // unambiguous when a tile carries multiple attributes).
+    struct OverlayAttribute
+    {
+        WORD        bit;
+        float       r, g, b;
+        const char* label;
+    };
+    constexpr OverlayAttribute kOverlayAttrs[] =
+    {
+        { TW_SAFEZONE,  0.20f, 1.00f, 0.20f, "TW_SAFEZONE   (green)"    },
+        { TW_NOMOVE,    1.00f, 0.20f, 0.20f, "TW_NOMOVE     (red)"      },
+        { TW_NOGROUND,  0.10f, 0.10f, 0.10f, "TW_NOGROUND   (black)"    },
+        { TW_WATER,     0.30f, 0.50f, 1.00f, "TW_WATER      (blue)"     },
+        { TW_ACTION,    1.00f, 1.00f, 0.20f, "TW_ACTION     (yellow)"   },
+        { TW_HEIGHT,    1.00f, 0.40f, 1.00f, "TW_HEIGHT     (magenta)"  },
+        { TW_CAMERA_UP, 0.20f, 1.00f, 1.00f, "TW_CAMERA_UP  (cyan)"     },
+    };
+    constexpr int kOverlayAttrCount =
+        static_cast<int>(sizeof(kOverlayAttrs) / sizeof(kOverlayAttrs[0]));
+
+    // Overlay render tuning.
+    constexpr int   OVERLAY_CULL_RADIUS = 40;     // tiles around hero
+    constexpr float OVERLAY_ALPHA       = 0.45f;
+    constexpr float OVERLAY_Z_OFFSET    = 5.0f;   // sit just above the terrain
+
+    // Classic world picker — keep the dialog focused on the maps an authoring
+    // workflow actually starts from. Folder index is 1-based (matches the
+    // "World<n>" directory naming).
+    struct ClassicWorld
+    {
+        int         folderIndex;
+        const char* label;
+    };
+    // World name table, organized by WD_* enum order. Folder index is
+    // the 1-based "World<N>" directory (WorldActive + 1). When a folder
+    // ships but isn't in this table, the Sources combo falls back to
+    // a bare "World<N>" label so private-server maps stay selectable.
+    constexpr ClassicWorld kClassicWorlds[] =
+    {
+        // Continents (WD_0..WD_10)
+        {  1, "World1   Lorencia"          },
+        {  2, "World2   Dungeon"           },
+        {  3, "World3   Devias"            },
+        {  4, "World4   Noria"             },
+        {  5, "World5   Lost Tower"        },
+        {  7, "World7   Stadium / Arena"   },
+        {  8, "World8   Atlans"            },
+        {  9, "World9   Tarkan"            },
+        { 10, "World10  Devil Square"      },
+        { 11, "World11  Icarus / Heaven"   },
+
+        // Event maps (Blood Castle 12..18, Chaos Castle 19..25)
+        { 12, "World12  Blood Castle 1"    },
+        { 13, "World13  Blood Castle 2"    },
+        { 14, "World14  Blood Castle 3"    },
+        { 15, "World15  Blood Castle 4"    },
+        { 16, "World16  Blood Castle 5"    },
+        { 17, "World17  Blood Castle 6"    },
+        { 18, "World18  Blood Castle 7"    },
+        { 19, "World19  Chaos Castle 1"    },
+
+        // Hellas / Battle Castle
+        { 25, "World25  Hellas"            },
+        { 31, "World31  Battle Castle"     },
+        { 32, "World32  Hunting Ground"    },
+
+        // Season 3+ continents
+        { 34, "World34  Aida"              },
+        { 35, "World35  Crywolf 1st"       },
+        { 36, "World36  Crywolf 2nd"       },
+        { 38, "World38  Kanturu Ruins"     },
+        { 39, "World39  Kanturu 2nd"       },
+        { 40, "World40  Kanturu Relics"    },
+        { 41, "World41  GM Area"           },
+
+        // Cursed Temple Lv1..Lv6
+        { 46, "World46  Cursed Temple 1"   },
+        { 47, "World47  Cursed Temple 2"   },
+        { 48, "World48  Cursed Temple 3"   },
+        { 49, "World49  Cursed Temple 4"   },
+        { 50, "World50  Cursed Temple 5"   },
+        { 51, "World51  Cursed Temple 6"   },
+
+        // Season 6+ continents and instances
+        { 52, "World52  Elveland (S6 Home)"},
+        { 53, "World53  Blood Castle ML"   },
+        { 54, "World54  Chaos Castle ML"   },
+        { 57, "World57  Swamp of Calmness" },
+        { 58, "World58  Raklion / Ice City"},
+        { 59, "World59  Raklion Boss"      },
+        { 63, "World63  Santa Town"        },
+        { 64, "World64  PK Field"          },
+        { 65, "World65  Duel Arena"        },
+
+        // Doppelganger 1..4
+        { 66, "World66  Doppelganger 1"    },
+        { 67, "World67  Doppelganger 2"    },
+        { 68, "World68  Doppelganger 3"    },
+        { 69, "World69  Doppelganger 4"    },
+
+        // Empire Guardian 1..4
+        { 70, "World70  Empire Guardian 1" },
+        { 71, "World71  Empire Guardian 2" },
+        { 72, "World72  Empire Guardian 3" },
+        { 73, "World73  Empire Guardian 4" },
+
+        // Later utility / Karutan
+        { 74, "World74  New Login Scene"   },
+        { 75, "World75  New Character Sel" },
+        { 80, "World80  United Marketplace"},
+        { 81, "World81  Karutan 1"         },
+        { 82, "World82  Karutan 2"         },
+    };
+    constexpr int kClassicWorldCount =
+        static_cast<int>(sizeof(kClassicWorlds) / sizeof(kClassicWorlds[0]));
 }
 
 CDevEditorUI& CDevEditorUI::GetInstance()
@@ -87,11 +267,20 @@ void CDevEditorUI::Render(bool* p_open)
         return;
 
     ImGui::SetNextWindowSize(ImVec2(450, 500), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(EDITOR_TEXT("label_dev_editor_title"), p_open))
+    if (!ImGui::Begin(EDITOR_TEXT("label_dev_editor_title"),
+                      p_open,
+                      ImGuiWindowFlags_MenuBar))
     {
         ImGui::End();
+        // Painter input must still run when window is collapsed — the user
+        // may have enabled paint-on-drag from a previous frame.
+        HandlePaintBrushInput();
         return;
     }
+
+    RenderFileMenuBar();
+    RenderFileMenuModals();   // Same Begin/End scope as the menu callback.
+    RenderOfflineAuthoringBanner();
 
     // Tab bar
     if (ImGui::BeginTabBar("DevEditorTabs"))
@@ -108,13 +297,17 @@ void CDevEditorUI::Render(bool* p_open)
             ImGui::EndTabItem();
         }
 
-        // Future tabs can be added here
-        // if (ImGui::BeginTabItem("Performance")) { ... }
+        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_painter")))
+        {
+            RenderTerrainPainterTab();
+            ImGui::EndTabItem();
+        }
 
         ImGui::EndTabBar();
     }
 
     ImGui::End();
+    HandlePaintBrushInput();
 }
 
 void CDevEditorUI::RenderScenesTab()
@@ -645,6 +838,904 @@ void CDevEditorUI::RenderGraphicsDebugInfo()
     ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", EDITOR_TEXT("dev_label_paste_hint"));
 }
 
+// --- Map authoring: File menu + Terrain Painter -----------------------------
+// IO lives in MuEditor::CustomMap; these methods are UI glue only.
+// Modal popups are opened from the menu callback and rendered each frame in
+// the same Begin/End scope so ImGui can manage their lifetime.
+
+void CDevEditorUI::RenderFileMenuBar()
+{
+    if (!ImGui::BeginMenuBar()) return;
+
+    if (ImGui::BeginMenu(EDITOR_TEXT("dev_menu_file")))
+    {
+        // Only flag the request here; the actual OpenPopup runs at window
+        // scope inside RenderFileMenuModals so it lands on the same ID
+        // stack that BeginPopupModal uses.
+        if (ImGui::MenuItem(EDITOR_TEXT("dev_menu_file_new_map")))
+        {
+            m_RequestOpenNewMap = true;
+        }
+
+        const bool canSave = (m_CurrentCustomMapId >= 0);
+        if (ImGui::MenuItem(EDITOR_TEXT("dev_menu_file_save_map"), nullptr, false, canSave))
+        {
+            MuEditor::CustomMap::SaveCustomMap(m_CurrentCustomMapId);
+        }
+        if (!canSave && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("%s", EDITOR_TEXT("dev_tip_save_needs_slot"));
+        }
+
+        if (ImGui::MenuItem(EDITOR_TEXT("dev_menu_file_load_map")))
+        {
+            m_RequestOpenLoadMap = true;
+        }
+
+        ImGui::EndMenu();
+    }
+
+    // Active-slot indicator on the right side of the menu bar.
+    if (m_CurrentCustomMapId >= 0)
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "  [%s %d]",
+            EDITOR_TEXT("dev_label_custom_slot"), m_CurrentCustomMapId);
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", buf);
+    }
+
+    ImGui::EndMenuBar();
+}
+
+void CDevEditorUI::RenderOfflineAuthoringBanner()
+{
+    if (!IsOfflineAuthoring()) return;
+
+    // Yellow-on-dark band immediately under the menu bar. Borders + padding
+    // make it impossible to miss while still leaving the tab bar usable.
+    const ImVec4 bgColor   = ImVec4(0.35f, 0.25f, 0.00f, 1.00f);
+    const ImVec4 textColor = ImVec4(1.00f, 0.85f, 0.20f, 1.00f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, bgColor);
+    ImGui::BeginChild("OfflineAuthoringBanner",
+                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2.6f),
+                      true);
+    ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+    ImGui::TextWrapped("%s", EDITOR_TEXT("dev_offline_banner_title"));
+    ImGui::TextWrapped("%s", EDITOR_TEXT("dev_offline_banner_body"));
+    ImGui::PopStyleColor();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+void CDevEditorUI::RenderFileMenuModals()
+{
+    // Honor deferred open requests at window scope so the popup IDs match
+    // the BeginPopupModal scope below.
+    if (m_RequestOpenNewMap)
+    {
+        ImGui::OpenPopup(NEW_MAP_POPUP_ID);
+        m_RequestOpenNewMap = false;
+    }
+    if (m_RequestOpenLoadMap)
+    {
+        ImGui::OpenPopup(LOAD_MAP_POPUP_ID);
+        m_RequestOpenLoadMap = false;
+    }
+
+    RenderNewMapModal();
+    RenderLoadMapModal();
+}
+
+void CDevEditorUI::RenderNewMapModal()
+{
+    // ImGui::BeginPopupModal: "<visible title>###<stable id>".
+    // The localized title is composed at render time so language changes
+    // re-flow into the title bar.
+    char popupLabel[128];
+    std::snprintf(popupLabel, sizeof(popupLabel), "%s%s",
+                  EDITOR_TEXT("dev_new_map_title"), NEW_MAP_POPUP_ID);
+
+    if (!ImGui::BeginPopupModal(popupLabel, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        return;
+    }
+
+    ImGui::Text("%s", EDITOR_TEXT("dev_new_map_help"));
+    ImGui::InputInt(EDITOR_TEXT("dev_new_map_slot_label"), &m_NewMapIdInput);
+    if (m_NewMapIdInput < CUSTOM_MAP_ID_INPUT_MIN) m_NewMapIdInput = CUSTOM_MAP_ID_INPUT_MIN;
+    if (m_NewMapIdInput > CUSTOM_MAP_ID_INPUT_MAX) m_NewMapIdInput = CUSTOM_MAP_ID_INPUT_MAX;
+
+    ImGui::TextDisabled("Data\\World\\Custom\\World%d\\EncTerrain%d.{att,obj}",
+                        m_NewMapIdInput + 1, m_NewMapIdInput + 1);
+
+    if (ImGui::Button(EDITOR_TEXT("dev_btn_create"), ImVec2(120, 0)))
+    {
+        const int newId = m_NewMapIdInput;
+        if (MuEditor::CustomMap::CreateNewCustomMap(newId) &&
+            MuEditor::CustomMap::LoadCustomMap(newId))
+        {
+            m_CurrentCustomMapId = newId;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(EDITOR_TEXT("dev_btn_cancel"), ImVec2(120, 0)))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+void CDevEditorUI::RenderLoadMapModal()
+{
+    char popupLabel[128];
+    std::snprintf(popupLabel, sizeof(popupLabel), "%s%s",
+                  EDITOR_TEXT("dev_load_map_title"), LOAD_MAP_POPUP_ID);
+
+    if (!ImGui::BeginPopupModal(popupLabel, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        return;
+    }
+
+    ImGui::Text("%s", EDITOR_TEXT("dev_load_map_classic_header"));
+    // Scrollable region — the full classic-world list is too long to
+    // grow the modal vertically without clipping the rest of the
+    // dialog. 12-row cap keeps it comfortable on common resolutions.
+    const float classicListHeight = ImGui::GetTextLineHeightWithSpacing() * 12.0f;
+    ImGui::BeginChild("##classicworlds", ImVec2(280, classicListHeight), true);
+    for (int i = 0; i < kClassicWorldCount; ++i)
+    {
+        const ClassicWorld& w = kClassicWorlds[i];
+        if (w.folderIndex < 1) continue;
+        ImGui::PushID(w.folderIndex);
+        if (ImGui::Button(w.label, ImVec2(-1, 0)))
+        {
+            if (MuEditor::CustomMap::LoadClassicMap(w.folderIndex))
+            {
+                // Classic load: drop slot binding so Save Map can't clobber
+                // shipping assets via the custom path.
+                m_CurrentCustomMapId = -1;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::Text("%s", EDITOR_TEXT("dev_load_map_custom_header"));
+    ImGui::Indent();
+    const std::vector<int> customIds = MuEditor::CustomMap::ListCustomMapIds();
+    if (customIds.empty())
+    {
+        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_load_map_no_custom"));
+    }
+    for (int mapId : customIds)
+    {
+        ImGui::PushID(mapId);
+        char label[64];
+        std::snprintf(label, sizeof(label), "World%d  (slot %d)",
+                      mapId + 1, mapId);
+        if (ImGui::Button(label, ImVec2(260, 0)))
+        {
+            if (MuEditor::CustomMap::LoadCustomMap(mapId))
+            {
+                m_CurrentCustomMapId = mapId;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::Unindent();
+
+    ImGui::Separator();
+    if (ImGui::Button(EDITOR_TEXT("dev_btn_close"), ImVec2(120, 0)))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+namespace
+{
+    // Resolves the tile coordinate (0..255) that the brush should affect this
+    // frame. Cursor pick wins when valid; falls back to the hero's tile so
+    // the "Paint at hero" button works without a terrain pick.
+    struct BrushTarget
+    {
+        bool valid;
+        int  tileX;
+        int  tileY;
+    };
+
+    BrushTarget ResolveCursorTile()
+    {
+        if (!SelectFlag) return { false, 0, 0 };
+        const int x = static_cast<int>(SelectXF);
+        const int y = static_cast<int>(SelectYF);
+        if (x < 0 || x >= TERRAIN_SIZE || y < 0 || y >= TERRAIN_SIZE)
+            return { false, 0, 0 };
+        return { true, x, y };
+    }
+
+    BrushTarget ResolveHeroTile()
+    {
+        if (!Hero) return { false, 0, 0 };
+        const int x = static_cast<int>(Hero->Object.Position[0] / TERRAIN_SCALE);
+        const int y = static_cast<int>(Hero->Object.Position[1] / TERRAIN_SCALE);
+        if (x < 0 || x >= TERRAIN_SIZE || y < 0 || y >= TERRAIN_SIZE)
+            return { false, 0, 0 };
+        return { true, x, y };
+    }
+
+    void ApplyBrushAt(int tileX, int tileY, BYTE attr, int radius, bool subtract)
+    {
+        // AddTerrainAttributeRange already clamps internally to the grid via
+        // the (x+i, y+j) addressing; we just center on the target tile.
+        const int origin = radius - 1;            // 1 -> 0, 2 -> 1, ...
+        const int extent = radius * 2 - 1;        // 1 -> 1, 2 -> 3, 3 -> 5
+        const BYTE addFlag = subtract ? 0 : 1;
+        AddTerrainAttributeRange(tileX - origin, tileY - origin,
+                                 extent, extent, attr, addFlag);
+    }
+}
+
+void CDevEditorUI::RenderTerrainPainterTab()
+{
+    ImGui::TextWrapped("%s", EDITOR_TEXT("dev_painter_intro"));
+    ImGui::Separator();
+
+    // Brush attribute picker.
+    if (m_BrushAttrIndex < 0 || m_BrushAttrIndex >= kBrushAttributeCount)
+        m_BrushAttrIndex = 0;
+
+    if (ImGui::BeginCombo(EDITOR_TEXT("dev_painter_attr"),
+                          kBrushAttributes[m_BrushAttrIndex].label))
+    {
+        for (int i = 0; i < kBrushAttributeCount; ++i)
+        {
+            const bool selected = (i == m_BrushAttrIndex);
+            if (ImGui::Selectable(kBrushAttributes[i].label, selected))
+                m_BrushAttrIndex = i;
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    // Add vs subtract.
+    int mode = m_BrushSubtractMode ? 1 : 0;
+    ImGui::RadioButton(EDITOR_TEXT("dev_painter_mode_add"), &mode, 0); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_painter_mode_sub"), &mode, 1);
+    m_BrushSubtractMode = (mode == 1);
+
+    // Brush radius.
+    ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
+                     &m_BrushRadius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
+
+    // Brush-mode radio — exactly one of paint / place / delete (or off).
+    int curMode = 0;
+    if      (m_BrushPaintOnDrag)     curMode = 1;
+    else if (m_PlaceOnClickEnabled)  curMode = 2;
+    else if (m_DeleteOnClickEnabled) curMode = 3;
+    int newMode = curMode;
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_brush_mode_header"));
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_off"),    &newMode, 0); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),  &newMode, 1); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),  &newMode, 2); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"), &newMode, 3);
+    if (newMode != curMode) SetExclusiveBrushMode(newMode);
+
+    RenderUndoControls();
+
+    ImGui::Separator();
+
+    // Attribute overlay — visualize which tiles carry which bits.
+    ImGui::Checkbox(EDITOR_TEXT("dev_painter_show_overlay"), &m_ShowAttrOverlay);
+    if (m_ShowAttrOverlay)
+    {
+        ImGui::Indent();
+        for (int i = 0; i < kOverlayAttrCount; ++i)
+        {
+            const OverlayAttribute& a = kOverlayAttrs[i];
+            const ImVec4 swatch(a.r, a.g, a.b, 1.0f);
+            ImGui::ColorButton("##swatch", swatch,
+                ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                ImVec2(16, 16));
+            ImGui::SameLine();
+            bool on = (m_OverlayAttrMask & a.bit) != 0;
+            ImGui::PushID(i);
+            if (ImGui::Checkbox(a.label, &on))
+            {
+                if (on) m_OverlayAttrMask |=  a.bit;
+                else    m_OverlayAttrMask &= ~a.bit;
+            }
+            ImGui::PopID();
+        }
+        ImGui::Unindent();
+    }
+
+    ImGui::Separator();
+
+    // Live target readout.
+    const BrushTarget cursor = ResolveCursorTile();
+    const BrushTarget hero   = ResolveHeroTile();
+
+    if (cursor.valid)
+        ImGui::Text("%s: (%d, %d)", EDITOR_TEXT("dev_painter_cursor_tile"),
+                    cursor.tileX, cursor.tileY);
+    else
+        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_painter_cursor_none"));
+
+    if (hero.valid)
+        ImGui::Text("%s: (%d, %d)", EDITOR_TEXT("dev_painter_hero_tile"),
+                    hero.tileX, hero.tileY);
+
+    ImGui::Spacing();
+
+    // One-shot apply buttons.
+    const BYTE attr = static_cast<BYTE>(kBrushAttributes[m_BrushAttrIndex].bits);
+    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_hero"), ImVec2(220, 0)) && hero.valid)
+    {
+        ApplyBrushAt(hero.tileX, hero.tileY, attr, m_BrushRadius, m_BrushSubtractMode);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_cursor"), ImVec2(220, 0)) && cursor.valid)
+    {
+        ApplyBrushAt(cursor.tileX, cursor.tileY, attr, m_BrushRadius, m_BrushSubtractMode);
+    }
+
+    // Static-object authoring sections. Source-bank management is always
+    // visible; the place / delete details only render under their tree
+    // node so the painter tab doesn't become a wall of controls.
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_sources")))
+    {
+        ImGui::Indent();
+        RenderSourcesPanel();
+        ImGui::Unindent();
+    }
+    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_place")))
+    {
+        ImGui::Indent();
+        RenderPlaceObjectPanel();
+        ImGui::Unindent();
+    }
+    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_delete")))
+    {
+        ImGui::Indent();
+        RenderDeleteObjectPanel();
+        ImGui::Unindent();
+    }
+}
+
+void CDevEditorUI::HandlePaintBrushInput()
+{
+    // EDIT_WALL drives MainScene's per-frame RenderTerrain(true) pass
+    // that ray-casts the mouse and updates SelectXF/YF. Any of the three
+    // editor brush modes needs that pick — without it the cursor readout
+    // is stale and place/delete would always hit the same tile.
+    EditFlag = IsPaintingTerrain() ? EDIT_WALL : EDIT_NONE;
+
+    // Paint mode early-out runs the attribute brush; place/delete are
+    // independent handlers below.
+    if (m_BrushPaintOnDrag)
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantCaptureMouse &&
+            ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            const BrushTarget cursor = ResolveCursorTile();
+            if (cursor.valid)
+            {
+                const BYTE attr =
+                    static_cast<BYTE>(kBrushAttributes[m_BrushAttrIndex].bits);
+                ApplyBrushAt(cursor.tileX, cursor.tileY, attr,
+                             m_BrushRadius, m_BrushSubtractMode);
+            }
+        }
+    }
+
+    HandlePlaceObjectInput();
+    HandleDeleteObjectInput();
+}
+
+void CDevEditorUI::SetExclusiveBrushMode(int mode)
+{
+    // Modes: 0 = none, 1 = paint, 2 = place, 3 = delete.
+    m_BrushPaintOnDrag    = (mode == 1);
+    m_PlaceOnClickEnabled = (mode == 2);
+    m_DeleteOnClickEnabled = (mode == 3);
+
+    // Leaving place mode must hide the ghost preview immediately,
+    // otherwise the half-transparent OBJECT lingers in ObjectBlock
+    // until the next HandlePlaceObjectInput frame runs.
+    if (!m_PlaceOnClickEnabled) HidePlacementPreview();
+}
+
+namespace
+{
+    // Maps SelectXF/YF (tile-corner ints) to the tile-center world XY
+    // we want to place objects at. RequestTerrainHeight gives the Z so
+    // we ground-snap automatically — same scheme as cross-world import.
+    bool ResolveCursorWorldPosition(vec3_t outPos)
+    {
+        if (!SelectFlag) return false;
+        const int x = static_cast<int>(SelectXF);
+        const int y = static_cast<int>(SelectYF);
+        if (x < 0 || x >= TERRAIN_SIZE || y < 0 || y >= TERRAIN_SIZE)
+            return false;
+        outPos[0] = (static_cast<float>(x) + 0.5f) * TERRAIN_SCALE;
+        outPos[1] = (static_cast<float>(y) + 0.5f) * TERRAIN_SCALE;
+        outPos[2] = RequestTerrainHeight(outPos[0], outPos[1]);
+        return true;
+    }
+}
+
+void CDevEditorUI::RenderSourcesPanel()
+{
+    ImGui::TextWrapped("%s", EDITOR_TEXT("dev_sources_intro"));
+
+    // Dropdown is populated by scanning Data\Object<N>\ directories at
+    // editor startup — that's the actual ground truth for what side-
+    // loadable banks ship in this build. kClassicWorlds is used only
+    // as a name lookup (so "World3" displays as "World3  Devias"); any
+    // folder we don't have a friendly name for still appears as
+    // "World<N>" so private-server / custom maps remain selectable.
+    auto labelForFolderIndex = [](int folder, char* buf, size_t bufN)
+    {
+        for (int i = 0; i < kClassicWorldCount; ++i)
+        {
+            if (kClassicWorlds[i].folderIndex == folder)
+            {
+                std::snprintf(buf, bufN, "%s", kClassicWorlds[i].label);
+                return;
+            }
+        }
+        std::snprintf(buf, bufN, "World%d", folder);
+    };
+
+    const auto& available =
+        MuEditor::CustomMap::EnumerateAvailableSourceWorlds();
+
+    char currentLabel[64] = "(select source)";
+    if (m_AddSourceWorldInput > 0)
+        labelForFolderIndex(m_AddSourceWorldInput, currentLabel, sizeof(currentLabel));
+
+    ImGui::SetNextItemWidth(260);
+    if (ImGui::BeginCombo(EDITOR_TEXT("dev_sources_world_index"), currentLabel))
+    {
+        for (int folder : available)
+        {
+            char label[64];
+            labelForFolderIndex(folder, label, sizeof(label));
+            const bool sel = (folder == m_AddSourceWorldInput);
+            ImGui::PushID(folder);
+            if (ImGui::Selectable(label, sel))
+                m_AddSourceWorldInput = folder;
+            if (sel) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(EDITOR_TEXT("dev_sources_add")))
+    {
+        const int off =
+            MuEditor::CustomMap::LoadSourceBank(m_AddSourceWorldInput);
+        if (off >= 0 && m_PlaceSourceWorld < 0)
+            m_PlaceSourceWorld = m_AddSourceWorldInput;
+    }
+
+    // Loaded list with remove buttons.
+    auto banks = MuEditor::CustomMap::GetLoadedSourceBanks();
+    if (banks.empty())
+    {
+        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_sources_none"));
+        return;
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_sources_loaded_header"));
+    for (const auto& b : banks)
+    {
+        ImGui::PushID(b.worldFolderIndex);
+        ImGui::Text("World%d  (slots %d..%d)",
+                    b.worldFolderIndex,
+                    b.baseOffset,
+                    b.baseOffset + 159);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(EDITOR_TEXT("dev_sources_remove")))
+        {
+            MuEditor::CustomMap::UnloadSourceBank(b.worldFolderIndex);
+            if (m_PlaceSourceWorld == b.worldFolderIndex)
+                m_PlaceSourceWorld = -1;
+        }
+        ImGui::PopID();
+    }
+}
+
+void CDevEditorUI::RenderPlaceObjectPanel()
+{
+    auto banks = MuEditor::CustomMap::GetLoadedSourceBanks();
+    if (banks.empty())
+    {
+        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_place_need_source"));
+        return;
+    }
+
+    // Source picker.
+    const char* curLabel = "(none)";
+    char curBuf[32];
+    if (m_PlaceSourceWorld >= 0)
+    {
+        std::snprintf(curBuf, sizeof(curBuf),
+                      "World%d", m_PlaceSourceWorld);
+        curLabel = curBuf;
+    }
+    if (ImGui::BeginCombo(EDITOR_TEXT("dev_place_active_source"), curLabel))
+    {
+        for (const auto& b : banks)
+        {
+            char label[32];
+            std::snprintf(label, sizeof(label), "World%d",
+                          b.worldFolderIndex);
+            const bool sel = (b.worldFolderIndex == m_PlaceSourceWorld);
+            if (ImGui::Selectable(label, sel))
+                m_PlaceSourceWorld = b.worldFolderIndex;
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    if (m_PlaceSourceWorld < 0) return;
+
+    // Slot picker grid — 8 columns x 20 rows, scrollable. Empty bank
+    // slots (NumMeshs == 0) are greyed-out and unclickable; the
+    // selected cell is highlighted; clicking a cell drives the cursor
+    // ghost preview via m_PlaceLocalType. A filter box above narrows
+    // the grid to cells whose BMD name or texture filenames match the
+    // substring (case-insensitive) — type "tree", ".tga", "stone", etc.
+    //
+    // Phase 3 plan: cell *content* will be replaced with FBO-rendered
+    // thumbnails; surrounding layout stays as-is.
+    constexpr int   SLOT_COUNT     = 160;
+    constexpr int   GRID_COLUMNS   = 8;
+    constexpr float GRID_CELL_SIZE = 36.0f;
+    constexpr float GRID_HEIGHT    = 320.0f;
+    constexpr int SLOT_MAX = SLOT_COUNT - 1;
+    if (m_PlaceLocalType < 0)       m_PlaceLocalType = 0;
+    if (m_PlaceLocalType > SLOT_MAX) m_PlaceLocalType = SLOT_MAX;
+
+    const int baseOffset =
+        MuEditor::CustomMap::GetSourceBankBaseOffset(m_PlaceSourceWorld);
+
+    // Case-insensitive substring match. Used to filter the grid against
+    // BMD::Name + every Textures[i].FileName for the slot. Stops on
+    // first hit since we just need a boolean.
+    auto containsInsensitive = [](const char* hay, const char* needle) -> bool
+    {
+        if (!hay || !needle || !*needle) return true;
+        for (; *hay; ++hay)
+        {
+            const char* h = hay;
+            const char* n = needle;
+            while (*h && *n &&
+                   std::tolower(static_cast<unsigned char>(*h)) ==
+                   std::tolower(static_cast<unsigned char>(*n)))
+            { ++h; ++n; }
+            if (!*n) return true;
+        }
+        return false;
+    };
+
+    auto slotMatchesFilter = [&](int localSlot) -> bool
+    {
+        if (!m_PlaceFilter[0])     return true;
+        if (baseOffset < 0)        return true;
+        const BMD& m = Models[baseOffset + localSlot];
+        if (m.NumMeshs == 0)       return false;
+        if (containsInsensitive(m.Name, m_PlaceFilter)) return true;
+        if (m.Textures != nullptr)
+        {
+            for (int t = 0; t < m.NumMeshs; ++t)
+            {
+                if (containsInsensitive(m.Textures[t].FileName, m_PlaceFilter))
+                    return true;
+            }
+        }
+        return false;
+    };
+
+    ImGui::TextDisabled("%s: %d", EDITOR_TEXT("dev_place_slot"),
+                        m_PlaceLocalType);
+    ImGui::SetNextItemWidth(220);
+    ImGui::InputTextWithHint("##slotfilter",
+                             EDITOR_TEXT("dev_place_filter_hint"),
+                             m_PlaceFilter, sizeof(m_PlaceFilter));
+    ImGui::SameLine();
+    if (ImGui::SmallButton(EDITOR_TEXT("dev_place_filter_clear")))
+        m_PlaceFilter[0] = '\0';
+
+    ImGui::BeginChild("##slotgrid", ImVec2(0, GRID_HEIGHT), true);
+    int displayed = 0;       // tracks column wrap for filtered grid
+    for (int i = 0; i < SLOT_COUNT; ++i)
+    {
+        if (!slotMatchesFilter(i)) continue;
+
+        if ((displayed % GRID_COLUMNS) != 0) ImGui::SameLine();
+        ++displayed;
+
+        const bool empty =
+            (baseOffset >= 0) && (Models[baseOffset + i].NumMeshs == 0);
+        const bool selected = (i == m_PlaceLocalType);
+
+        if (empty)    ImGui::BeginDisabled();
+        if (selected)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                ImVec4(0.20f, 0.55f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                ImVec4(0.30f, 0.65f, 0.95f, 1.0f));
+        }
+
+        char label[8];
+        std::snprintf(label, sizeof(label), "%d", i);
+        ImGui::PushID(i);
+        if (ImGui::Button(label, ImVec2(GRID_CELL_SIZE, GRID_CELL_SIZE)))
+            m_PlaceLocalType = i;
+
+        // Hover tooltip — BMD metadata so the cell number isn't the
+        // only identifier. We deliberately skip BMD::Name because the
+        // shipping BMDs store it in a non-UTF-8 encoding (CP949 / EUC-KR
+        // — the original Korean asset filenames), which ImGui renders
+        // as garbled glyphs. Instead we show the loaded file path,
+        // which is deterministic: source banks always use the uniform
+        // Object<n>.bmd naming under Data\Object<world>\. Texture names
+        // are clean ASCII (engine convention) so they pass through.
+        if (!empty && baseOffset >= 0 && ImGui::IsItemHovered())
+        {
+            const BMD& m = Models[baseOffset + i];
+            ImGui::BeginTooltip();
+            ImGui::Text("Slot %d", i);
+            // n+1 because LoadSourceBank loads with i+1 as the file index.
+            ImGui::Text("File: Data\\Object%d\\Object%02d.bmd",
+                        m_PlaceSourceWorld, i + 1);
+            ImGui::Text("Meshes: %d   Bones: %d   Actions: %d",
+                        m.NumMeshs, m.NumBones, m.NumActions);
+            if (m.Textures != nullptr && m.NumMeshs > 0)
+            {
+                ImGui::Separator();
+                ImGui::TextDisabled("Textures:");
+                constexpr int MAX_TEX_LINES = 8;
+                const int shown =
+                    (m.NumMeshs > MAX_TEX_LINES) ? MAX_TEX_LINES : m.NumMeshs;
+                for (int t = 0; t < shown; ++t)
+                {
+                    if (m.Textures[t].FileName[0])
+                        ImGui::BulletText("%s", m.Textures[t].FileName);
+                }
+                if (m.NumMeshs > MAX_TEX_LINES)
+                    ImGui::TextDisabled("... +%d more",
+                                        m.NumMeshs - MAX_TEX_LINES);
+            }
+            ImGui::EndTooltip();
+        }
+
+        ImGui::PopID();
+
+        if (selected)
+        {
+            ImGui::PopStyleColor();
+            ImGui::PopStyleColor();
+        }
+        if (empty) ImGui::EndDisabled();
+    }
+    if (displayed == 0)
+        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_place_no_matches"));
+    ImGui::EndChild();
+
+    ImGui::SliderFloat(EDITOR_TEXT("dev_place_scale"),
+                       &m_PlaceScale, 0.25f, 4.0f, "%.2f");
+    ImGui::SliderFloat(EDITOR_TEXT("dev_place_angle"),
+                       &m_PlaceAngleZ, 0.0f, 360.0f, "%.0f deg");
+
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_place_click_help"));
+}
+
+void CDevEditorUI::RenderDeleteObjectPanel()
+{
+    ImGui::SliderFloat(EDITOR_TEXT("dev_delete_radius"),
+                       &m_DeleteRadius, 25.0f, 500.0f, "%.0f");
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_delete_click_help"));
+}
+
+void CDevEditorUI::HidePlacementPreview()
+{
+    if (m_PlacementPreview != nullptr)
+    {
+        m_PlacementPreview->Live = false;
+        m_PlacementPreview = nullptr;
+    }
+}
+
+void CDevEditorUI::HandlePlaceObjectInput()
+{
+    // Mode-off / no source / mouse-over-UI / cursor-not-on-terrain all
+    // require the preview to go away. We short-circuit by hiding then
+    // returning so we don't accidentally commit on a stale frame.
+    if (!m_PlaceOnClickEnabled || m_PlaceSourceWorld < 0)
+    {
+        HidePlacementPreview();
+        return;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse)
+    {
+        HidePlacementPreview();
+        return;
+    }
+
+    vec3_t pos;
+    if (!ResolveCursorWorldPosition(pos))
+    {
+        HidePlacementPreview();
+        return;
+    }
+
+    const int baseOffset =
+        MuEditor::CustomMap::GetSourceBankBaseOffset(m_PlaceSourceWorld);
+    if (baseOffset < 0)
+    {
+        HidePlacementPreview();
+        return;
+    }
+    const int absoluteType = baseOffset + m_PlaceLocalType;
+    vec3_t angle = { 0.0f, 0.0f, m_PlaceAngleZ };
+
+    // Spawn the preview lazily on the first valid frame. Subsequent
+    // frames just update fields on the same OBJECT — much cheaper than
+    // CreateObject + DeleteObject every frame, and the spatial-hash
+    // block placement stays stable enough for the renderer's frustum
+    // tests to still find it (it iterates all blocks).
+    constexpr float PREVIEW_ALPHA = 0.5f;
+    if (m_PlacementPreview == nullptr)
+    {
+        m_PlacementPreview = CreateObject(absoluteType, pos, angle, m_PlaceScale);
+    }
+
+    if (m_PlacementPreview != nullptr)
+    {
+        m_PlacementPreview->Live        = true;
+        m_PlacementPreview->Type        = static_cast<short>(absoluteType);
+        m_PlacementPreview->Position[0] = pos[0];
+        m_PlacementPreview->Position[1] = pos[1];
+        m_PlacementPreview->Position[2] = pos[2];
+        m_PlacementPreview->Angle[0]    = 0.0f;
+        m_PlacementPreview->Angle[1]    = 0.0f;
+        m_PlacementPreview->Angle[2]    = m_PlaceAngleZ;
+        m_PlacementPreview->Scale       = m_PlaceScale;
+        m_PlacementPreview->Alpha       = PREVIEW_ALPHA;
+        m_PlacementPreview->AlphaTarget = PREVIEW_ALPHA;
+    }
+
+    // Click → commit. Bump alpha to 1 so the renderer's lerp doesn't
+    // fade it out, push to undo, and forget the pointer. Next frame
+    // the if-null path spawns a fresh preview at the new cursor pos.
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+        m_PlacementPreview != nullptr)
+    {
+        m_PlacementPreview->Alpha       = 1.0f;
+        m_PlacementPreview->AlphaTarget = 1.0f;
+
+        DevEditorUndoAction action;
+        action.kind = DevEditorUndoAction::Kind::PlaceObject;
+        action.obj  = m_PlacementPreview;
+        PushUndo(action);
+
+        m_PlacementPreview = nullptr;
+    }
+}
+
+void CDevEditorUI::HandleDeleteObjectInput()
+{
+    if (!m_DeleteOnClickEnabled) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+
+    vec3_t cursorPos;
+    if (!ResolveCursorWorldPosition(cursorPos)) return;
+
+    OBJECT*  nearest      = nullptr;
+    float    nearestDist2 = m_DeleteRadius * m_DeleteRadius;
+
+    // Iterate the spatial-hash. Skip dead nodes (MarkAllObjectsDead may
+    // have hidden classic-world decor; we don't want delete-click to
+    // resurrect already-hidden objects then immediately re-hide them).
+    constexpr int OBJECT_BLOCK_COUNT = 256;
+    for (int b = 0; b < OBJECT_BLOCK_COUNT; ++b)
+    {
+        for (OBJECT* o = ObjectBlock[b].Head; o != nullptr; o = o->Next)
+        {
+            if (!o->Live) continue;
+            const float dx = o->Position[0] - cursorPos[0];
+            const float dy = o->Position[1] - cursorPos[1];
+            const float d2 = dx * dx + dy * dy;
+            if (d2 < nearestDist2)
+            {
+                nearestDist2 = d2;
+                nearest = o;
+            }
+        }
+    }
+
+    if (nearest)
+    {
+        nearest->Live = false;
+        DevEditorUndoAction action;
+        action.kind = DevEditorUndoAction::Kind::DeleteObject;
+        action.obj  = nearest;
+        PushUndo(action);
+    }
+}
+
+void CDevEditorUI::PushUndo(DevEditorUndoAction action)
+{
+    // Cap stack size — keep the most recent N. 32 is enough that a
+    // mistake several clicks back is still recoverable, while bounding
+    // pointer-set growth across long authoring sessions.
+    constexpr size_t UNDO_STACK_MAX = 32;
+    if (m_UndoStack.size() >= UNDO_STACK_MAX)
+        m_UndoStack.erase(m_UndoStack.begin());
+    m_UndoStack.push_back(action);
+}
+
+void CDevEditorUI::PerformUndo()
+{
+    if (m_UndoStack.empty()) return;
+    const DevEditorUndoAction a = m_UndoStack.back();
+    m_UndoStack.pop_back();
+
+    // OBJECT* may have been MarkAllObjectsDead'd by a map swap since
+    // the action happened — its memory is still valid (we never free
+    // those nodes; see ClearAllObjects deliberately-no-free comment),
+    // so flipping Live is always safe even if the slot's contextually
+    // stale. Worst case: the un-deleted object reappears in the wrong
+    // map context; the user can re-delete it.
+    if (a.obj == nullptr) return;
+
+    switch (a.kind)
+    {
+        case DevEditorUndoAction::Kind::PlaceObject:
+            // Was placed — hide it.
+            a.obj->Live = false;
+            break;
+        case DevEditorUndoAction::Kind::DeleteObject:
+            // Was deleted — restore.
+            a.obj->Live = true;
+            break;
+    }
+}
+
+void CDevEditorUI::RenderUndoControls()
+{
+    const bool canUndo = !m_UndoStack.empty();
+    if (!canUndo) ImGui::BeginDisabled();
+    if (ImGui::Button(EDITOR_TEXT("dev_undo_last")))
+        PerformUndo();
+    if (!canUndo) ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s: %d",
+                        EDITOR_TEXT("dev_undo_stack_depth"),
+                        static_cast<int>(m_UndoStack.size()));
+}
+
 // Accessors for external use
 extern "C"
 {
@@ -918,6 +2009,108 @@ extern "C" {
 #else
         return 10000.0f;
 #endif
+    }
+
+    // Offline authoring mode: the network layer queries this to decide
+    // whether to silence outbound movement packets and inbound Hero
+    // position corrections while a custom map slot is bound.
+    bool DevEditor_IsOfflineAuthoring()
+    {
+#ifdef _EDITOR
+        return g_DevEditorUI.IsOfflineAuthoring();
+#else
+        return false;
+#endif
+    }
+
+    // When true, the engine's click-to-move / attack handlers must skip
+    // any LMB-driven action this frame — the editor's paint brush is
+    // claiming the click. Used in ZzzInterface.cpp Attack() and the main
+    // movement handler to swallow LMB before they consume it.
+    bool DevEditor_IsPaintingTerrain()
+    {
+#ifdef _EDITOR
+        return g_DevEditorUI.IsPaintingTerrain();
+#else
+        return false;
+#endif
+    }
+
+    // Tile-attribute overlay: draws translucent colored quads on each
+    // walkable tile whose attributes match the user's overlay mask. Called
+    // from MainScene's render loop right after RenderTerrain(false) so the
+    // quads land on the visible terrain surface.
+    //
+    // Culling: a square window around the Hero's tile keeps the per-frame
+    // cost bounded — full-grid iteration would be 65536 tiles per frame.
+    void DevEditor_RenderTileAttributeOverlay()
+    {
+#ifdef _EDITOR
+        if (!g_DevEditorUI.ShouldRenderTileAttributeOverlay()) return;
+        if (Hero == nullptr) return;
+
+        const int mask = g_DevEditorUI.GetOverlayAttributeMask();
+        if (mask == 0) return;
+
+        const int hx = static_cast<int>(Hero->Object.Position[0] / TERRAIN_SCALE);
+        const int hy = static_cast<int>(Hero->Object.Position[1] / TERRAIN_SCALE);
+
+        auto clamp = [](int v, int lo, int hi)
+        {
+            return v < lo ? lo : (v > hi ? hi : v);
+        };
+        const int x0 = clamp(hx - OVERLAY_CULL_RADIUS, 0, TERRAIN_SIZE - 2);
+        const int x1 = clamp(hx + OVERLAY_CULL_RADIUS, 0, TERRAIN_SIZE - 2);
+        const int y0 = clamp(hy - OVERLAY_CULL_RADIUS, 0, TERRAIN_SIZE - 2);
+        const int y1 = clamp(hy + OVERLAY_CULL_RADIUS, 0, TERRAIN_SIZE - 2);
+
+        DisableDepthTest();
+        EnableAlphaBlend();
+        DisableTexture();
+
+        for (int y = y0; y <= y1; ++y)
+        {
+            for (int x = x0; x <= x1; ++x)
+            {
+                const WORD attr =
+                    TerrainWall[x + y * TERRAIN_SIZE] &
+                    static_cast<WORD>(mask);
+                if (attr == 0) continue;
+
+                const OverlayAttribute* hit = nullptr;
+                for (int i = 0; i < kOverlayAttrCount; ++i)
+                {
+                    if (attr & kOverlayAttrs[i].bit)
+                    {
+                        hit = &kOverlayAttrs[i];
+                        break;
+                    }
+                }
+                if (hit == nullptr) continue;
+
+                const float sx = static_cast<float>(x) * TERRAIN_SCALE;
+                const float sy = static_cast<float>(y) * TERRAIN_SCALE;
+                const float zA = BackTerrainHeight[
+                    TERRAIN_INDEX_REPEAT(x,     y)]     + OVERLAY_Z_OFFSET;
+                const float zB = BackTerrainHeight[
+                    TERRAIN_INDEX_REPEAT(x + 1, y)]     + OVERLAY_Z_OFFSET;
+                const float zC = BackTerrainHeight[
+                    TERRAIN_INDEX_REPEAT(x + 1, y + 1)] + OVERLAY_Z_OFFSET;
+                const float zD = BackTerrainHeight[
+                    TERRAIN_INDEX_REPEAT(x,     y + 1)] + OVERLAY_Z_OFFSET;
+
+                glBegin(GL_TRIANGLE_FAN);
+                glColor4f(hit->r, hit->g, hit->b, OVERLAY_ALPHA);
+                glVertex3f(sx,                    sy,                    zA);
+                glVertex3f(sx + TERRAIN_SCALE,    sy,                    zB);
+                glVertex3f(sx + TERRAIN_SCALE,    sy + TERRAIN_SCALE,    zC);
+                glVertex3f(sx,                    sy + TERRAIN_SCALE,    zD);
+                glEnd();
+            }
+        }
+
+        DisableAlphaBlend();
+#endif // _EDITOR
     }
 
 }

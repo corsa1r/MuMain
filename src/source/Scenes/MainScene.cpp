@@ -42,6 +42,7 @@
 extern "C" bool DevEditor_IsDebugVisualizationEnabled();
 // DevEditor render toggle functions
 extern "C" bool DevEditor_ShouldRenderTerrain();
+extern "C" void DevEditor_RenderTileAttributeOverlay();
 extern "C" bool DevEditor_ShouldRenderStaticObjects();
 extern "C" bool DevEditor_ShouldRenderEffects();
 extern "C" bool DevEditor_ShouldRenderDroppedItems();
@@ -429,6 +430,11 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
 
     if (!gMapManager.IsPKField() && !IsDoppelGanger2() && renderStatic)
         { FRAME_PROFILE(Objects); RenderObjects(); }
+
+    // Tile attribute overlay (DevEditor) — translucent colored quads on
+    // tiles whose attributes match the user's overlay mask. No-op when
+    // the overlay toggle is off, so the cost is zero outside authoring.
+    DevEditor_RenderTileAttributeOverlay();
 
     if (renderEffects)
     {

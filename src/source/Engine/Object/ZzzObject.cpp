@@ -3311,6 +3311,19 @@ void RenderObjects()
                 {
                     if (o != NULL)
                     {
+                        // Dead objects must never render — the standard
+                        // render block below (line ~3409) gates on Live,
+                        // but this specialty per-world block was missing
+                        // the check, so static objects flagged dead by an
+                        // editor map swap (MarkAllObjectsDead) stayed
+                        // visible on Elveland / IceCity / PKField etc.
+                        if (!o->Live)
+                        {
+                            if (o->Next == NULL) break;
+                            o = o->Next;
+                            continue;
+                        }
+
                         if (g_Direction.m_CKanturu.IsMayaScene() && (o->Type == 0 || o->Type == MODEL_STORM2))
                         {
                             RenderObject(o);
@@ -3538,6 +3551,14 @@ void RenderObjects_AfterCharacter()
                 {
                     if (o != NULL)
                     {
+                        // Skip dead objects — see comment on the matching
+                        // gate in RenderObjects() above.
+                        if (!o->Live)
+                        {
+                            if (o->Next == NULL) break;
+                            o = o->Next;
+                            continue;
+                        }
                         if (o->Type == MODEL_STORM3)
                         {
                             RenderObject_AfterCharacter(o);
@@ -3565,6 +3586,14 @@ void RenderObjects_AfterCharacter()
                 {
                     if (o != NULL)
                     {
+                        // Skip dead objects — see comment on the matching
+                        // gate in RenderObjects() above.
+                        if (!o->Live)
+                        {
+                            if (o->Next == NULL) break;
+                            o = o->Next;
+                            continue;
+                        }
                         if (gMapManager.WorldActive == WD_51HOME_6TH_CHAR &&
                             (o->Type == 89)
                             && TestFrustrum2D(o->Position[0] * 0.01f, o->Position[1] * 0.01f, -400.f))

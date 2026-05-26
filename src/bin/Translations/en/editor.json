@@ -155,5 +155,77 @@
   "dev_label_fullscreen": "Fullscreen",
   "dev_label_actual_window_client": "Actual Window Client",
   "dev_label_calculated_scale": "Calculated Scale from Client",
-  "dev_log_debug_info_copied": "Debug info copied to clipboard"
+  "dev_log_debug_info_copied": "Debug info copied to clipboard",
+
+  "dev_tab_terrain_painter": "Terrain Painter",
+
+  "dev_menu_file": "File",
+  "dev_menu_file_new_map": "New Map...",
+  "dev_menu_file_save_map": "Save Map",
+  "dev_menu_file_load_map": "Load Map...",
+  "dev_tip_save_needs_slot": "Create a new map or load a custom slot first.",
+  "dev_label_custom_slot": "Custom slot",
+
+  "dev_new_map_title": "New Custom Map",
+  "dev_load_map_title": "Load Map",
+  "dev_new_map_help": "Enter the custom map slot to create. Folder will be World<slot+1>.",
+  "dev_new_map_slot_label": "Slot ID",
+  "dev_btn_create": "Create",
+  "dev_btn_cancel": "Cancel",
+  "dev_btn_close": "Close",
+
+  "dev_load_map_classic_header": "Classic worlds",
+  "dev_load_map_custom_header": "Custom maps",
+  "dev_load_map_no_custom": "No custom maps found under Data\\World\\Custom\\",
+
+  "dev_painter_intro": "Paints attributes onto the live TerrainWall buffer. Use 'Save Map' to persist.",
+  "dev_painter_attr": "Active attribute",
+  "dev_painter_mode_add": "Add",
+  "dev_painter_mode_sub": "Subtract",
+  "dev_painter_radius": "Brush radius (tiles)",
+  "dev_painter_paint_on_drag": "Paint on left-mouse drag",
+  "dev_painter_paint_on_drag_help": "When enabled, holding left mouse over the world paints the tile under the cursor each frame. Disabled while the mouse is over an editor window.",
+  "dev_painter_cursor_tile": "Cursor tile",
+  "dev_painter_cursor_none": "Cursor not over terrain",
+  "dev_painter_hero_tile": "Hero tile",
+  "dev_painter_apply_at_hero": "Apply at Hero Tile",
+  "dev_painter_apply_at_cursor": "Apply at Cursor Tile",
+  "dev_painter_show_overlay": "Show attribute overlay",
+
+  "dev_brush_mode_header": "Brush mode (mutually exclusive):",
+  "dev_brush_mode_off": "Off",
+  "dev_brush_mode_paint": "Paint Attribute",
+  "dev_brush_mode_place": "Place Object",
+  "dev_brush_mode_delete": "Delete Object",
+
+  "dev_section_sources": "Source Worlds",
+  "dev_section_place": "Place Static Object",
+  "dev_section_delete": "Delete Static Object",
+
+  "dev_sources_intro": "Side-load object banks from classic worlds. Each bank uses 160 slots above MAX_MODELS; up to 6 source banks can be loaded at once.",
+  "dev_sources_world_index": "World #",
+  "dev_sources_add": "Add Source",
+  "dev_sources_none": "No source banks loaded.",
+  "dev_sources_loaded_header": "Loaded source banks:",
+  "dev_sources_remove": "Remove",
+
+  "dev_place_need_source": "Add a source world above to enable static-object placement.",
+  "dev_place_active_source": "Active source",
+  "dev_place_slot": "Slot (0..159)",
+  "dev_place_scale": "Scale",
+  "dev_place_angle": "Rotation Y",
+  "dev_place_click_help": "Select 'Place Object' brush mode above, then left-click the world to drop the chosen model at the cursor tile.",
+
+  "dev_delete_radius": "Hit radius (world units)",
+  "dev_delete_click_help": "Select 'Delete Object' brush mode above, then left-click within the radius of an existing object to hide it.",
+
+  "dev_undo_last": "Undo Last Action",
+  "dev_undo_stack_depth": "undo stack",
+
+  "dev_place_filter_hint": "Filter by name or texture...",
+  "dev_place_filter_clear": "Clear",
+  "dev_place_no_matches": "No slots match the filter.",
+
+  "dev_offline_banner_title": "OFFLINE AUTHORING MODE",
+  "dev_offline_banner_body": "Client/server desync expected. Outbound movement is muted and server snap-backs are dropped while a custom slot is bound. Switch via File > Load Map to a classic world to resume online play."
 }

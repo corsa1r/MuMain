@@ -2,7 +2,18 @@
 
 #ifdef _EDITOR
 
+#include <vector>
+
 #include "Camera/CameraMove.h"
+
+// Forward decl: a single point we can undo. Lives outside CDevEditorUI so
+// the helper free functions in DevEditorUI.cpp can build/push them.
+struct DevEditorUndoAction
+{
+    enum class Kind { PlaceObject, DeleteObject };
+    Kind     kind;
+    class OBJECT* obj;   // pointer into ObjectBlock; valid while editor session lives
+};
 
 struct CameraConfig;
 
@@ -84,6 +95,25 @@ public:
     // extern-C dispatcher has a target and won't need refactoring later.
     void ApplyOrbitalOverrideToConfig(CameraConfig& cfg) const;
 
+    // Offline authoring mode: gameplay-affecting client/server bridges are
+    // muted whenever a custom slot is bound. Outbound movement packets stop
+    // going to the server, and inbound Hero position corrections from the
+    // server are dropped — so we can paint terrain attributes and walk the
+    // new layout without the live world fighting back. Triggered/cleared by
+    // the File menu (New / Load Custom set it; Load Classic clears it).
+    bool IsOfflineAuthoring() const { return m_CurrentCustomMapId >= 0; }
+
+    // Any editor brush is consuming left-clicks this frame — paint,
+    // place, or delete. The engine's click-to-move / attack gates swallow
+    // LMB while this is true. (Function name is historic — predates the
+    // place + delete modes; semantics now cover all three.)
+    bool IsPaintingTerrain() const
+    {
+        return m_BrushPaintOnDrag
+            || m_PlaceOnClickEnabled
+            || m_DeleteOnClickEnabled;
+    }
+
     // Render toggle accessors
     bool ShouldRenderTerrain() const { return m_RenderTerrain; }
     bool ShouldRenderStaticObjects() const { return m_RenderStaticObjects; }
@@ -129,6 +159,104 @@ private:
 
     // RenderGraphicsTab section
     void RenderGraphicsDebugInfo();
+
+    // Map authoring (File menu + Terrain Painter tab). The IO itself
+    // lives in MuEditor::CustomMap; these methods are pure UI glue.
+    void RenderFileMenuBar();
+    void RenderFileMenuModals();
+    void RenderOfflineAuthoringBanner();
+    void RenderSourcesPanel();
+    void RenderPlaceObjectPanel();
+    void RenderDeleteObjectPanel();
+    void HandlePlaceObjectInput();
+    void HandleDeleteObjectInput();
+    void HidePlacementPreview();    // call when mode exits or source vanishes
+    void PushUndo(DevEditorUndoAction action);
+    void PerformUndo();
+    void RenderUndoControls();
+    // Used by the mode radio buttons — keeps paint / place / delete
+    // mutually exclusive so a single LMB click never triggers two of them.
+    void SetExclusiveBrushMode(int mode);
+    void RenderNewMapModal();
+    void RenderLoadMapModal();
+    void RenderTerrainPainterTab();
+    void HandlePaintBrushInput();
+
+    // Currently-authored custom-map slot. -1 = no slot bound; Save Map is
+    // disabled until either a New Map is created or a custom Load picks a
+    // slot. Loading a classic world deliberately resets this back to -1
+    // (we don't want one-click "Save Map" overwriting shipping assets).
+    int  m_CurrentCustomMapId = -1;
+
+    // Modal trigger state. The menu callback only sets these flags; the
+    // actual ImGui::OpenPopup() call happens at window scope after the menu
+    // bar ends, so the popup ID matches what BeginPopupModal looks up.
+    // OpenPopup-from-inside-BeginMenu registers the id under the menu's ID
+    // stack, which BeginPopupModal at window scope can't find.
+    bool m_RequestOpenNewMap  = false;
+    bool m_RequestOpenLoadMap = false;
+    int  m_NewMapIdInput      = 64;
+
+    // Terrain Painter brush state.
+    // m_BrushAttr is a single TW_* low-byte attribute (AddTerrainAttribute
+    // takes BYTE, so the high-byte attrs TW_NOATTACKZONE / TW_ATT1..7 are
+    // out of scope for this brush — would need a WORD-flavored helper).
+    int  m_BrushAttrIndex     = 1;   // index into kBrushAttributes[]
+    bool m_BrushSubtractMode  = false;
+    int  m_BrushRadius        = 1;
+    bool m_BrushPaintOnDrag   = false;
+
+    // Source-bank picker state (Sources panel). The input is the
+    // 1-based World folder index of the bank to side-load on "Add".
+    int  m_AddSourceWorldInput  = 33;       // Aida-ish default
+
+    // Object placement state (Place panel).
+    // m_PlaceSourceWorld: which currently-loaded source's bank to draw
+    //   from. -1 = none chosen (or no banks loaded).
+    // m_PlaceLocalType: 0..159 — the slot within the source bank.
+    // Scale/AngleZ shared by every placed object until the user changes
+    // them; angle is in degrees, 0 = forward, rotation around Z (yaw).
+    int   m_PlaceSourceWorld    = -1;
+    int   m_PlaceLocalType      = 0;
+    float m_PlaceScale          = 1.0f;
+    float m_PlaceAngleZ         = 0.0f;
+    bool  m_PlaceOnClickEnabled = false;
+    // Case-insensitive substring filter for the slot picker grid.
+    // Matches against BMD::Name and Textures[].FileName so a user can
+    // type e.g. "tree" or ".tga" to narrow the 160-cell grid down to
+    // visually-related models. Empty = show all.
+    char  m_PlaceFilter[64]     = "";
+
+    // Delete tool: click on the world; nearest live OBJECT within
+    // m_DeleteRadius (world units) gets its Live flipped to false.
+    bool  m_DeleteOnClickEnabled = false;
+    float m_DeleteRadius         = 150.0f;
+
+    // Ghost preview: while place mode is active, we instantiate an OBJECT
+    // via CreateObject and continuously update its position/rotation/etc.
+    // to follow the cursor at 50% alpha. On left-click we "commit" by
+    // bumping its alpha to 1.0 and forgetting the pointer; the next
+    // frame spawns a fresh preview. On mode-exit / source-unload we
+    // flip Live=false to hide it.
+    class OBJECT* m_PlacementPreview = nullptr;
+
+    // Bounded undo stack — small enough that a casual misclick is
+    // recoverable; cap keeps the OBJECT* pointer set from growing
+    // forever in a long authoring session.
+    std::vector<DevEditorUndoAction> m_UndoStack;
+
+    // Tile attribute overlay — translucent colored quads on each tile
+    // whose attribute matches one of the bits in m_OverlayAttrMask.
+    // Render hook is DevEditor_RenderTileAttributeOverlay (called from
+    // MainScene after the terrain pass). Defaults: SAFEZONE | NOMOVE |
+    // NOGROUND, which is the everyday "is this tile broken?" set.
+    bool m_ShowAttrOverlay    = false;
+    int  m_OverlayAttrMask    = TW_SAFEZONE | TW_NOMOVE | TW_NOGROUND;
+
+public:
+    bool ShouldRenderTileAttributeOverlay() const { return m_ShowAttrOverlay; }
+    int  GetOverlayAttributeMask() const          { return m_OverlayAttrMask; }
+private:
 
     DevEditorDefaultCameraOverride m_DefaultOverride;
     DevEditorOrbitalCameraOverride m_OrbitalOverride;

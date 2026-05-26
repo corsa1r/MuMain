@@ -38,6 +38,9 @@
 #include "GameLogic/Events/Cinematic/CDirection.h"
 #include "Character/CSParts.h"
 #include "Engine/Physics/PhysicsManager.h"
+
+// Editor offline-authoring gate — see SendCharacterMove in ZzzInterface.cpp.
+extern "C" bool DevEditor_IsOfflineAuthoring();
 #include "GameLogic/Events/Event.h"
 #include "GameLogic/Items/MixMgr.h"
 #include "World/MapInfra/MapManager.h"
@@ -1977,6 +1980,14 @@ void ReceiveMovePosition(const BYTE* ReceiveBuffer)
     auto Data = (LPPRECEIVE_MOVE_POSITION)ReceiveBuffer;
     int Key = ((int)(Data->KeyH) << 8) + Data->KeyL;
     CHARACTER* c = &CharactersClient[FindCharacterIndex(Key)];
+
+    // Offline authoring: drop server snap-backs targeting Hero so the
+    // painted TerrainWall is the only thing controlling local pathing.
+    // Other characters' position updates still apply — they're not stale
+    // (the server is still authoritative over them) and silencing them
+    // would freeze every NPC/player in view.
+    if (c == Hero && DevEditor_IsOfflineAuthoring())
+        return;
 
     OBJECT* o = &c->Object;
     if (o->Type == MODEL_BALL)
