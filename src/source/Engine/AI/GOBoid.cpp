@@ -21,6 +21,26 @@
 #include "Camera/CameraMove.h"
 #include "UI/NewUI/NewUISystem.h"
 
+#ifdef _EDITOR
+#include "CustomMap/CustomWeather.h"
+#else
+#include "Core/Globals/CustomWeatherFlags.h"
+#endif
+
+// Does the active custom slot want a boid flock (birds/bats/butterflies)?
+// In classic worlds this returns false so the original WorldActive
+// branches drive everything.
+static inline bool CustomBoidWantsFlock()
+{
+#ifdef _EDITOR
+    if (!MuEditor::CustomMap::IsCustomWeatherActive()) return false;
+    const unsigned int f = MuEditor::CustomMap::GetActiveCustomWeather();
+    return (f & (CW_LORENCIA_BIRDS | CW_NORIA_BUTTERFLIES | CW_DUNGEON_BATS)) != 0;
+#else
+    return false;
+#endif
+}
+
 int EnableEvent = 0;
 
 static  const   BYTE    BOID_FLY = 0;
@@ -1300,7 +1320,8 @@ void MoveBoids()
                         o->Position);
                 }
             }
-            else if (gMapManager.WorldActive == WD_0LORENCIA
+            else if (CustomBoidWantsFlock()
+                || gMapManager.WorldActive == WD_0LORENCIA
                 || gMapManager.WorldActive == WD_1DUNGEON
                 || gMapManager.WorldActive == WD_3NORIA
                 || gMapManager.WorldActive == WD_4LOSTTOWER
@@ -1327,7 +1348,55 @@ void MoveBoids()
                 o->AI = 0;
                 o->CurrentAction = 0;
 
+                // Custom-map flag dispatch wins over the WorldActive
+                // branches below. WorldActive is forced to Lorencia on
+                // a custom slot, which would otherwise spawn birds for
+                // every custom map regardless of opt-in.
+                //
+                // When multiple boid flags are enabled, round-robin per
+                // slot index so birds + bats + butterflies coexist in
+                // the pool instead of the first-matched flag claiming
+                // every slot.
+#ifdef _EDITOR
+                if (MuEditor::CustomMap::IsCustomWeatherActive())
+                {
+                    const unsigned int wf = MuEditor::CustomMap::GetActiveCustomWeather();
+                    const unsigned int boidMask =
+                        (wf & CW_LORENCIA_BIRDS)    |
+                        (wf & CW_DUNGEON_BATS)      |
+                        (wf & CW_NORIA_BUTTERFLIES);
+                    if (boidMask == 0)
+                    {
+                        // No boid flag set — abort spawn cleanly.
+                        o->Live = false;
+                        continue;
+                    }
+
+                    // Enumerate enabled boid bits in a stable order and
+                    // pick one by slot index. popcount is small (<=3).
+                    unsigned int picks[3];
+                    int npicks = 0;
+                    if (wf & CW_LORENCIA_BIRDS)    picks[npicks++] = CW_LORENCIA_BIRDS;
+                    if (wf & CW_DUNGEON_BATS)      picks[npicks++] = CW_DUNGEON_BATS;
+                    if (wf & CW_NORIA_BUTTERFLIES) picks[npicks++] = CW_NORIA_BUTTERFLIES;
+                    const unsigned int pick = picks[i % npicks];
+
+                    if (pick == CW_LORENCIA_BIRDS)
+                        o->Type = MODEL_BIRD01;
+                    else if (pick == CW_DUNGEON_BATS)
+                        o->Type = MODEL_BAT01;
+                    else // CW_NORIA_BUTTERFLIES
+                    {
+                        o->Type = MODEL_BUTTERFLY01;
+                        o->Velocity = 0.3f;
+                        o->LightEnable = false;
+                        Vector(1.f, 1.f, 1.f, o->Light);
+                    }
+                }
+                else if (gMapManager.WorldActive == WD_0LORENCIA)
+#else
                 if (gMapManager.WorldActive == WD_0LORENCIA)
+#endif
                     o->Type = MODEL_BIRD01;
                 else if (gMapManager.WorldActive == WD_1DUNGEON || gMapManager.WorldActive == WD_4LOSTTOWER)
                     o->Type = MODEL_BAT01;

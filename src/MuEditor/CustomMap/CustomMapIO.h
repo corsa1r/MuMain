@@ -54,6 +54,27 @@ namespace MuEditor::CustomMap
     // 1-based folder number — e.g. 2 for Dungeon, 3 for Devias.
     bool LoadClassicMap(int worldFolderIndex);
 
+    // Manifest weatherFlags accessor — reads the saved CW_* bitmask
+    // without loading the whole slot. Used by the editor UI to hydrate
+    // its checkbox state on slot bind. Returns 0 if the manifest is
+    // missing or the field is absent (older slots).
+    unsigned int ReadWeatherFlags(int mapId);
+
+    // Persists a new weatherFlags value into the slot's manifest,
+    // preserving sources / baseWorld. Used by Save Map. Returns false
+    // on directory/IO failure.
+    bool WriteWeatherFlags(int mapId, unsigned int flags);
+
+    // Picks the highest-priority weather flag and loads its source
+    // world's leaf01/leaf02 bitmaps into BITMAP_LEAF1/LEAF2 (force-
+    // evicting the existing slot first so the bitmap cache can't
+    // short-circuit by filename). Also side-loads MODEL_BAT01 /
+    // MODEL_BUTTERFLY01 BMDs when the corresponding flags are set,
+    // since MapManager::Load only triggers those AccessModel calls on
+    // the Dungeon / Noria world enums. Called by LoadCustomMap and by
+    // the editor UI on live flag toggles.
+    void ApplyWeatherAssets(unsigned int flags);
+
     // Enumerates mapIds with an existing slot under Data\World\Custom\.
     // Sorted ascending. Returns {} if the Custom root doesn't exist.
     std::vector<int> ListCustomMapIds();

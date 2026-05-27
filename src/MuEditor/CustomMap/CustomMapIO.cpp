@@ -27,6 +27,10 @@
 #include "Engine/Object/w_ObjectInfo.h"      // OBJECT, CHARACTER
 #include "Core/Globals/_enum.h"              // MAX_WORLD_OBJECTS
 #include "World/MapInfra/MapManager.h"       // gMapManager, WD_* enum
+#include "CustomMap/CustomWeather.h"         // SetActiveCustomWeather, ClearLiveWeatherParticles
+#include "Core/Globals/CustomWeatherFlags.h" // CW_* bits
+#include "Core/Globals/_enum.h"              // MODEL_BIRD01, MODEL_BAT01, MODEL_BUTTERFLY01
+#include "Data/DataHandler/LoadData.h"       // gLoadData, AccessModel / OpenTexture
 
 // Per-tile grass mask — 0 = suppress grass at the tile, 0xFF = render.
 // The engine's grass-quad path early-outs on a zero mask (see
@@ -350,7 +354,8 @@ namespace
     struct SourceManifest
     {
         std::vector<int> sources;
-        int              baseWorld = 1;   // 1 = Lorencia default
+        int              baseWorld    = 1;   // 1 = Lorencia default
+        unsigned int     weatherFlags = 0;   // CW_* bitmask (see CustomWeatherFlags.h)
     };
 
     SourceManifest ReadSourceManifest(const std::wstring& path)
@@ -378,6 +383,9 @@ namespace
             const auto baseIt = j.find("baseWorld");
             if (baseIt != j.end() && baseIt->is_number_integer())
                 result.baseWorld = baseIt->get<int>();
+            const auto wfIt = j.find("weatherFlags");
+            if (wfIt != j.end() && wfIt->is_number_unsigned())
+                result.weatherFlags = wfIt->get<unsigned int>();
         }
         catch (...) { return SourceManifest{}; }
         return result;
@@ -387,9 +395,10 @@ namespace
                              const SourceManifest& m)
     {
         nlohmann::json j;
-        j["version"]   = SOURCE_MANIFEST_VERSION;
-        j["baseWorld"] = m.baseWorld;
-        j["sources"]   = m.sources;
+        j["version"]      = SOURCE_MANIFEST_VERSION;
+        j["baseWorld"]    = m.baseWorld;
+        j["sources"]      = m.sources;
+        j["weatherFlags"] = m.weatherFlags;
 
         std::ofstream out(fs::path(path), std::ios::binary | std::ios::trunc);
         if (!out) return false;
@@ -1079,6 +1088,105 @@ namespace MuEditor::CustomMap
         return true;
     }
 
+    void ApplyWeatherAssets(unsigned int flags)
+    {
+        // Priority order for LEAF1/LEAF2 texture pick — snow wins over
+        // leaves (snowflakes are visually distinctive; mixing weathers
+        // already loses fidelity since we only have two GL slots).
+        // Heaven rain uses BITMAP_RAIN, loaded globally at startup
+        // from World1\rain01.tga, so no swap needed.
+        //
+        // All sources load the `.tga` (OZT) variant — every world we
+        // care about ships an alpha-correct OZT, and using alpha
+        // textures lets the default alpha-test render path work
+        // uniformly (no forced additive blend needed, which would
+        // turn TGAs with white-RGB-in-transparent-pixels into white
+        // squares — the bug Noria's leaf01.OZT hits otherwise).
+        struct LeafSource { unsigned int flag; int worldFolder; };
+        const LeafSource kSources[] = {
+            { CW_DEVIAS_SNOW,     3  }, // Data\World3\leaf01.OZT  (snowflake)
+            { CW_RAKLION_SNOW,    58 }, // Data\World58\leaf01.OZT (icy snow)
+            { CW_ATLANS_LEAVES,   4  }, // Data\World4\leaf01.OZT  (Noria leaf)
+            { CW_LORENCIA_LEAVES, 1  }, // Data\World1\leaf01.OZT  (Lorencia leaf)
+        };
+        int picked = -1;
+        for (int i = 0; i < static_cast<int>(std::size(kSources)); ++i)
+        {
+            if (flags & kSources[i].flag) { picked = i; break; }
+        }
+
+        if (picked >= 0)
+        {
+            // Drop the cached BITMAP_LEAF1/LEAF2 (loaded from the slot
+            // folder by LoadWorldTextures) so the next LoadBitmap with
+            // the new filename isn't short-circuited by the slot's old
+            // path being the same. DeleteBitmap(force=true) tears it.
+            DeleteBitmap(static_cast<GLuint>(BITMAP_LEAF1), /*bForce=*/true);
+            DeleteBitmap(static_cast<GLuint>(BITMAP_LEAF2), /*bForce=*/true);
+
+            wchar_t leaf1[64];
+            wchar_t leaf2[64];
+            std::swprintf(leaf1, std::size(leaf1),
+                          L"World%d\\leaf01.tga",
+                          kSources[picked].worldFolder);
+            // leaf02 only ships as .jpg (OZJ) — no OZT variant exists.
+            // The classic CreateDeviasSnow / CreateLorenciaLeaf paths
+            // pick LEAF2 ~10% of the time; with alpha-test that 10%
+            // renders as a fully-opaque square. Tolerable since rare,
+            // and matches vanilla behavior for leaf02-using worlds.
+            std::swprintf(leaf2, std::size(leaf2),
+                          L"World%d\\leaf02.jpg",
+                          kSources[picked].worldFolder);
+            LoadBitmap(leaf1, BITMAP_LEAF1, GL_NEAREST, GL_CLAMP_TO_EDGE, false);
+            LoadBitmap(leaf2, BITMAP_LEAF2, GL_NEAREST, GL_CLAMP_TO_EDGE, false);
+        }
+
+        // BMD models for boid flocks. MapManager::Load only triggers
+        // these AccessModel calls when the engine warps into a matching
+        // WorldActive — custom slots run in WD_0LORENCIA so birds work
+        // automatically but bats and butterflies don't. Side-load them
+        // here so the corresponding flags can spawn live boids.
+        if (flags & CW_DUNGEON_BATS)
+        {
+            gLoadData.AccessModel(MODEL_BAT01, L"Data\\Object2\\", L"Bat", 1);
+            gLoadData.OpenTexture(MODEL_BAT01, L"Object2\\");
+        }
+        if (flags & CW_NORIA_BUTTERFLIES)
+        {
+            gLoadData.AccessModel(MODEL_BUTTERFLY01, L"Data\\Object1\\", L"Butterfly", 1);
+            gLoadData.OpenTexture(MODEL_BUTTERFLY01, L"Object1\\");
+        }
+        if (flags & CW_LORENCIA_BIRDS)
+        {
+            // Birds normally load via the WD_0LORENCIA branch (which we
+            // do hit because of the WorldActive override), but reissuing
+            // is cheap and protects against load orders where the flag
+            // gets toggled live before MapManager::Load runs.
+            gLoadData.AccessModel(MODEL_BIRD01, L"Data\\Object1\\", L"Bird", 1);
+            gLoadData.OpenTexture(MODEL_BIRD01, L"Object1\\");
+        }
+    }
+
+    unsigned int ReadWeatherFlags(int mapId)
+    {
+        if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
+            return 0;
+        return ReadSourceManifest(GetCustomMapManifestPath(mapId)).weatherFlags;
+    }
+
+    bool WriteWeatherFlags(int mapId, unsigned int flags)
+    {
+        if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
+            return false;
+        if (!EnsureSlotDirectory(mapId))
+            return false;
+
+        const std::wstring manifestPath = GetCustomMapManifestPath(mapId);
+        SourceManifest m = ReadSourceManifest(manifestPath);
+        m.weatherFlags = flags;
+        return WriteSourceManifest(manifestPath, m);
+    }
+
     bool ReseedTileTexturesFromWorld(int mapId, int baseWorld)
     {
         if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
@@ -1194,6 +1302,12 @@ namespace MuEditor::CustomMap
 
         MarkAllObjectsDead();
         MarkAllNonHeroCharactersDead();
+        // Drop any in-flight Leaves[]/Boids[] left over from the previous
+        // map. Without this, e.g. teleporting from Lorencia into a custom
+        // slot still shows the previous map's birds drifting on screen
+        // until they hit the despawn radius. The new map's weather flags
+        // get applied below, so live particles repopulate as expected.
+        MuEditor::CustomMap::ClearLiveWeatherParticles();
 
         // The classic loaders all take non-const wchar_t*. (att uses our
         // own raw loader, see below — it takes a const path directly.)
@@ -1266,6 +1380,19 @@ namespace MuEditor::CustomMap
         // where we are is unchanged (and irrelevant in offline mode).
         gMapManager.WorldActive = WD_0LORENCIA;
 
+        // Activate the slot's opt-in weather flags. Engine spawn/render
+        // checks consult these via HasWeatherFlag() and short-circuit
+        // their WorldActive comparison while a custom map is active —
+        // so an empty flag set yields no weather at all (which is the
+        // expected default for "blank" slots).
+        MuEditor::CustomMap::SetActiveCustomWeather(manifest.weatherFlags);
+
+        // Load weather-specific assets: per-flag leaf/snow bitmaps into
+        // BITMAP_LEAF1/LEAF2 (overwriting the slot-folder copies that
+        // LoadWorldTextures just loaded), plus BMD side-loads for
+        // boid flocks the WorldActive override would otherwise miss.
+        ApplyWeatherAssets(manifest.weatherFlags);
+
         // Side-load source-world object banks the slot depends on, then
         // load each per-source .obj with Type fixup. Done AFTER the main
         // .obj loaded above — order doesn't actually matter (each goes
@@ -1309,6 +1436,12 @@ namespace MuEditor::CustomMap
         std::swprintf(mapBuf, std::size(mapBuf),
             L"Data\\World%d\\EncTerrain%d.map",
             worldFolderIndex, worldFolderIndex);
+
+        // Switch the engine back to WorldActive-driven weather and drop
+        // any in-flight particles/boids from the previous map (custom
+        // or classic) so they don't briefly bleed into the loaded one.
+        MuEditor::CustomMap::ResetActiveCustomWeather();
+        MuEditor::CustomMap::ClearLiveWeatherParticles();
 
         // .att + .obj via the editor-safe path (skips the sentinel check).
         if (!InvokeClassicLoaders(attBuf, objBuf)) return false;

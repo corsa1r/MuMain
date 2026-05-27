@@ -18,6 +18,7 @@
 // Map authoring
 #include "CustomMap/CustomMapIO.h"
 #include "CustomMap/SourceBank.h"
+#include "CustomMap/CustomWeather.h"
 #include "Core/Globals/_define.h"          // TW_* flags, TERRAIN_SIZE
 #include "Render/Terrain/ZzzLodTerrain.h"  // AddTerrainAttribute, SelectXF/YF
 #include "Render/Textures/ZzzOpenglUtil.h" // EnableAlphaBlend / DisableTexture etc.
@@ -318,6 +319,12 @@ void CDevEditorUI::Render(bool* p_open)
         if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_height")))
         {
             RenderTerrainHeightTab();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_weather")))
+        {
+            RenderWeatherTab();
             ImGui::EndTabItem();
         }
 
@@ -878,6 +885,11 @@ void CDevEditorUI::RenderFileMenuBar()
         const bool canSave = (m_CurrentCustomMapId >= 0);
         if (ImGui::MenuItem(EDITOR_TEXT("dev_menu_file_save_map"), nullptr, false, canSave))
         {
+            // Push the editor's live weather selection into the manifest
+            // before SaveCustomMap reads it back through ReadSourceManifest
+            // (which preserves whatever's on disk).
+            MuEditor::CustomMap::WriteWeatherFlags(
+                m_CurrentCustomMapId, m_WeatherFlags);
             MuEditor::CustomMap::SaveCustomMap(m_CurrentCustomMapId);
         }
         if (!canSave && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1016,6 +1028,10 @@ void CDevEditorUI::RenderNewMapModal()
             MuEditor::CustomMap::LoadCustomMap(newId))
         {
             m_CurrentCustomMapId = newId;
+            // Fresh slots have no weather opted in — clear the editor's
+            // checkbox state to match (LoadCustomMap already set the
+            // engine's active flag set to zero via the manifest).
+            m_WeatherFlags = 0;
             ImGui::CloseCurrentPopup();
         }
     }
@@ -1056,8 +1072,11 @@ void CDevEditorUI::RenderLoadMapModal()
             if (MuEditor::CustomMap::LoadClassicMap(w.folderIndex))
             {
                 // Classic load: drop slot binding so Save Map can't clobber
-                // shipping assets via the custom path.
+                // shipping assets via the custom path. Clear the weather
+                // checkbox state too — classic worlds are driven by the
+                // engine's WorldActive comparison, not our flag set.
                 m_CurrentCustomMapId = -1;
+                m_WeatherFlags = 0;
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -1084,6 +1103,10 @@ void CDevEditorUI::RenderLoadMapModal()
             if (MuEditor::CustomMap::LoadCustomMap(mapId))
             {
                 m_CurrentCustomMapId = mapId;
+                // Hydrate the editor's checkbox state from disk so the
+                // Weather tab reflects the slot's saved selection. The
+                // engine's live flags were already populated by LoadCustomMap.
+                m_WeatherFlags = MuEditor::CustomMap::ReadWeatherFlags(mapId);
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -1587,6 +1610,141 @@ void CDevEditorUI::HandlePaintGrassInput()
             TerrainGrassMask[x + y * TERRAIN_SIZE] = target;
         }
     }
+}
+
+void CDevEditorUI::RenderWeatherTab()
+{
+    if (m_CurrentCustomMapId < 0)
+    {
+        ImGui::TextDisabled("Weather is per custom map.");
+        ImGui::TextDisabled("Create or load a custom map first.");
+        return;
+    }
+
+    ImGui::TextWrapped(
+        "Pick effects below. The four leaf/snow weathers share the same "
+        "particle-texture slot, so only one of them can be active at a "
+        "time (radio group). Rain, dust, and boid flocks are independent "
+        "and stack freely. Effects apply immediately; Save Map persists.");
+    ImGui::Separator();
+
+    bool changed = false;
+
+    // ---- Radio group: per-particle leaf/snow texture (mutex'd) ----
+    // BITMAP_LEAF1/LEAF2 are global GL slots — only one texture lives
+    // in them at a time. We pick by priority in ApplyWeatherAssets, but
+    // forcing the UI to single-choice avoids the user setting two and
+    // wondering why one looks wrong (it gets the other's bitmap).
+    struct LeafRadio { unsigned int flag; const char* label; const char* hint; };
+    static const LeafRadio kLeafRadio[] = {
+        { 0,                    "None",
+            "No drifting leaf or snow particles." },
+        { CW_LORENCIA_LEAVES,   "Lorencia leaves",
+            "Drifting green leaves, slow horizontal sway." },
+        { CW_DEVIAS_SNOW,       "Devias snow",
+            "Falling snowflake sprites." },
+        { CW_RAKLION_SNOW,      "Raklion / Ice City snow",
+            "Larger, drifting snow puffs (icy continent style)." },
+        { CW_ATLANS_LEAVES,     "Atlans/Noria leaves",
+            "Looser, brighter leaves than Lorencia's." },
+    };
+    constexpr unsigned int kLeafRadioMask =
+        CW_LORENCIA_LEAVES | CW_DEVIAS_SNOW |
+        CW_RAKLION_SNOW    | CW_ATLANS_LEAVES;
+
+    ImGui::TextDisabled("Drifting particles (pick one):");
+    const unsigned int currentLeaf = m_WeatherFlags & kLeafRadioMask;
+    for (const auto& c : kLeafRadio)
+    {
+        const bool selected = (c.flag == 0)
+            ? (currentLeaf == 0)
+            : (currentLeaf == c.flag);
+        if (ImGui::RadioButton(c.label, selected))
+        {
+            m_WeatherFlags &= ~kLeafRadioMask;
+            if (c.flag != 0) m_WeatherFlags |= c.flag;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", c.hint);
+    }
+
+    ImGui::Separator();
+
+    // ---- Additive-blend effects: independent particle pools ----
+    // BITMAP_RAIN and BITMAP_FIRE_SNUFF live in their own slots and use
+    // additive blend (per-particle in the render loop), so they stack
+    // freely with the leaf/snow choice above.
+    struct StackChoice { unsigned int flag; const char* label; const char* hint; };
+    static const StackChoice kStackChoices[] = {
+        { CW_HEAVEN_RAIN,       "Heaven rain",
+            "Thin slanted rain streaks (additive blend)." },
+        { CW_TARKAN_WIND,       "Tarkan wind + dust",
+            "Strong grass sway + drifting sand puffs (Tarkan 2 dust)." },
+    };
+    ImGui::TextDisabled("Additional effects:");
+    for (const auto& c : kStackChoices)
+    {
+        bool on = (m_WeatherFlags & c.flag) != 0;
+        if (ImGui::Checkbox(c.label, &on))
+        {
+            if (on) m_WeatherFlags |=  c.flag;
+            else    m_WeatherFlags &= ~c.flag;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", c.hint);
+    }
+
+    ImGui::Separator();
+
+    // ---- Boid flocks: Boids[] pool, round-robined across enabled ----
+    static const StackChoice kBoidChoices[] = {
+        { CW_LORENCIA_BIRDS,    "Lorencia birds",
+            "Boid flock of birds wheeling above the hero." },
+        { CW_DUNGEON_BATS,      "Dungeon bats",
+            "Bat boids — dim/eerie." },
+        { CW_NORIA_BUTTERFLIES, "Noria butterflies",
+            "Slow, light-colored boids — ambient/peaceful." },
+    };
+    ImGui::TextDisabled("Boid flocks (stack freely):");
+    for (const auto& c : kBoidChoices)
+    {
+        bool on = (m_WeatherFlags & c.flag) != 0;
+        if (ImGui::Checkbox(c.label, &on))
+        {
+            if (on) m_WeatherFlags |=  c.flag;
+            else    m_WeatherFlags &= ~c.flag;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", c.hint);
+    }
+
+    if (changed)
+    {
+        // Live-apply so the user sees the effect without saving. The
+        // change isn't written to disk until Save Map; loading the slot
+        // again before saving will restore the previous selection.
+        MuEditor::CustomMap::SetActiveCustomWeather(m_WeatherFlags);
+        // Swap leaf/snow bitmaps + side-load any new boid BMDs so a
+        // freshly-enabled flag actually has its texture/model in place
+        // before the next spawn frame.
+        MuEditor::CustomMap::ApplyWeatherAssets(m_WeatherFlags);
+        // Drop in-flight particles so newly-cleared flags stop spawning
+        // immediately. Newly-set flags repopulate on the next frame.
+        MuEditor::CustomMap::ClearLiveWeatherParticles();
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Clear all"))
+    {
+        m_WeatherFlags = 0;
+        MuEditor::CustomMap::SetActiveCustomWeather(0);
+        MuEditor::CustomMap::ClearLiveWeatherParticles();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Save Map persists the selection)");
 }
 
 void CDevEditorUI::RenderTerrainHeightTab()

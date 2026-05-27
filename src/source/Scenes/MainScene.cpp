@@ -28,6 +28,10 @@
 #include "Engine/Object/ZzzInventory.h"
 #include "World/MapInfra/PortalMgr.h"
 #include "Guild/GuildCache.h"
+
+#ifdef _EDITOR
+#include "CustomMap/CustomWeather.h"
+#endif
 #include "UI/Legacy/UIMapName.h"
 #include "Camera/CameraProjection.h"
 #include "Camera/CameraManager.h"
@@ -98,6 +102,20 @@ static bool RequireLeavesEffect()
 
 static bool ShouldRenderLeaves()
 {
+#ifdef _EDITOR
+    // Custom maps with Devias-style or Raklion-style snow use the
+    // RenderSprite path inside RenderLeaves, which requires MODELVIEW
+    // = identity. That's only guaranteed for the BeginSprite-wrapped
+    // RenderLeaves call (the one this gate controls). Without this
+    // branch, snow particles render via the unwrapped earlier
+    // RenderLeaves call where MODELVIEW is world-space — RenderSprite
+    // pre-multiplies by g_Camera.Matrix and ends up double-transformed
+    // off-screen. So we must opt custom snow maps into this call too.
+    if (MuEditor::CustomMap::IsCustomWeatherActive() &&
+        (MuEditor::CustomMap::HasWeatherFlag(CW_DEVIAS_SNOW) ||
+         MuEditor::CustomMap::HasWeatherFlag(CW_RAKLION_SNOW)))
+        return true;
+#endif
     return (gMapManager.WorldActive == WD_2DEVIAS && HeroTile != 3 && HeroTile < 10) ||
            IsIceCity() ||
            IsSantaTown() ||

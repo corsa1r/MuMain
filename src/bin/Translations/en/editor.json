@@ -159,6 +159,7 @@
 
   "dev_tab_terrain_painter": "Terrain Painter",
   "dev_tab_terrain_height": "Terrain Height",
+  "dev_tab_weather": "Weather",
 
   "dev_menu_file": "File",
   "dev_menu_file_new_map": "New Map...",

@@ -18,6 +18,12 @@
 #include "Audio/DSPlaySound.h"
 #include "GameLogic/Events/CSChaosCastle.h"
 
+#ifdef _EDITOR
+#include "CustomMap/CustomWeather.h"
+#else
+#include "Core/Globals/CustomWeatherFlags.h"
+#endif
+
 
 
 SEASON3A::CGM3rdChangeUp::CGM3rdChangeUp() : m_nDarkElfAppearance(false)
@@ -325,7 +331,19 @@ void SEASON3A::CGM3rdChangeUp::RenderAfterObjectMesh(OBJECT* o, BMD* b)
 
 bool SEASON3A::CGM3rdChangeUp::CreateFireSnuff(PARTICLE* o)
 {
+    // Classic gate: Balgas Refuge (Tarkan 2 / WD_42CHANGEUP3RD_2ND).
+    // Custom-map gate: CW_TARKAN_WIND surfaces the same dust-puff
+    // particles. Vanilla Tarkan 1 has no particles at all (only the
+    // grass sway in ZzzLodTerrain.cpp), so reusing Tarkan 2's puff
+    // gives the flag a visible effect instead of just blade movement.
+#ifdef _EDITOR
+    const bool customWantsDust =
+        MuEditor::CustomMap::IsCustomWeatherActive() &&
+        MuEditor::CustomMap::HasWeatherFlagForSpawn(CW_TARKAN_WIND);
+    if (IsBalgasRefugeMap() == true || customWantsDust)
+#else
     if (IsBalgasRefugeMap() == true)
+#endif
     {
         o->Type = BITMAP_FIRE_SNUFF;
         o->Scale = rand() % 50 / 100.f + 0.4f;

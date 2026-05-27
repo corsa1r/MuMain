@@ -209,6 +209,13 @@ private:
     void RenderTerrainPainterTab();
     void HandlePaintBrushInput();
 
+    // Weather tab: multi-select per-slot mood (Lorencia birds, Devias
+    // snow, Tarkan wind…). Persists to the slot's manifest under
+    // weatherFlags, applied live by LoadCustomMap via
+    // SetActiveCustomWeather. Only enabled while a custom slot is bound.
+    void RenderWeatherTab();
+    unsigned int m_WeatherFlags = 0;  // CW_* bitmask
+
     // Currently-authored custom-map slot. -1 = no slot bound; Save Map is
     // disabled until either a New Map is created or a custom Load picks a
     // slot. Loading a classic world deliberately resets this back to -1
