@@ -728,10 +728,21 @@ void DefaultCamera::ResetView()
     m_PlayerZoomLevel = PLAYER_ZOOM_LEVEL_DEFAULT;
 }
 
+// Forward-decl at file scope — extern "C" linkage specifiers can't sit
+// inside a function body. Implementation lives in DevEditorUI.cpp's
+// always-compiled extern "C" wrapper (returns false in non-editor builds).
+extern "C" bool DevEditor_IsPlacementMode();
+
 void DefaultCamera::HandleWheelZoom()
 {
     extern int MouseWheel;
     if (MouseWheel == 0)
+        return;
+
+    // Object-placement mode in the DevEditor uses the wheel for ghost-
+    // preview rotation; suppress zoom and leave the wheel value in the
+    // global so the editor's HandlePlaceObjectInput can consume it.
+    if (DevEditor_IsPlacementMode())
         return;
 
     // Always consume the wheel, even when locked. Otherwise a wheel tick

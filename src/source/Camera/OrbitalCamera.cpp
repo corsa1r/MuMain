@@ -17,6 +17,11 @@
 
 // External globals
 extern int MouseWheel;
+
+// Forward-decl at file scope so HandleInput can ask the editor whether
+// to skip wheel-zoom (the Place Object brush uses the wheel for ghost
+// rotation while engaged). Returns false in non-editor builds.
+extern "C" bool DevEditor_IsPlacementMode();
 extern bool MouseMButton;
 extern bool MouseMButtonPush;
 extern int MouseX;
@@ -506,7 +511,9 @@ void OrbitalCamera::HandleInput()
 {
     // Mouse wheel zoom. Always consume the wheel even when locked so a
     // tick received while F10-locked doesn't leak through on unlock.
-    if (MouseWheel != 0)
+    // Exception: DevEditor's Place Object brush claims the wheel for
+    // rotation — skip consumption entirely so the editor reads it.
+    if (MouseWheel != 0 && !DevEditor_IsPlacementMode())
     {
         const int wheel = MouseWheel;
         MouseWheel = 0;

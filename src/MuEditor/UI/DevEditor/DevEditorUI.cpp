@@ -1944,6 +1944,22 @@ void CDevEditorUI::HandlePlaceObjectInput()
         return;
     }
 
+    // Mouse wheel rotates the ghost preview. Cameras have already been
+    // gated to skip wheel-zoom while IsPlacementMode() so we can read
+    // the global MouseWheel safely. Each tick rotates 15 degrees;
+    // wrap to [0, 360) for a stable display value.
+    {
+        extern int MouseWheel;
+        if (MouseWheel != 0)
+        {
+            constexpr float DEGREES_PER_TICK = 15.0f;
+            m_PlaceAngleZ += static_cast<float>(MouseWheel) * DEGREES_PER_TICK;
+            while (m_PlaceAngleZ < 0.0f)    m_PlaceAngleZ += 360.0f;
+            while (m_PlaceAngleZ >= 360.0f) m_PlaceAngleZ -= 360.0f;
+            MouseWheel = 0;     // consume so nothing else picks it up
+        }
+    }
+
     vec3_t pos;
     if (!ResolveCursorWorldPosition(pos))
     {
@@ -2002,6 +2018,10 @@ void CDevEditorUI::HandlePlaceObjectInput()
         PushUndo(action);
 
         m_PlacementPreview = nullptr;
+
+        // Reset rotation so the next placement starts at 0 — the
+        // wheel-spin accumulated for this object shouldn't carry over.
+        m_PlaceAngleZ = 0.0f;
     }
 }
 
@@ -2692,6 +2712,18 @@ extern "C" {
     {
 #ifdef _EDITOR
         return g_DevEditorUI.IsPaintingTerrain();
+#else
+        return false;
+#endif
+    }
+
+    // Cameras check this before consuming the mouse wheel for zoom — in
+    // placement mode the editor needs the wheel to rotate the ghost
+    // preview, and double-using it would zoom the camera too.
+    bool DevEditor_IsPlacementMode()
+    {
+#ifdef _EDITOR
+        return g_DevEditorUI.IsPlacementMode();
 #else
         return false;
 #endif

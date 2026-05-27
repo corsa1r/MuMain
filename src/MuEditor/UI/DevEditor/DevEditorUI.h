@@ -107,6 +107,11 @@ public:
     // place, or delete. The engine's click-to-move / attack gates swallow
     // LMB while this is true. (Function name is historic — predates the
     // place + delete modes; semantics now cover all three.)
+    // True while the Place Object brush is engaged. Cameras query this
+    // to skip their wheel-zoom step so the wheel can rotate the ghost
+    // preview instead — see DevEditor_IsPlacementMode().
+    bool IsPlacementMode() const { return m_PlaceOnClickEnabled; }
+
     bool IsPaintingTerrain() const
     {
         return m_BrushPaintOnDrag
