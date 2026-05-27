@@ -173,6 +173,14 @@ private:
     void HandleDeleteObjectInput();
     void HandlePaintTextureInput();
     void RenderTexturePainterPanel();
+    // UX restructure helpers (introduced when the tab grew past one
+    // working screen). Each major brush gets its own dedicated panel
+    // that's only visible when that mode is selected.
+    void RenderActiveToolHeader();   // colored banner + selection summary
+    void RenderAttributePainterPanel();
+    void RenderDisplayOptionsPanel();
+    void RenderCursorStatusFooter();
+    int  ResolveCurrentBrushMode() const;
     void HidePlacementPreview();    // call when mode exits or source vanishes
     void ClearDeleteHoverPreview(); // restores alpha on the current hover, nulls it
     void PushUndo(DevEditorUndoAction action);

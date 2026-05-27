@@ -1088,12 +1088,79 @@ namespace
     }
 }
 
-void CDevEditorUI::RenderTerrainPainterTab()
+int CDevEditorUI::ResolveCurrentBrushMode() const
 {
-    ImGui::TextWrapped("%s", EDITOR_TEXT("dev_painter_intro"));
-    ImGui::Separator();
+    if (m_BrushPaintOnDrag)     return 1;
+    if (m_PlaceOnClickEnabled)  return 2;
+    if (m_DeleteOnClickEnabled) return 3;
+    if (m_PaintTextureOnDrag)   return 4;
+    return 0;
+}
 
-    // Brush attribute picker.
+void CDevEditorUI::RenderActiveToolHeader()
+{
+    // Big colored banner that tells the user, at a glance, which tool
+    // is active and what its current key selection is. The previous UI
+    // buried this in a small radio mid-tab; promoting it here removes
+    // the "which mode am I in again?" question.
+    const int mode = ResolveCurrentBrushMode();
+
+    struct ToolPresentation { const char* label; ImVec4 color; };
+    const ToolPresentation P[] = {
+        { "OFF — pick a tool below", ImVec4(0.40f, 0.40f, 0.40f, 1.0f) },
+        { "PAINT ATTRIBUTE",          ImVec4(0.90f, 0.55f, 0.10f, 1.0f) },
+        { "PLACE OBJECT",             ImVec4(0.20f, 0.75f, 0.30f, 1.0f) },
+        { "DELETE OBJECT",            ImVec4(0.90f, 0.25f, 0.25f, 1.0f) },
+        { "PAINT TEXTURE",            ImVec4(0.30f, 0.60f, 0.95f, 1.0f) },
+    };
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.13f, 1.0f));
+    ImGui::BeginChild("##toolheader",
+                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2.3f),
+                      true);
+    ImGui::PushStyleColor(ImGuiCol_Text, P[mode].color);
+    ImGui::Text("%s", P[mode].label);
+    ImGui::PopStyleColor();
+
+    // Selection summary line — what this tool will actually do if you
+    // click right now. Each mode reports its own one-line state.
+    switch (mode)
+    {
+        case 1:
+            ImGui::Text("Attr: %s   Mode: %s   Radius: %d",
+                kBrushAttributes[m_BrushAttrIndex].label,
+                m_BrushSubtractMode ? "Subtract" : "Add",
+                m_BrushRadius);
+            break;
+        case 2:
+            if (m_PlaceSourceWorld >= 0)
+                ImGui::Text("Source: World%d   Slot: %d   Scale: %.2f",
+                    m_PlaceSourceWorld, m_PlaceLocalType, m_PlaceScale);
+            else
+                ImGui::Text("No source bank selected.");
+            break;
+        case 3:
+            ImGui::Text("Hit radius: %.0f world units", m_DeleteRadius);
+            break;
+        case 4:
+        {
+            const char* layerName = (m_TextureBrushLayer == 0) ? "Eraser"
+                                  : (m_TextureBrushLayer == 1) ? "Base"
+                                  :                              "Overlay";
+            ImGui::Text("Tile: %d   Layer: %s   Radius: %d",
+                m_TextureBrushIndex, layerName, m_BrushRadius);
+            break;
+        }
+        default:
+            ImGui::TextDisabled("Click a brush below to activate it.");
+            break;
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+void CDevEditorUI::RenderAttributePainterPanel()
+{
     if (m_BrushAttrIndex < 0 || m_BrushAttrIndex >= kBrushAttributeCount)
         m_BrushAttrIndex = 0;
 
@@ -1110,38 +1177,38 @@ void CDevEditorUI::RenderTerrainPainterTab()
         ImGui::EndCombo();
     }
 
-    // Add vs subtract.
     int mode = m_BrushSubtractMode ? 1 : 0;
-    ImGui::RadioButton(EDITOR_TEXT("dev_painter_mode_add"), &mode, 0); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_painter_mode_add"), &mode, 0);
+    ImGui::SameLine();
     ImGui::RadioButton(EDITOR_TEXT("dev_painter_mode_sub"), &mode, 1);
     m_BrushSubtractMode = (mode == 1);
 
-    // Brush radius.
     ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
                      &m_BrushRadius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
 
-    // Brush-mode radio — exactly one of paint attr / place / delete /
-    // paint texture (or off).
-    int curMode = 0;
-    if      (m_BrushPaintOnDrag)     curMode = 1;
-    else if (m_PlaceOnClickEnabled)  curMode = 2;
-    else if (m_DeleteOnClickEnabled) curMode = 3;
-    else if (m_PaintTextureOnDrag)   curMode = 4;
-    int newMode = curMode;
-    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_brush_mode_header"));
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_off"),     &newMode, 0); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),   &newMode, 1); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),   &newMode, 2); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"),  &newMode, 3); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4);
-    if (newMode != curMode) SetExclusiveBrushMode(newMode);
+    ImGui::Spacing();
+    const BrushTarget cursor = ResolveCursorTile();
+    const BrushTarget hero   = ResolveHeroTile();
+    const BYTE attr = static_cast<BYTE>(kBrushAttributes[m_BrushAttrIndex].bits);
+    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_hero"),
+                      ImVec2(220, 0)) && hero.valid)
+    {
+        ApplyBrushAt(hero.tileX, hero.tileY, attr,
+                     m_BrushRadius, m_BrushSubtractMode);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_cursor"),
+                      ImVec2(220, 0)) && cursor.valid)
+    {
+        ApplyBrushAt(cursor.tileX, cursor.tileY, attr,
+                     m_BrushRadius, m_BrushSubtractMode);
+    }
+}
 
-    RenderUndoControls();
-
-    ImGui::Separator();
-
-    // Attribute overlay — visualize which tiles carry which bits.
-    ImGui::Checkbox(EDITOR_TEXT("dev_painter_show_overlay"), &m_ShowAttrOverlay);
+void CDevEditorUI::RenderDisplayOptionsPanel()
+{
+    ImGui::Checkbox(EDITOR_TEXT("dev_painter_show_overlay"),
+                    &m_ShowAttrOverlay);
     if (m_ShowAttrOverlay)
     {
         ImGui::Indent();
@@ -1164,65 +1231,113 @@ void CDevEditorUI::RenderTerrainPainterTab()
         }
         ImGui::Unindent();
     }
+}
 
-    ImGui::Separator();
-
-    // Live target readout.
+void CDevEditorUI::RenderCursorStatusFooter()
+{
     const BrushTarget cursor = ResolveCursorTile();
     const BrushTarget hero   = ResolveHeroTile();
 
+    ImGui::Separator();
     if (cursor.valid)
-        ImGui::Text("%s: (%d, %d)", EDITOR_TEXT("dev_painter_cursor_tile"),
+        ImGui::Text("%s: (%d, %d)   ",
+                    EDITOR_TEXT("dev_painter_cursor_tile"),
                     cursor.tileX, cursor.tileY);
     else
-        ImGui::TextDisabled("%s", EDITOR_TEXT("dev_painter_cursor_none"));
-
-    if (hero.valid)
-        ImGui::Text("%s: (%d, %d)", EDITOR_TEXT("dev_painter_hero_tile"),
-                    hero.tileX, hero.tileY);
-
-    ImGui::Spacing();
-
-    // One-shot apply buttons.
-    const BYTE attr = static_cast<BYTE>(kBrushAttributes[m_BrushAttrIndex].bits);
-    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_hero"), ImVec2(220, 0)) && hero.valid)
-    {
-        ApplyBrushAt(hero.tileX, hero.tileY, attr, m_BrushRadius, m_BrushSubtractMode);
-    }
+        ImGui::TextDisabled("%s   ",
+                            EDITOR_TEXT("dev_painter_cursor_none"));
     ImGui::SameLine();
-    if (ImGui::Button(EDITOR_TEXT("dev_painter_apply_at_cursor"), ImVec2(220, 0)) && cursor.valid)
+    if (hero.valid)
+        ImGui::Text("%s: (%d, %d)",
+                    EDITOR_TEXT("dev_painter_hero_tile"),
+                    hero.tileX, hero.tileY);
+}
+
+void CDevEditorUI::RenderTerrainPainterTab()
+{
+    // Header: shows current tool + its key selection. Always visible.
+    RenderActiveToolHeader();
+
+    // Tool palette — the primary control on this tab. Each radio is
+    // mutually exclusive; the active tool's settings render below.
+    int curMode = ResolveCurrentBrushMode();
+    int newMode = curMode;
+    ImGui::TextDisabled("%s", EDITOR_TEXT("dev_brush_mode_header"));
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_off"),     &newMode, 0); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),   &newMode, 1); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),   &newMode, 2); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"),  &newMode, 3); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4);
+    if (newMode != curMode)
     {
-        ApplyBrushAt(cursor.tileX, cursor.tileY, attr, m_BrushRadius, m_BrushSubtractMode);
+        SetExclusiveBrushMode(newMode);
+        curMode = newMode;
     }
 
-    // Static-object authoring sections. Source-bank management is always
-    // visible; the place / delete details only render under their tree
-    // node so the painter tab doesn't become a wall of controls.
+    RenderUndoControls();
+
     ImGui::Separator();
-    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_sources")))
+
+    // Tool-specific settings — render ONLY the active tool's panel so
+    // the user isn't staring at controls that don't apply right now.
+    // The Off case shows a one-liner hint; everything else surfaces the
+    // panel for the active brush.
+    switch (curMode)
+    {
+        case 0:
+            ImGui::TextWrapped("%s", EDITOR_TEXT("dev_painter_intro"));
+            ImGui::TextDisabled("Pick a brush above to start editing.");
+            break;
+
+        case 1:
+            RenderAttributePainterPanel();
+            break;
+
+        case 2:
+            // Place mode needs Sources — they're co-located here so the
+            // workflow "add a source → pick a slot → click" is linear.
+            if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_sources"),
+                                        ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::Indent();
+                RenderSourcesPanel();
+                ImGui::Unindent();
+            }
+            ImGui::Separator();
+            RenderPlaceObjectPanel();
+            break;
+
+        case 3:
+            RenderDeleteObjectPanel();
+            break;
+
+        case 4:
+            RenderTexturePainterPanel();
+            break;
+    }
+
+    // Always-available auxiliary sections — display options + sources.
+    // Source banks stay accessible from any mode so the user can prep
+    // them without first switching to Place. Display options are visual
+    // aids unrelated to which brush is active.
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Display options"))
     {
         ImGui::Indent();
-        RenderSourcesPanel();
+        RenderDisplayOptionsPanel();
         ImGui::Unindent();
     }
-    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_place")))
+    if (curMode != 2)  // already shown in-line above when in Place mode
     {
-        ImGui::Indent();
-        RenderPlaceObjectPanel();
-        ImGui::Unindent();
+        if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_sources")))
+        {
+            ImGui::Indent();
+            RenderSourcesPanel();
+            ImGui::Unindent();
+        }
     }
-    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_delete")))
-    {
-        ImGui::Indent();
-        RenderDeleteObjectPanel();
-        ImGui::Unindent();
-    }
-    if (ImGui::CollapsingHeader(EDITOR_TEXT("dev_section_texture")))
-    {
-        ImGui::Indent();
-        RenderTexturePainterPanel();
-        ImGui::Unindent();
-    }
+
+    RenderCursorStatusFooter();
 }
 
 void CDevEditorUI::HandlePaintBrushInput()
