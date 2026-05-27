@@ -21,7 +21,11 @@ extern int MouseWheel;
 // Forward-decl at file scope so HandleInput can ask the editor whether
 // to skip wheel-zoom (the Place Object brush uses the wheel for ghost
 // rotation while engaged). Returns false in non-editor builds.
+#ifdef _EDITOR
 extern "C" bool DevEditor_IsPlacementMode();
+#else
+static inline bool DevEditor_IsPlacementMode() { return false; }
+#endif
 extern bool MouseMButton;
 extern bool MouseMButtonPush;
 extern int MouseX;

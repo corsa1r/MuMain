@@ -730,8 +730,13 @@ void DefaultCamera::ResetView()
 
 // Forward-decl at file scope — extern "C" linkage specifiers can't sit
 // inside a function body. Implementation lives in DevEditorUI.cpp's
-// always-compiled extern "C" wrapper (returns false in non-editor builds).
+// extern "C" wrapper; production builds (no MuEditor compiled) use the
+// inline stub below instead.
+#ifdef _EDITOR
 extern "C" bool DevEditor_IsPlacementMode();
+#else
+static inline bool DevEditor_IsPlacementMode() { return false; }
+#endif
 
 void DefaultCamera::HandleWheelZoom()
 {

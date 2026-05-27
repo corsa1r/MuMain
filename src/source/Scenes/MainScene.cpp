@@ -29,9 +29,7 @@
 #include "World/MapInfra/PortalMgr.h"
 #include "Guild/GuildCache.h"
 
-#ifdef _EDITOR
 #include "CustomMap/CustomWeather.h"
-#endif
 #include "UI/Legacy/UIMapName.h"
 #include "Camera/CameraProjection.h"
 #include "Camera/CameraManager.h"
@@ -102,7 +100,6 @@ static bool RequireLeavesEffect()
 
 static bool ShouldRenderLeaves()
 {
-#ifdef _EDITOR
     // Custom maps with Devias-style or Raklion-style snow use the
     // RenderSprite path inside RenderLeaves, which requires MODELVIEW
     // = identity. That's only guaranteed for the BeginSprite-wrapped
@@ -115,7 +112,6 @@ static bool ShouldRenderLeaves()
         (MuEditor::CustomMap::HasWeatherFlag(CW_DEVIAS_SNOW) ||
          MuEditor::CustomMap::HasWeatherFlag(CW_RAKLION_SNOW)))
         return true;
-#endif
     return (gMapManager.WorldActive == WD_2DEVIAS && HeroTile != 3 && HeroTile < 10) ||
            IsIceCity() ||
            IsSantaTown() ||
@@ -450,6 +446,7 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     if (!gMapManager.IsPKField() && !IsDoppelGanger2() && renderStatic)
         { FRAME_PROFILE(Objects); RenderObjects(); }
 
+#ifdef _EDITOR
     // Tile attribute overlay (DevEditor) — translucent colored quads on
     // tiles whose attributes match the user's overlay mask. No-op when
     // the overlay toggle is off, so the cost is zero outside authoring.
@@ -459,6 +456,7 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     // OBJECT the Delete tool will hit if clicked right now. No-op when
     // not in delete mode.
     DevEditor_RenderDeleteHoverHighlight();
+#endif
 
     if (renderEffects)
     {

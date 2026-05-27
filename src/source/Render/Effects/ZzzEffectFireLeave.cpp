@@ -24,35 +24,33 @@
 
 #include <cmath>
 
-// DevEditor forward declarations (must be at global scope)
+// DevEditor toggle for the weather render gate. Editor-only — the
+// production build always renders weather.
 #ifdef _EDITOR
 extern "C" bool DevEditor_ShouldRenderWeatherEffects();
-#include "CustomMap/CustomWeather.h"
-// Custom-map weather: when a custom slot is loaded we drive the
-// per-create-function dispatch off manifest-set flags instead of
-// WorldActive. ShouldRunWeather() returns the same answer the classic
-// `WorldActive == WD_X` test would have given when no custom slot is
-// active, so callers don't need to fork their logic.
+#endif
+
+// Custom-map weather state is always compiled (the runtime half of the
+// CustomMap module lives in source/CustomMap/, available in both
+// editor and production builds). ShouldRunWeather() returns the same
+// answer the classic `WorldActive == WD_X` test would have given when
+// no custom slot is loaded; when one IS loaded, the per-spawn flag
+// pick (via SetSpawnSlotIndex round-robin) drives dispatch instead.
+//
 // IMPORTANT: with multiple weather flags enabled (e.g. snow + leaves),
-// the Create* dispatch order in MoveLeaves() would let the first matching
-// creator claim every slot. The spawn loop calls SetSpawnSlotIndex(i)
-// before each create attempt, which picks ONE of the enabled particle
-// flags for this slot — and HasWeatherFlagForSpawn only returns true for
-// that specific flag. The Create* whose flag wins the pick claims the
-// slot; the others fail and the loop moves on.
+// the Create* dispatch order in MoveLeaves() would let the first
+// matching creator claim every slot. The spawn loop calls
+// SetSpawnSlotIndex(i) before each create attempt, which picks ONE of
+// the enabled particle flags for this slot — and HasWeatherFlagForSpawn
+// only returns true for that specific flag. The Create* whose flag wins
+// the pick claims the slot; the others fail and the loop moves on.
+#include "CustomMap/CustomWeather.h"
 static inline bool ShouldRunWeather(unsigned int flag, int classicWorld)
 {
     if (MuEditor::CustomMap::IsCustomWeatherActive())
         return MuEditor::CustomMap::HasWeatherFlagForSpawn(flag);
     return gMapManager.WorldActive == classicWorld;
 }
-#else
-#include "Core/Globals/CustomWeatherFlags.h"
-static inline bool ShouldRunWeather(unsigned int /*flag*/, int classicWorld)
-{
-    return gMapManager.WorldActive == classicWorld;
-}
-#endif
 
 float RainTarget = 0;
 float RainCurrent = 0.f;
@@ -462,7 +460,6 @@ bool MoveLeaves()
     {
         RainTarget = MAX_LEAVES / 2;
     }
-#ifdef _EDITOR
     // Custom map: drive RainTarget from the CW_HEAVEN_RAIN flag. Without
     // this the target retains whatever the previous map last wrote — so
     // rain "sometimes works" (teleport in from Heaven leaves it at 100),
@@ -475,7 +472,6 @@ bool MoveLeaves()
             ? static_cast<float>(MAX_LEAVES / 2)
             : 0.0f;
     }
-#endif
     else if (gMapManager.InChaosCastle() == true)
     {
         RainTarget = MAX_LEAVES / 2;
@@ -524,12 +520,11 @@ bool MoveLeaves()
             Vector(1.f, 1.f, 1.f, o->Light);
             o->Live = true;
 
-#ifdef _EDITOR
             // Round-robin the slot among enabled custom-weather flags so
             // a single Create* (Lorencia leaves is first in line) doesn't
             // hog the whole pool when multiple weathers are selected.
+            // No-op (g_SpawnTargetFlag stays 0) when no custom map is active.
             MuEditor::CustomMap::SetSpawnSlotIndex(i);
-#endif
 
             if (CreateDevilSquareRain(o, i))continue;
             if (CreateChaosCastleRain(o, i))continue;
@@ -624,7 +619,6 @@ void RenderLeaves()
             && Bitmaps.FindTexture(o->Type)
             )
         {
-#ifdef _EDITOR
             // Per-particle blend switching for custom maps. Snow and
             // leaves use the alpha-correct OZT textures loaded by
             // ApplyWeatherAssets, so alpha-test (the default fall-
@@ -641,21 +635,13 @@ void RenderLeaves()
                 else
                     EnableAlphaTest();
             }
-#endif
             BindTexture(o->Type);
             // Devias-style snow always uses a camera-facing sprite —
             // 3D billboard math twists the flakes mid-fall otherwise.
-            // The custom DEVIAS_SNOW flag drives the same render path.
-#ifdef _EDITOR
-            // Snow looks right as a camera-facing sprite (3D billboard
-            // math twists the flakes mid-fall). Both Devias and Raklion
-            // snow drive this path.
+            // Both Devias and Raklion snow drive this path.
             const bool customSnowSprite =
                 MuEditor::CustomMap::HasWeatherFlag(CW_DEVIAS_SNOW) ||
                 MuEditor::CustomMap::HasWeatherFlag(CW_RAKLION_SNOW);
-#else
-            constexpr bool customSnowSprite = false;
-#endif
             if (customSnowSprite || gMapManager.WorldActive == WD_2DEVIAS || IsIceCity() || IsSantaTown())
             {
                 RenderSprite(o->Type, o->Position, o->Scale, o->Scale, o->Light);

@@ -14,11 +14,7 @@
 #include "World/MapInfra/w_MapHeaders.h"
 #include "Audio/DSPlaySound.h"
 
-#ifdef _EDITOR
 #include "CustomMap/CustomWeather.h"
-#else
-#include "Core/Globals/CustomWeatherFlags.h"
-#endif
 
 using namespace SEASON4A;
 
@@ -2206,16 +2202,11 @@ bool CGM_Raklion::CreateSnow(PARTICLE* o)
     // Classic worlds: only the Ice City pair drives this. Custom maps:
     // honor the per-slot snow flag (round-robin'd against any other
     // particle weathers via HasWeatherFlagForSpawn).
-#ifdef _EDITOR
     const bool customWantsSnow =
         MuEditor::CustomMap::IsCustomWeatherActive() &&
         MuEditor::CustomMap::HasWeatherFlagForSpawn(CW_RAKLION_SNOW);
     if (!customWantsSnow && IsIceCity() == false)
         return false;
-#else
-    if (IsIceCity() == false)
-        return false;
-#endif
 
     o->Type = BITMAP_LEAF1;
     o->Scale = (float)(rand() % 10 + 3);

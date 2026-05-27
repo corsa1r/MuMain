@@ -1,7 +1,5 @@
 #include "stdafx.h"
 
-#ifdef _EDITOR
-
 #include "SourceBank.h"
 
 #include <array>
@@ -173,6 +171,7 @@ namespace MuEditor::CustomMap
         return out;
     }
 
+#ifdef _EDITOR
     const std::vector<int>& EnumerateAvailableSourceWorlds()
     {
         // Cached on first call — disk-touching every dropdown frame
@@ -195,6 +194,5 @@ namespace MuEditor::CustomMap
         populated = true;
         return cached;
     }
-}
-
 #endif // _EDITOR
+}

@@ -40,7 +40,11 @@
 #include "Engine/Physics/PhysicsManager.h"
 
 // Editor offline-authoring gate — see SendCharacterMove in ZzzInterface.cpp.
+#ifdef _EDITOR
 extern "C" bool DevEditor_IsOfflineAuthoring();
+#else
+static inline bool DevEditor_IsOfflineAuthoring() { return false; }
+#endif
 #include "GameLogic/Events/Event.h"
 #include "GameLogic/Items/MixMgr.h"
 #include "World/MapInfra/MapManager.h"

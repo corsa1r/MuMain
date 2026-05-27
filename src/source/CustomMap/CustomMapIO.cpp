@@ -1,6 +1,11 @@
 #include "stdafx.h"
 
-#ifdef _EDITOR
+// Custom-map I/O. Compiles in both editor and production builds; the
+// runtime entry points (LoadCustomMap, LoadClassicMap, ApplyWeather...)
+// are always available so production clients can render custom slots
+// authored by the editor. Save/Create/Reseed paths are gated by
+// `#ifdef _EDITOR` further down so they only exist in the authoring
+// binary.
 
 #include "CustomMapIO.h"
 
@@ -1032,6 +1037,7 @@ namespace MuEditor::CustomMap
                FormatIndexed(CUSTOM_FILE_PREFIX, mapId + 1) + TERRAIN_OBJ_EXT;
     }
 
+#ifdef _EDITOR
     bool CreateNewCustomMap(int mapId, int baseWorld)
     {
         if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
@@ -1120,6 +1126,7 @@ namespace MuEditor::CustomMap
         std::memcpy(ozj.data() + LIGHT_OZJ_PREFIX_SIZE, jpegPtr, jpegSize);
         return WriteBinary(GetCustomMapLightPath(mapId), ozj);
     }
+#endif // _EDITOR
 
     void ReloadTerrainLightFromSlot(int mapId)
     {
@@ -1216,6 +1223,7 @@ namespace MuEditor::CustomMap
         return ReadSourceManifest(GetCustomMapManifestPath(mapId)).weatherFlags;
     }
 
+#ifdef _EDITOR
     bool WriteWeatherFlags(int mapId, unsigned int flags)
     {
         if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
@@ -1323,6 +1331,7 @@ namespace MuEditor::CustomMap
 
         return true;
     }
+#endif // _EDITOR
 
     bool LoadCustomMap(int mapId)
     {
@@ -1558,5 +1567,3 @@ namespace MuEditor::CustomMap
         return result;
     }
 }
-
-#endif // _EDITOR

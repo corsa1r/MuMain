@@ -21,24 +21,16 @@
 #include "Camera/CameraMove.h"
 #include "UI/NewUI/NewUISystem.h"
 
-#ifdef _EDITOR
 #include "CustomMap/CustomWeather.h"
-#else
-#include "Core/Globals/CustomWeatherFlags.h"
-#endif
 
 // Does the active custom slot want a boid flock (birds/bats/butterflies)?
 // In classic worlds this returns false so the original WorldActive
 // branches drive everything.
 static inline bool CustomBoidWantsFlock()
 {
-#ifdef _EDITOR
     if (!MuEditor::CustomMap::IsCustomWeatherActive()) return false;
     const unsigned int f = MuEditor::CustomMap::GetActiveCustomWeather();
     return (f & (CW_LORENCIA_BIRDS | CW_NORIA_BUTTERFLIES | CW_DUNGEON_BATS)) != 0;
-#else
-    return false;
-#endif
 }
 
 int EnableEvent = 0;
@@ -1357,7 +1349,6 @@ void MoveBoids()
                 // slot index so birds + bats + butterflies coexist in
                 // the pool instead of the first-matched flag claiming
                 // every slot.
-#ifdef _EDITOR
                 if (MuEditor::CustomMap::IsCustomWeatherActive())
                 {
                     const unsigned int wf = MuEditor::CustomMap::GetActiveCustomWeather();
@@ -1394,9 +1385,6 @@ void MoveBoids()
                     }
                 }
                 else if (gMapManager.WorldActive == WD_0LORENCIA)
-#else
-                if (gMapManager.WorldActive == WD_0LORENCIA)
-#endif
                     o->Type = MODEL_BIRD01;
                 else if (gMapManager.WorldActive == WD_1DUNGEON || gMapManager.WorldActive == WD_4LOSTTOWER)
                     o->Type = MODEL_BAT01;

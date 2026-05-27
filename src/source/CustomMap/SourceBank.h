@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef _EDITOR
-
 #include <string>
 #include <vector>
 
@@ -81,8 +79,10 @@ namespace MuEditor::CustomMap
     // bank (probed by Object01.bmd's existence). 1-based folder index;
     // World1 is intentionally excluded — its Object1\ uses descriptive
     // filenames (Tree01.bmd, ...) that LoadSourceBank can't ingest.
-    // Sorted ascending. Cached on first call.
+    // Sorted ascending. Cached on first call. Editor-only — used by
+    // the source-world dropdown UI; production clients reach banks
+    // through manifest references via LoadSourceBank().
+#ifdef _EDITOR
     const std::vector<int>& EnumerateAvailableSourceWorlds();
+#endif
 }
-
-#endif // _EDITOR

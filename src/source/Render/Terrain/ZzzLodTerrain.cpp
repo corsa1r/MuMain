@@ -24,11 +24,7 @@
 #include "World/MapInfra/MapManager.h"
 
 #include "World/MapInfra/w_MapHeaders.h"
-#ifdef _EDITOR
 #include "CustomMap/CustomWeather.h"
-#else
-#include "Core/Globals/CustomWeatherFlags.h"
-#endif
 #include "Camera/CameraMove.h"
 #include "Camera/CameraProjection.h"
 #include "Camera/CameraManager.h"
@@ -2826,12 +2822,8 @@ void InitTerrainLight()
             int Index = TERRAIN_INDEX(xi, yi);
             // Custom-map "Tarkan wind" flag uses the same high-amplitude
             // grass sway formula that gives Tarkan its desert feel.
-#ifdef _EDITOR
             const bool customTarkanWind =
                 MuEditor::CustomMap::HasWeatherFlag(CW_TARKAN_WIND);
-#else
-            constexpr bool customTarkanWind = false;
-#endif
             if (gMapManager.WorldActive == WD_8TARKAN || customTarkanWind)
             {
                 TerrainGrassWind[Index] = sinf(WindSpeed + xf * 50.f) * WindScale;

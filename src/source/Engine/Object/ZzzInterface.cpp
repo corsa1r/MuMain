@@ -84,15 +84,23 @@ extern bool SelectFlag;
 // being authored, telling the network layer to mute outbound movement so
 // the server (which still thinks we're on the previously-warped world)
 // doesn't rubber-band the hero across our painted attributes. Implemented
-// in MuEditor/UI/DevEditor/DevEditorUI.cpp; returns false in non-editor
-// builds.
+// in MuEditor/UI/DevEditor/DevEditorUI.cpp; stubbed below for non-editor
+// builds where MuEditor isn't compiled.
+#ifdef _EDITOR
 extern "C" bool DevEditor_IsOfflineAuthoring();
+#else
+static inline bool DevEditor_IsOfflineAuthoring() { return false; }
+#endif
 
 // Editor paint-on-drag gate. Returns true when the terrain painter's
 // "Paint on left-mouse drag" toggle is on. When true, LMB is consumed by
 // the painter and the engine's click-to-move / attack paths must swallow
 // it instead of routing it to pathfinding / SendMove.
+#ifdef _EDITOR
 extern "C" bool DevEditor_IsPaintingTerrain();
+#else
+static inline bool DevEditor_IsPaintingTerrain() { return false; }
+#endif
 
 extern void RegisterBuff(eBuffState buff, OBJECT* o, const int bufftime = 0);
 extern void UnRegisterBuff(eBuffState buff, OBJECT* o);
