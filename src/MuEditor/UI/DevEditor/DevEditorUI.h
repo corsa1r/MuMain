@@ -229,8 +229,16 @@ private:
     int   m_LightAoSamples    = 32;
     float m_LightAoDistance   = 1500.0f;
     float m_LightAoStrength   = 1.0f;
+    float m_LightBounceStrength = 0.6f;
+    bool  m_LightIncludeObjects = true;
+    int   m_LightThreadCount    = 0;   // 0 = hardware_concurrency
     bool  m_LightBakeRunning  = false;
     double m_LightBakeMsLast  = 0.0;
+    // Auto-bake mode: triggers a fresh bake whenever a slider or color
+    // picker is RELEASED (not while dragging — that would hitch the UI
+    // every frame). Stays off by default so a freshly-opened slot
+    // doesn't bake until the user explicitly clicks the button.
+    bool  m_LightLiveBake     = false;
 
     // Currently-authored custom-map slot. -1 = no slot bound; Save Map is
     // disabled until either a New Map is created or a custom Load picks a

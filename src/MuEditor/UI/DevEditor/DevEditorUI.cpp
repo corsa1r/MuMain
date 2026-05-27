@@ -1772,52 +1772,106 @@ void CDevEditorUI::RenderLightingTab()
         "on top after reload. Bake again after editing terrain height.");
     ImGui::Separator();
 
+    // Auto-bake toggle. We track per-frame whether any control has just
+    // been released (sliders/colors) or toggled (checkbox). At the end
+    // of the tab, if live mode is on and an edit landed, run the bake.
+    // IsItemDeactivatedAfterEdit() fires the frame after a slider drag
+    // ends — so the bake doesn't run mid-drag (which would be 200ms
+    // hitches per frame).
+    ImGui::Checkbox("Auto-bake on change", &m_LightLiveBake);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Re-bake automatically when a slider is released "
+                          "or a color/checkbox changes. Off by default; "
+                          "keeps the bake explicit for slower machines.");
+    bool editLanded = false;
+
+    ImGui::Separator();
+
     // --- Sun ---
     ImGui::TextDisabled("Sun");
     ImGui::SliderFloat("Azimuth (deg)",  &m_LightSunAzimuth,  0.0f, 360.0f, "%.0f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Compass direction of the sun. 0 = east (+X), "
                           "90 = north (+Y), 180 = west, 270 = south.");
     ImGui::SliderFloat("Altitude (deg)", &m_LightSunAltitude, 5.0f,  90.0f, "%.0f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Elevation above horizon. 5 = sunset (long shadows), "
                           "90 = noon (short shadows).");
     ImGui::ColorEdit3("Sun color", m_LightSunColor);
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
 
     ImGui::Separator();
 
     // --- Sky / AO ---
     ImGui::TextDisabled("Sky ambient + AO");
     ImGui::ColorEdit3("Sky color", m_LightSkyColor);
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Base ambient tint, modulated by AO. Try cool blues "
                           "for cold maps, warm orange for desert, dim gray for "
                           "dungeons.");
     ImGui::SliderFloat("Ambient floor", &m_LightAmbientFloor, 0.0f, 0.5f, "%.2f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Minimum light everywhere — keeps deep shadows "
                           "from going pure black.");
     ImGui::SliderInt  ("AO samples",     &m_LightAoSamples,    8,  128);
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hemisphere rays per vertex. 16-32 = fast preview, "
                           "64-128 = final bake. Bake time scales linearly.");
     ImGui::SliderFloat("AO max distance", &m_LightAoDistance,  200.0f, 5000.0f, "%.0f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("How far AO rays travel before being considered "
                           "'escaped'. Shorter = local crevice shading; "
                           "longer = darker under big geometry.");
     ImGui::SliderFloat("AO strength",     &m_LightAoStrength,   0.25f, 4.0f, "%.2f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Exponent applied to the AO factor. <1 lightens "
                           "shadows; >1 darkens them aggressively.");
 
     ImGui::Separator();
 
-    // --- Bake button + timing ---
+    // --- Indirect + occluders ---
+    ImGui::TextDisabled("Indirect + occluders");
+    ImGui::SliderFloat("Bounce strength", &m_LightBounceStrength, 0.0f, 1.5f, "%.2f");
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("One-bounce color bleed. Each AO ray that hits a "
+                          "terrain tile pulls that tile's average color back "
+                          "to the source vertex (e.g. grass tints nearby "
+                          "rocks green, sand warms walls). 0 disables.");
+    // Checkbox click is a single-frame state change; ::Checkbox returns
+    // true on the click frame, which is the right signal for live mode
+    // (no drag to wait out).
+    if (ImGui::Checkbox("Include placed objects as occluders", &m_LightIncludeObjects))
+        editLanded = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Tests every live OBJECT as a bounding sphere. "
+                          "Adds shadows under buildings and trees. Disable "
+                          "for terrain-only bakes on cluttered slots.");
+    ImGui::SliderInt("Threads", &m_LightThreadCount, 0, 32);
+    if (ImGui::IsItemDeactivatedAfterEdit()) editLanded = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 = auto (use all hardware threads). 1 = single-"
+                          "threaded for stable timing. Bake is embarrassingly "
+                          "parallel; expect ~Nx speedup.");
+
+    ImGui::Separator();
+
+    // --- Bake trigger: button or auto-trigger from editLanded ---
     const bool canBake = !m_LightBakeRunning;
     if (!canBake) ImGui::BeginDisabled();
-    if (ImGui::Button(m_LightBakeRunning ? "Baking..." : "Bake Lighting",
-                      ImVec2(200, 0)))
+    const bool buttonClicked = ImGui::Button(
+        m_LightBakeRunning ? "Baking..." : "Bake Lighting", ImVec2(200, 0));
+    if (!canBake) ImGui::EndDisabled();
+
+    const bool shouldBake = buttonClicked || (m_LightLiveBake && editLanded && canBake);
+    if (shouldBake)
     {
         m_LightBakeRunning = true;
         MuEditor::CustomMap::LightingBakeParams p;
@@ -1833,6 +1887,9 @@ void CDevEditorUI::RenderLightingTab()
         p.aoSamples    = m_LightAoSamples;
         p.aoMaxDistance = m_LightAoDistance;
         p.aoStrength   = m_LightAoStrength;
+        p.bounceStrength = m_LightBounceStrength;
+        p.includeObjects = m_LightIncludeObjects;
+        p.threadCount  = m_LightThreadCount;
 
         const auto t0 = std::chrono::steady_clock::now();
         const bool ok = MuEditor::CustomMap::BakeLighting(m_CurrentCustomMapId, p);
@@ -1841,11 +1898,8 @@ void CDevEditorUI::RenderLightingTab()
         m_LightBakeRunning = false;
         (void)ok;
     }
-    if (!canBake) ImGui::EndDisabled();
+
     ImGui::SameLine();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Single-threaded bake. UI will be unresponsive for "
-                          "a few seconds depending on AO sample count.");
     if (m_LightBakeMsLast > 0.0)
         ImGui::Text("Last bake: %.0f ms", m_LightBakeMsLast);
     else

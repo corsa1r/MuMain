@@ -55,6 +55,24 @@ struct LightingBakeParams
     // Per-channel multiplier on the AO contribution. 1.0 = full,
     // <1 = wash out, >1 = darken more aggressively (caps at 1.0).
     float aoStrength   = 1.0f;
+
+    // One-bounce indirect strength. When a hemisphere ray hits, the
+    // hit surface's color (tile average for terrain, neutral gray for
+    // objects) is multiplied by this factor and added back to the
+    // vertex. 0 = disable (skipping the lookup entirely), 1 = full
+    // bleed (grass tints surrounding rocks green, sand warms walls).
+    float bounceStrength = 0.6f;
+
+    // Include placed BMD objects as shadow/AO occluders. Tested via
+    // their world-space bounding spheres (cheap; slightly over-shadow
+    // around object silhouettes vs. mesh tests). Disable to bake only
+    // terrain shadows — much faster for cluttered slots.
+    bool  includeObjects = true;
+
+    // Worker thread count for the per-vertex loop. 0 (or <0) picks
+    // std::thread::hardware_concurrency() automatically; 1 forces
+    // single-thread for deterministic timing.
+    int   threadCount  = 0;
 };
 
 // Bakes lighting using the live BackTerrainHeight buffer (the height
