@@ -31,6 +31,7 @@ extern CGlobalBitmap Bitmaps;
 
 #include <cstdio>
 #include <cctype>
+#include <cmath>
 
 // Cursor-on-terrain picking state set by the terrain renderer each frame.
 extern bool SelectFlag;
@@ -1266,8 +1267,10 @@ void CDevEditorUI::SetExclusiveBrushMode(int mode)
 
     // Leaving place mode must hide the ghost preview immediately,
     // otherwise the half-transparent OBJECT lingers in ObjectBlock
-    // until the next HandlePlaceObjectInput frame runs.
-    if (!m_PlaceOnClickEnabled) HidePlacementPreview();
+    // until the next HandlePlaceObjectInput frame runs. Same reasoning
+    // applies to the delete-hover preview when leaving delete mode.
+    if (!m_PlaceOnClickEnabled)  HidePlacementPreview();
+    if (!m_DeleteOnClickEnabled) ClearDeleteHoverPreview();
 }
 
 namespace
@@ -1655,47 +1658,138 @@ void CDevEditorUI::HandlePlaceObjectInput()
     }
 }
 
+void CDevEditorUI::ClearDeleteHoverPreview()
+{
+    // Restore full alpha on the object we were fading, then drop the
+    // pointer. AlphaTarget is what the engine lerps toward each frame;
+    // setting both keeps the model from any transient transparency on
+    // the next render.
+    if (m_DeleteHoverTarget != nullptr)
+    {
+        m_DeleteHoverTarget->Alpha = 1.0f;
+        m_DeleteHoverTarget->AlphaTarget = 1.0f;
+        m_DeleteHoverTarget = nullptr;
+    }
+}
+
 void CDevEditorUI::HandleDeleteObjectInput()
 {
-    if (!m_DeleteOnClickEnabled) return;
+    // Mode off or mouse over UI → restore the previously-faded object
+    // and drop the hover target. Cursor off-terrain also clears.
+    if (!m_DeleteOnClickEnabled)
+    {
+        ClearDeleteHoverPreview();
+        return;
+    }
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse) return;
-    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+    if (io.WantCaptureMouse)
+    {
+        ClearDeleteHoverPreview();
+        return;
+    }
 
     vec3_t cursorPos;
-    if (!ResolveCursorWorldPosition(cursorPos)) return;
+    if (!ResolveCursorWorldPosition(cursorPos))
+    {
+        ClearDeleteHoverPreview();
+        return;
+    }
 
+    // Find-nearest runs every frame so we can preview the target.
+    // Skip dead nodes — MarkAllObjectsDead may have hidden classic-
+    // world decor; we don't want delete-click to resurrect then re-hide.
+    //
+    // Hybrid picker:
+    //   1. Distance is ALWAYS measured from cursor to OBJECT.Position —
+    //      that field is set at CreateObject time and reliable for every
+    //      live object.
+    //   2. AABB containment (BoundingBoxMin/Max) is a *bonus* — it gets
+    //      promoted to "preferred" when valid and the cursor sits inside
+    //      it. But the AABB is filled in by the render pipeline; off-
+    //      screen objects (or ones that haven't rendered yet this frame)
+    //      may have a zero or stale AABB. Using AABB-center for distance
+    //      would silently exclude them. So distance uses Position; AABB
+    //      only affects the containment-vs-fallback ordering.
+    constexpr int OBJECT_BLOCK_COUNT = 256;
     OBJECT*  nearest      = nullptr;
     float    nearestDist2 = m_DeleteRadius * m_DeleteRadius;
-
-    // Iterate the spatial-hash. Skip dead nodes (MarkAllObjectsDead may
-    // have hidden classic-world decor; we don't want delete-click to
-    // resurrect already-hidden objects then immediately re-hide them).
-    constexpr int OBJECT_BLOCK_COUNT = 256;
+    bool     foundContained = false;
     for (int b = 0; b < OBJECT_BLOCK_COUNT; ++b)
     {
         for (OBJECT* o = ObjectBlock[b].Head; o != nullptr; o = o->Next)
         {
             if (!o->Live) continue;
+
             const float dx = o->Position[0] - cursorPos[0];
             const float dy = o->Position[1] - cursorPos[1];
             const float d2 = dx * dx + dy * dy;
-            if (d2 < nearestDist2)
+
+            const bool aabbValid =
+                o->BoundingBoxMax[0] > o->BoundingBoxMin[0] &&
+                o->BoundingBoxMax[1] > o->BoundingBoxMin[1];
+            const bool contains = aabbValid &&
+                cursorPos[0] >= o->BoundingBoxMin[0] &&
+                cursorPos[0] <= o->BoundingBoxMax[0] &&
+                cursorPos[1] >= o->BoundingBoxMin[1] &&
+                cursorPos[1] <= o->BoundingBoxMax[1];
+
+            if (contains)
             {
-                nearestDist2 = d2;
-                nearest = o;
+                // Containment wins outright over any non-contained
+                // candidate. Among multiple overlapping containments,
+                // pick the one whose Position is closest.
+                if (!foundContained || d2 < nearestDist2)
+                {
+                    nearest = o;
+                    nearestDist2 = d2;
+                    foundContained = true;
+                }
+            }
+            else if (!foundContained)
+            {
+                if (d2 < nearestDist2)
+                {
+                    nearest = o;
+                    nearestDist2 = d2;
+                }
             }
         }
     }
-
-    if (nearest)
+    // Hover target changed — restore the previous object's alpha so it
+    // doesn't get left half-transparent when the cursor moves on.
+    if (m_DeleteHoverTarget != nullptr && m_DeleteHoverTarget != nearest)
     {
+        m_DeleteHoverTarget->Alpha = 1.0f;
+        m_DeleteHoverTarget->AlphaTarget = 1.0f;
+    }
+    m_DeleteHoverTarget = nearest;
+
+    // Fade the current target every frame. The engine's per-frame
+    // alpha lerp would otherwise pull AlphaTarget back to whatever
+    // value the engine wants (usually 1.0), so we hold both fields at
+    // 0.5 continuously while hovered.
+    if (nearest != nullptr)
+    {
+        constexpr float HOVER_ALPHA = 0.5f;
+        nearest->Alpha = HOVER_ALPHA;
+        nearest->AlphaTarget = HOVER_ALPHA;
+    }
+
+    // Click commits the previewed target — restore full alpha before
+    // flipping Live to false, so undo brings the object back fully
+    // opaque (without an explicit restore in PerformUndo).
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && nearest != nullptr)
+    {
+        nearest->Alpha = 1.0f;
+        nearest->AlphaTarget = 1.0f;
         nearest->Live = false;
+
         DevEditorUndoAction action;
         action.kind = DevEditorUndoAction::Kind::DeleteObject;
         action.obj  = nearest;
         PushUndo(action);
+        m_DeleteHoverTarget = nullptr;  // hidden now, drop the ref
     }
 }
 
@@ -1804,6 +1898,29 @@ void CDevEditorUI::RenderTexturePainterPanel()
     ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
                      &m_BrushRadius, 1, 16);
 
+    // Brush layer selector + soft toggle. Base = sets Layer1 (the
+    // underlying texture). Overlay = sets Layer2 with a per-tile alpha
+    // — that's what produces smooth path-on-grass transitions. Eraser
+    // fades the overlay alpha back to 0 to expose the base.
+    const char* layerNames[] = {
+        EDITOR_TEXT("dev_texture_layer_eraser"),
+        EDITOR_TEXT("dev_texture_layer_base"),
+        EDITOR_TEXT("dev_texture_layer_overlay"),
+    };
+    ImGui::Combo(EDITOR_TEXT("dev_texture_layer"),
+                 &m_TextureBrushLayer, layerNames, 3);
+
+    if (m_TextureBrushLayer != 1)
+    {
+        ImGui::Checkbox(EDITOR_TEXT("dev_texture_soft_brush"),
+                        &m_TextureBrushSoft);
+    }
+    if (m_TextureBrushLayer == 2)
+    {
+        ImGui::SliderFloat(EDITOR_TEXT("dev_texture_strength"),
+                           &m_TextureBrushStrength, 0.05f, 1.0f, "%.2f");
+    }
+
     ImGui::TextDisabled("%s", EDITOR_TEXT("dev_texture_click_help"));
 }
 
@@ -1819,14 +1936,19 @@ void CDevEditorUI::HandlePaintTextureInput()
     if (!cursor.valid) return;
 
     const int radius = m_BrushRadius < 1 ? 1 : m_BrushRadius;
+    const float frad = static_cast<float>(radius);
     const int origin = radius - 1;
     const int extent = radius * 2 - 1;
     const unsigned char brush =
         static_cast<unsigned char>(m_TextureBrushIndex);
 
-    // Stamp a square footprint around the cursor — same shape as the
-    // attribute painter so the radius slider feels consistent across
-    // modes. Bounds-check each tile (we don't want to wrap).
+    // Per-tile write — Layer1/Layer2/Alpha all keyed on the same tile
+    // index. A corner-grid pass for Alpha (one wider in +x/+y) is
+    // technically more "symmetric" with how the engine samples vertex
+    // alphas, but in practice it produces visible stair-step rings at
+    // the brush boundary — the per-tile write leans on the engine's
+    // own vertex interpolation between adjacent painted/unpainted
+    // tiles to smooth things out, which looks cleaner.
     for (int dy = 0; dy < extent; ++dy)
     {
         const int y = cursor.tileY - origin + dy;
@@ -1835,7 +1957,44 @@ void CDevEditorUI::HandlePaintTextureInput()
         {
             const int x = cursor.tileX - origin + dx;
             if (x < 0 || x >= TERRAIN_SIZE) continue;
-            TerrainMappingLayer1[x + y * TERRAIN_SIZE] = brush;
+
+            const int offX = dx - origin;
+            const int offY = dy - origin;
+            const float dist =
+                std::sqrt(static_cast<float>(offX * offX + offY * offY));
+
+            float falloff = 1.0f;
+            if (m_TextureBrushSoft)
+            {
+                if (dist >= frad) continue;
+                falloff = 1.0f - (dist / frad);
+            }
+
+            const int tile = x + y * TERRAIN_SIZE;
+            switch (m_TextureBrushLayer)
+            {
+                case 1:  // Base — solid Layer1 set
+                    TerrainMappingLayer1[tile] = brush;
+                    break;
+
+                case 2:  // Overlay — Layer2 set + Alpha contributes
+                {
+                    TerrainMappingLayer2[tile] = brush;
+                    const float a = m_TextureBrushStrength * falloff;
+                    if (a > TerrainMappingAlpha[tile])
+                        TerrainMappingAlpha[tile] = a;
+                    break;
+                }
+
+                case 0:  // Eraser — fade Alpha back toward 0
+                default:
+                {
+                    TerrainMappingAlpha[tile] *= (1.0f - falloff);
+                    if (TerrainMappingAlpha[tile] < 0.001f)
+                        TerrainMappingAlpha[tile] = 0.0f;
+                    break;
+                }
+            }
         }
     }
 }
@@ -2188,6 +2347,51 @@ extern "C" {
         return g_DevEditorUI.IsPaintingTerrain();
 #else
         return false;
+#endif
+    }
+
+    // Red wireframe box around the OBJECT the Delete brush is currently
+    // hovering. Sized to the OBJECT's transformed AABB so it actually
+    // wraps the visible model — the engine maintains BoundingBoxMin/Max
+    // in world space, updated each frame by the regular render pass.
+    // The box is inflated by HIGHLIGHT_PAD so the outline doesn't
+    // z-fight with the model's own surface.
+    void DevEditor_RenderDeleteHoverHighlight()
+    {
+#ifdef _EDITOR
+        OBJECT* target = g_DevEditorUI.GetDeleteHoverTarget();
+        if (target == nullptr) return;
+        if (!target->Live) return;        // safety: don't draw on dead nodes
+
+        constexpr float HIGHLIGHT_PAD = 8.0f;
+        vec3_t origin = {
+            target->BoundingBoxMin[0] - HIGHLIGHT_PAD,
+            target->BoundingBoxMin[1] - HIGHLIGHT_PAD,
+            target->BoundingBoxMin[2] - HIGHLIGHT_PAD,
+        };
+        const float sx =
+            (target->BoundingBoxMax[0] - target->BoundingBoxMin[0]) +
+            HIGHLIGHT_PAD * 2.0f;
+        const float sy =
+            (target->BoundingBoxMax[1] - target->BoundingBoxMin[1]) +
+            HIGHLIGHT_PAD * 2.0f;
+        const float sz =
+            (target->BoundingBoxMax[2] - target->BoundingBoxMin[2]) +
+            HIGHLIGHT_PAD * 2.0f;
+
+        // Degenerate AABB → fall back to a fixed footprint so the user
+        // still sees *something*. Shouldn't happen for live objects but
+        // some have empty meshes that never get a transformed box.
+        if (sx < 1.0f || sy < 1.0f || sz < 1.0f)
+        {
+            constexpr float FALLBACK = 100.0f;
+            RenderDebugBox(target->Position,
+                           FALLBACK, FALLBACK, FALLBACK * 1.5f,
+                           1.0f, 0.2f, 0.2f);
+            return;
+        }
+
+        RenderDebugBox(origin, sx, sy, sz, 1.0f, 0.2f, 0.2f);
 #endif
     }
 

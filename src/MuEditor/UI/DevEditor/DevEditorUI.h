@@ -174,6 +174,7 @@ private:
     void HandlePaintTextureInput();
     void RenderTexturePainterPanel();
     void HidePlacementPreview();    // call when mode exits or source vanishes
+    void ClearDeleteHoverPreview(); // restores alpha on the current hover, nulls it
     void PushUndo(DevEditorUndoAction action);
     void PerformUndo();
     void RenderUndoControls();
@@ -232,8 +233,15 @@ private:
 
     // Delete tool: click on the world; nearest live OBJECT within
     // m_DeleteRadius (world units) gets its Live flipped to false.
+    // m_DeleteHoverTarget is recomputed every frame in delete mode and
+    // surfaces the find-nearest result so the engine can draw a red
+    // highlight box on it (avoids click-and-pray deletions).
     bool  m_DeleteOnClickEnabled = false;
     float m_DeleteRadius         = 150.0f;
+    class OBJECT* m_DeleteHoverTarget = nullptr;
+public:
+    OBJECT* GetDeleteHoverTarget() const { return m_DeleteHoverTarget; }
+private:
 
     // Texture painter: writes TerrainMappingLayer1[tile] = the selected
     // BITMAP_MAPTILE offset (0..29). The .map file already round-trips
@@ -242,6 +250,13 @@ private:
     // controls every painter mode.
     bool  m_PaintTextureOnDrag   = false;
     int   m_TextureBrushIndex    = 0;     // 0..29 = BITMAP_MAPTILE + N
+    // 0 = Eraser (fades TerrainMappingAlpha back to 0, revealing Layer1)
+    // 1 = Base    (sets TerrainMappingLayer1; alpha stays / resets to 0)
+    // 2 = Overlay (sets TerrainMappingLayer2 + writes Alpha; the soft
+    //              brush below produces the smooth-blended look)
+    int   m_TextureBrushLayer    = 1;
+    bool  m_TextureBrushSoft     = true;
+    float m_TextureBrushStrength = 1.0f;  // max alpha for Overlay mode
 
     // Ghost preview: while place mode is active, we instantiate an OBJECT
     // via CreateObject and continuously update its position/rotation/etc.

@@ -229,7 +229,13 @@
   "dev_place_no_matches": "No slots match the filter.",
 
   "dev_texture_selected": "Selected tile",
-  "dev_texture_click_help": "Select 'Paint Texture' brush mode above, then left-click/drag the world to paint the chosen tile.",
+  "dev_texture_layer": "Brush layer",
+  "dev_texture_layer_eraser": "Eraser",
+  "dev_texture_layer_base": "Base (Layer1)",
+  "dev_texture_layer_overlay": "Overlay (Layer2)",
+  "dev_texture_soft_brush": "Soft brush (radial falloff)",
+  "dev_texture_strength": "Overlay strength",
+  "dev_texture_click_help": "Base = solid Layer1 fill. Overlay = soft Layer2 blend (use for smooth path/grass transitions). Eraser removes overlay.",
 
   "dev_offline_banner_title": "OFFLINE AUTHORING MODE",
   "dev_offline_banner_body": "Client/server desync expected. Outbound movement is muted and server snap-backs are dropped while a custom slot is bound. Switch via File > Load Map to a classic world to resume online play."
