@@ -32,6 +32,7 @@ extern CGlobalBitmap Bitmaps;
 #include <cstdio>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 
 // Cursor-on-terrain picking state set by the terrain renderer each frame.
 extern bool SelectFlag;
@@ -43,6 +44,13 @@ extern bool SelectFlag;
 // always reads the current cursor tile, not a stale value from the last
 // click-to-move.
 extern int EditFlag;
+
+// Per-tile grass mask + global toggle. The mask (0/0xFF byte per tile)
+// is the editor-side gate the engine consults in the grass render path
+// (see TerrainGrassMask use in ZzzLodTerrain.cpp). TerrainGrassEnable
+// is the engine's global on/off — Display options flips it.
+extern unsigned char TerrainGrassMask[];
+extern bool          TerrainGrassEnable;
 
 // External C functions
 extern "C" CameraManager& CameraManager_Instance();
@@ -956,13 +964,55 @@ void CDevEditorUI::RenderNewMapModal()
     if (m_NewMapIdInput < CUSTOM_MAP_ID_INPUT_MIN) m_NewMapIdInput = CUSTOM_MAP_ID_INPUT_MIN;
     if (m_NewMapIdInput > CUSTOM_MAP_ID_INPUT_MAX) m_NewMapIdInput = CUSTOM_MAP_ID_INPUT_MAX;
 
+    // Base-world picker — which classic world's tile bitmaps to seed
+    // the slot with. The disk-scan list filters out worlds we don't
+    // have on this install. Lorencia is the default since it ships a
+    // full grass / dirt / rock / wood palette that fills the common
+    // BITMAP_MAPTILE slots 0..13.
+    const auto& available =
+        MuEditor::CustomMap::EnumerateAvailableSourceWorlds();
+
+    auto labelForFolder = [](int folder, char* buf, size_t bufN)
+    {
+        for (int i = 0; i < kClassicWorldCount; ++i)
+            if (kClassicWorlds[i].folderIndex == folder)
+            {
+                std::snprintf(buf, bufN, "%s", kClassicWorlds[i].label);
+                return;
+            }
+        std::snprintf(buf, bufN, "World%d", folder);
+    };
+
+    char baseLabel[64];
+    labelForFolder(m_NewMapBaseWorld, baseLabel, sizeof(baseLabel));
+    ImGui::SetNextItemWidth(260);
+    if (ImGui::BeginCombo("Base world (textures)", baseLabel))
+    {
+        // World1 (Lorencia) is selectable here because it ships the
+        // most diverse tile set; only object banks exclude it.
+        char label[64];
+        labelForFolder(1, label, sizeof(label));
+        if (ImGui::Selectable(label, m_NewMapBaseWorld == 1))
+            m_NewMapBaseWorld = 1;
+        for (int folder : available)
+        {
+            labelForFolder(folder, label, sizeof(label));
+            const bool sel = (folder == m_NewMapBaseWorld);
+            ImGui::PushID(folder);
+            if (ImGui::Selectable(label, sel))
+                m_NewMapBaseWorld = folder;
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::TextDisabled("Data\\World\\Custom\\World%d\\EncTerrain%d.{att,obj}",
                         m_NewMapIdInput + 1, m_NewMapIdInput + 1);
 
     if (ImGui::Button(EDITOR_TEXT("dev_btn_create"), ImVec2(120, 0)))
     {
         const int newId = m_NewMapIdInput;
-        if (MuEditor::CustomMap::CreateNewCustomMap(newId) &&
+        if (MuEditor::CustomMap::CreateNewCustomMap(newId, m_NewMapBaseWorld) &&
             MuEditor::CustomMap::LoadCustomMap(newId))
         {
             m_CurrentCustomMapId = newId;
@@ -1100,6 +1150,7 @@ int CDevEditorUI::ResolveCurrentBrushMode() const
     if (m_PlaceOnClickEnabled)  return 2;
     if (m_DeleteOnClickEnabled) return 3;
     if (m_PaintTextureOnDrag)   return 4;
+    if (m_PaintGrassOnDrag)     return 5;
     return 0;
 }
 
@@ -1118,6 +1169,7 @@ void CDevEditorUI::RenderActiveToolHeader()
         { "PLACE OBJECT",             ImVec4(0.20f, 0.75f, 0.30f, 1.0f) },
         { "DELETE OBJECT",            ImVec4(0.90f, 0.25f, 0.25f, 1.0f) },
         { "PAINT TEXTURE",            ImVec4(0.30f, 0.60f, 0.95f, 1.0f) },
+        { "PAINT GRASS",              ImVec4(0.50f, 0.85f, 0.40f, 1.0f) },
     };
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.13f, 1.0f));
@@ -1157,6 +1209,11 @@ void CDevEditorUI::RenderActiveToolHeader()
                 m_TextureBrushIndex, layerName, m_BrushRadius);
             break;
         }
+        case 5:
+            ImGui::Text("Mode: %s   Radius: %d",
+                m_GrassEraseMode ? "Erase" : "Add",
+                m_BrushRadius);
+            break;
         default:
             ImGui::TextDisabled("Click a brush below to activate it.");
             break;
@@ -1213,6 +1270,74 @@ void CDevEditorUI::RenderAttributePainterPanel()
 
 void CDevEditorUI::RenderDisplayOptionsPanel()
 {
+    // Grass overlay toggle — TerrainGrassEnable + TerrainGrassTexture[]
+    // is a separate decoration layer from the base tile mapping. The
+    // engine initialises it to a random 0..0.75 per tile (rand()%4/4),
+    // which is why every custom slot ships with scattered grass tufts
+    // even on solid-stone areas. Flipping the global skips the grass
+    // pass entirely; the per-tile density buffer is untouched so
+    // re-enabling restores the tufts.
+    extern bool TerrainGrassEnable;
+    bool grassOn = TerrainGrassEnable;
+    if (ImGui::Checkbox("Grass overlay (tufts)", &grassOn))
+        TerrainGrassEnable = grassOn;
+
+    ImGui::Separator();
+
+    // Reseed tile textures for the active custom slot. Copies the
+    // chosen world's tile bitmaps into the slot folder (overwriting)
+    // and reloads them into the BITMAP_MAPTILE GL slots so the visual
+    // palette swaps without a full Load. The .map indices / painted
+    // attributes / placed objects are untouched.
+    if (m_CurrentCustomMapId >= 0)
+    {
+        ImGui::TextDisabled("Reseed tile palette (active slot):");
+
+        const auto& worlds =
+            MuEditor::CustomMap::EnumerateAvailableSourceWorlds();
+        auto labelForFolder = [](int folder, char* buf, size_t bufN)
+        {
+            for (int i = 0; i < kClassicWorldCount; ++i)
+                if (kClassicWorlds[i].folderIndex == folder)
+                {
+                    std::snprintf(buf, bufN, "%s", kClassicWorlds[i].label);
+                    return;
+                }
+            std::snprintf(buf, bufN, "World%d", folder);
+        };
+
+        char curLabel[64];
+        labelForFolder(m_ReseedFromWorld, curLabel, sizeof(curLabel));
+        ImGui::SetNextItemWidth(220);
+        if (ImGui::BeginCombo("##reseed", curLabel))
+        {
+            char label[64];
+            labelForFolder(1, label, sizeof(label));
+            if (ImGui::Selectable(label, m_ReseedFromWorld == 1))
+                m_ReseedFromWorld = 1;
+            for (int folder : worlds)
+            {
+                labelForFolder(folder, label, sizeof(label));
+                ImGui::PushID(folder);
+                if (ImGui::Selectable(label, folder == m_ReseedFromWorld))
+                    m_ReseedFromWorld = folder;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply reseed"))
+        {
+            // ReseedTileTexturesFromWorld now copies the new .OZJ/.OZT
+            // bytes, evicts the cached GL slots, and reloads them in
+            // place — no full map reload required, and placed objects /
+            // painted attributes / height edits are preserved.
+            MuEditor::CustomMap::ReseedTileTexturesFromWorld(
+                m_CurrentCustomMapId, m_ReseedFromWorld);
+        }
+        ImGui::Separator();
+    }
+
     ImGui::Checkbox(EDITOR_TEXT("dev_painter_show_overlay"),
                     &m_ShowAttrOverlay);
     if (m_ShowAttrOverlay)
@@ -1273,7 +1398,8 @@ void CDevEditorUI::RenderTerrainPainterTab()
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_paint"),   &newMode, 1); ImGui::SameLine();
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),   &newMode, 2); ImGui::SameLine();
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"),  &newMode, 3); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4);
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4); ImGui::SameLine();
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_grass"),   &newMode, 5);
     if (newMode != curMode)
     {
         SetExclusiveBrushMode(newMode);
@@ -1319,6 +1445,10 @@ void CDevEditorUI::RenderTerrainPainterTab()
 
         case 4:
             RenderTexturePainterPanel();
+            break;
+
+        case 5:
+            RenderGrassPainterPanel();
             break;
     }
 
@@ -1376,7 +1506,87 @@ void CDevEditorUI::HandlePaintBrushInput()
     HandlePlaceObjectInput();
     HandleDeleteObjectInput();
     HandlePaintTextureInput();
+    HandlePaintGrassInput();
     HandleHeightBrushInput();
+}
+
+void CDevEditorUI::RenderGrassPainterPanel()
+{
+    if (!TerrainGrassEnable)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.25f, 1.0f),
+            "Grass overlay is currently OFF in Display options — "
+            "your paint will be invisible until you re-enable it.");
+        ImGui::Spacing();
+    }
+
+    ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
+                     &m_BrushRadius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
+
+    int mode = m_GrassEraseMode ? 1 : 0;
+    ImGui::RadioButton("Add##gr",    &mode, 0); ImGui::SameLine();
+    ImGui::RadioButton("Erase##gr",  &mode, 1);
+    m_GrassEraseMode = (mode == 1);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Clear all grass", ImVec2(220, 0)))
+    {
+        // Bulk wipe — zero the mask so the engine skips grass tufts
+        // on every tile. Useful for a bare slot.
+        std::memset(TerrainGrassMask, 0x00,
+                    TERRAIN_SIZE * TERRAIN_SIZE);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fill grass everywhere", ImVec2(220, 0)))
+    {
+        // Restore the engine default: render grass on every tile.
+        std::memset(TerrainGrassMask, 0xFF,
+                    TERRAIN_SIZE * TERRAIN_SIZE);
+    }
+
+    ImGui::TextDisabled(
+        "Left-click + drag. Add = render grass on tile, Erase = "
+        "suppress. Use 'Save Map' to persist (file: .grass).");
+}
+
+void CDevEditorUI::HandlePaintGrassInput()
+{
+    if (!m_PaintGrassOnDrag) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+
+    const BrushTarget cursor = ResolveCursorTile();
+    if (!cursor.valid) return;
+
+    const int radius = m_BrushRadius < 1 ? 1 : m_BrushRadius;
+    const float frad = static_cast<float>(radius);
+    const int origin = radius - 1;
+    const int extent = radius * 2 - 1;
+    const unsigned char target = m_GrassEraseMode ? 0x00 : 0xFF;
+
+    // Per-tile mask write — binary (on/off) by design. The brush
+    // radius gives a circular footprint; tiles outside the radius are
+    // skipped. No soft falloff because the mask is boolean per tile.
+    for (int dy = 0; dy < extent; ++dy)
+    {
+        const int y = cursor.tileY - origin + dy;
+        if (y < 0 || y >= TERRAIN_SIZE) continue;
+        for (int dx = 0; dx < extent; ++dx)
+        {
+            const int x = cursor.tileX - origin + dx;
+            if (x < 0 || x >= TERRAIN_SIZE) continue;
+
+            const int offX = dx - origin;
+            const int offY = dy - origin;
+            const float dist =
+                std::sqrt(static_cast<float>(offX * offX + offY * offY));
+            if (dist >= frad) continue;
+
+            TerrainGrassMask[x + y * TERRAIN_SIZE] = target;
+        }
+    }
 }
 
 void CDevEditorUI::RenderTerrainHeightTab()
@@ -1587,11 +1797,13 @@ void CDevEditorUI::HandleHeightBrushInput()
 
 void CDevEditorUI::SetExclusiveBrushMode(int mode)
 {
-    // Modes: 0 = none, 1 = paint attr, 2 = place, 3 = delete, 4 = paint texture.
+    // Modes: 0=none, 1=paint attr, 2=place, 3=delete, 4=paint texture,
+    // 5=paint grass.
     m_BrushPaintOnDrag     = (mode == 1);
     m_PlaceOnClickEnabled  = (mode == 2);
     m_DeleteOnClickEnabled = (mode == 3);
     m_PaintTextureOnDrag   = (mode == 4);
+    m_PaintGrassOnDrag     = (mode == 5);
 
     // Leaving place mode must hide the ghost preview immediately,
     // otherwise the half-transparent OBJECT lingers in ObjectBlock

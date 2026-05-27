@@ -19,7 +19,18 @@ namespace MuEditor::CustomMap
     // count 0). Both files are written encrypted; the classic client
     // loaders read them back as-is. Returns false on directory or write
     // failure.
-    bool CreateNewCustomMap(int mapId);
+    //
+    // baseWorld determines which classic world's tile bitmaps are
+    // copied into the slot folder to seed the texture palette (1-based
+    // World folder index — 1 for Lorencia, 9 for Tarkan, 34 for Aida).
+    // Stored in sources.json so subsequent loads / lazy re-seeds use
+    // the same set.
+    bool CreateNewCustomMap(int mapId, int baseWorld = 1);
+
+    // Overwrites the slot's tile bitmaps + .map indices remain — useful
+    // for swapping the visual palette of an existing slot without
+    // discarding painted attributes or placed objects.
+    bool ReseedTileTexturesFromWorld(int mapId, int baseWorld);
 
     // Snapshots the *live* TerrainWall buffer and ObjectBlock
     // spatial-hash and writes them, encrypted, into the slot's
@@ -56,6 +67,11 @@ namespace MuEditor::CustomMap
     std::wstring GetCustomMapMapPath(int mapId);    // ...\EncTerrain<n>.map  (texture mapping)
     std::wstring GetCustomMapHeightPath(int mapId); // ...\TerrainHeight.OZB (legacy 8-bit heightmap)
     std::wstring GetCustomMapLightPath(int mapId);  // ...\TerrainLight.jpg
+    // Per-tile grass density (256x256 bytes, density * 255). The engine
+    // randomizes TerrainGrassTexture[] on every OpenTerrainMapping, so
+    // we load this file in LoadCustomMap *after* the random init to
+    // restore the user-painted state.
+    std::wstring GetCustomMapGrassPath(int mapId);
 
     // Manifest of side-loaded source worlds — sources.json at the slot
     // root. Each entry is a 1-based World folder index (e.g. 33 = Aida).

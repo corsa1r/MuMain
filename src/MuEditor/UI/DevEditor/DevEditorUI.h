@@ -118,6 +118,7 @@ public:
             || m_PlaceOnClickEnabled
             || m_DeleteOnClickEnabled
             || m_PaintTextureOnDrag
+            || m_PaintGrassOnDrag
             || m_HeightBrushMode != 0;
     }
 
@@ -179,6 +180,8 @@ private:
     void HandleDeleteObjectInput();
     void HandlePaintTextureInput();
     void RenderTexturePainterPanel();
+    void HandlePaintGrassInput();
+    void RenderGrassPainterPanel();
     // UX restructure helpers (introduced when the tab grew past one
     // working screen). Each major brush gets its own dedicated panel
     // that's only visible when that mode is selected.
@@ -220,6 +223,15 @@ private:
     bool m_RequestOpenNewMap  = false;
     bool m_RequestOpenLoadMap = false;
     int  m_NewMapIdInput      = 64;
+    // Base-world picker for the New Map modal — determines which
+    // classic world's tile bitmaps get copied into the new slot's
+    // folder. 1 = Lorencia (default, lush grass). 9 = Tarkan (sand /
+    // dunes), 3 = Devias (snow), 8 = Atlans (water), etc.
+    int  m_NewMapBaseWorld    = 1;
+    // Picker for the "Reseed tile textures from..." action in the
+    // Display panel — lets the user swap the visual palette of an
+    // existing slot without recreating it.
+    int  m_ReseedFromWorld    = 9;   // Tarkan-ish default
 
     // Terrain Painter brush state.
     // m_BrushAttr is a single TW_* low-byte attribute (AddTerrainAttribute
@@ -270,6 +282,12 @@ private:
     // controls every painter mode.
     bool  m_PaintTextureOnDrag   = false;
     int   m_TextureBrushIndex    = 0;     // 0..29 = BITMAP_MAPTILE + N
+
+    // Grass painter. Writes a binary mask into TerrainGrassMask[] per tile
+    // (0xFF = show grass, 0x00 = suppress grass). m_GrassEraseMode swaps
+    // add for erase. Mask is persisted to .grass on save.
+    bool  m_PaintGrassOnDrag     = false;
+    bool  m_GrassEraseMode       = false;
 
     // Terrain Height sculptor (separate tab; mutually exclusive with the
     // painter brushes above). Mode: 0 = Off, 1 = Raise, 2 = Lower,

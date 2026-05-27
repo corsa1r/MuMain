@@ -28,6 +28,13 @@
 #include "Core/Globals/_enum.h"              // MAX_WORLD_OBJECTS
 #include "World/MapInfra/MapManager.h"       // gMapManager, WD_* enum
 
+// Per-tile grass mask — 0 = suppress grass at the tile, 0xFF = render.
+// The engine's grass-quad path early-outs on a zero mask (see
+// ZzzLodTerrain.cpp). TerrainGrassTexture (a float buffer used by the
+// engine as a per-row UV scrambler) is NOT what controls grass
+// presence, so we persist the mask instead.
+extern unsigned char TerrainGrassMask[];
+
 #include "SourceBank.h"                      // LoadSourceBank, FindSourceWorldByModelIndex
 
 namespace fs = std::filesystem;
@@ -45,6 +52,7 @@ namespace
     constexpr const wchar_t* TERRAIN_MAP_EXT      = L".map";
     constexpr const wchar_t* HEIGHT_FILE_NAME     = L"TerrainHeight.OZB";
     constexpr const wchar_t* LIGHT_FILE_NAME      = L"TerrainLight.OZJ";
+    constexpr const wchar_t* GRASS_FILE_EXT       = L".grass";
     constexpr const wchar_t* MANIFEST_FILE_NAME   = L"sources.json";
     constexpr const wchar_t* SOURCE_DIR_PREFIX    = L"source_World";
 
@@ -334,12 +342,20 @@ namespace
         return out;
     }
 
-    // Reads sources.json from the slot. Missing file / parse error
-    // returns an empty list — old slots created before manifests
-    // existed still load (with no side-banks).
-    std::vector<int> ReadSourceManifest(const std::wstring& path)
+    // sources.json carries two fields: the list of side-loaded object
+    // banks (for cross-world model placement) and the slot's base
+    // world (which classic world's tile bitmaps to re-seed from if
+    // the slot's local copies disappear). Loose schema — older
+    // manifests without baseWorld still parse and fall back to 1.
+    struct SourceManifest
     {
-        std::vector<int> result;
+        std::vector<int> sources;
+        int              baseWorld = 1;   // 1 = Lorencia default
+    };
+
+    SourceManifest ReadSourceManifest(const std::wstring& path)
+    {
+        SourceManifest result;
         std::error_code ec;
         if (!fs::exists(path, ec)) return result;
 
@@ -351,27 +367,29 @@ namespace
             nlohmann::json j;
             in >> j;
             if (!j.is_object()) return result;
+
             const auto srcIt = j.find("sources");
-            if (srcIt == j.end() || !srcIt->is_array()) return result;
-            for (const auto& v : *srcIt)
+            if (srcIt != j.end() && srcIt->is_array())
             {
-                if (v.is_number_integer())
-                    result.push_back(v.get<int>());
+                for (const auto& v : *srcIt)
+                    if (v.is_number_integer())
+                        result.sources.push_back(v.get<int>());
             }
+            const auto baseIt = j.find("baseWorld");
+            if (baseIt != j.end() && baseIt->is_number_integer())
+                result.baseWorld = baseIt->get<int>();
         }
-        catch (...) { return {}; }
+        catch (...) { return SourceManifest{}; }
         return result;
     }
 
-    // Writes sources.json with the given world indices. Always
-    // overwrites; safe to call with an empty vector to declare a slot
-    // that uses no side-banks.
     bool WriteSourceManifest(const std::wstring& path,
-                             const std::vector<int>& sources)
+                             const SourceManifest& m)
     {
         nlohmann::json j;
-        j["version"] = SOURCE_MANIFEST_VERSION;
-        j["sources"] = sources;
+        j["version"]   = SOURCE_MANIFEST_VERSION;
+        j["baseWorld"] = m.baseWorld;
+        j["sources"]   = m.sources;
 
         std::ofstream out(fs::path(path), std::ios::binary | std::ios::trunc);
         if (!out) return false;
@@ -476,6 +494,22 @@ namespace
         return !ec;
     }
 
+    // Force-evicts the world-tile bitmap slots. Needed before re-issuing
+    // LoadBitmap with the same filename, because CGlobalBitmap::LoadImage
+    // short-circuits when the slot already holds a bitmap with that exact
+    // filename — it just bumps the refcount and never re-reads the file.
+    // For reseed (same .OZJ path, new bytes on disk) we have to drop the
+    // cached GL textures so the next LoadBitmap actually hits the disk.
+    void EvictWorldTileBitmapSlots()
+    {
+        for (int i = 0; i < 30; ++i)
+            DeleteBitmap(static_cast<GLuint>(BITMAP_MAPTILE) + i, /*bForce=*/true);
+        for (int i = 0; i < 3; ++i)
+            DeleteBitmap(static_cast<GLuint>(BITMAP_MAPGRASS) + i, /*bForce=*/true);
+        DeleteBitmap(static_cast<GLuint>(BITMAP_LEAF1), /*bForce=*/true);
+        DeleteBitmap(static_cast<GLuint>(BITMAP_LEAF2), /*bForce=*/true);
+    }
+
     // Reloads the per-world tile bitmap slots from <relDir>\<file>. relDir
     // is engine-relative (LoadBitmap prepends "Data\\"). Without this step,
     // BITMAP_MAPTILE+0..N still hold whatever world's textures were loaded
@@ -540,18 +574,25 @@ namespace
         return s;
     }
 
-    // Seeds a freshly-created custom slot with the BASE_WORLD_TEXTURE_DIR
-    // tile bitmaps so it's self-contained. Each entry in
-    // WORLD_TEXTURE_FILES is a *logical* path (".jpg"/".tga"); the bytes
-    // we copy come from the on-disk encrypted twin (".OZJ"/".OZT").
-    // Missing files on the source side are skipped (some classic worlds
-    // don't ship every ExtTile slot).
-    void CopyDefaultWorldAssets(int mapId)
+    // Seeds a custom slot with a chosen classic world's tile bitmaps.
+    // Each entry in WORLD_TEXTURE_FILES is a *logical* path
+    // (".jpg"/".tga"); the bytes we copy come from the on-disk
+    // encrypted twin (".OZJ"/".OZT"). Missing files on the source side
+    // are skipped (some worlds don't ship every ExtTile slot).
+    //
+    // baseWorld is the 1-based World folder index (Data\World<n>\).
+    // Falls back to World1 (Lorencia) when the requested directory
+    // doesn't exist so a misconfigured manifest can't strand the slot.
+    void CopyWorldAssetsFromTo(int baseWorld, const fs::path& dst)
     {
         std::error_code ec;
-        const fs::path src = BASE_WORLD_TEXTURE_DIR;
-        const fs::path dst =
-            MuEditor::CustomMap::GetCustomMapDirectory(mapId);
+        wchar_t srcDir[32];
+        std::swprintf(srcDir, std::size(srcDir),
+            L"Data\\World%d", baseWorld);
+        fs::path src = srcDir;
+        if (!fs::exists(src, ec))
+            src = BASE_WORLD_TEXTURE_DIR;   // fallback
+
         for (const wchar_t* file : WORLD_TEXTURE_FILES)
         {
             const std::wstring diskName = TranslateToDiskFilename(file);
@@ -560,6 +601,13 @@ namespace
             fs::copy_file(srcFile, dst / diskName,
                           fs::copy_options::overwrite_existing, ec);
         }
+    }
+
+    // Convenience wrapper for the default Create path.
+    void CopyDefaultWorldAssets(int mapId, int baseWorld)
+    {
+        CopyWorldAssetsFromTo(baseWorld,
+            MuEditor::CustomMap::GetCustomMapDirectory(mapId));
     }
 
     // Editor-safe replacement for OpenTerrainAttribute. The classic loader
@@ -792,6 +840,45 @@ namespace
     //   256*256 height bytes (Z / TERRAIN_HEIGHT_DECODE_FACTOR, clamped).
     // The decode factor matches OpenTerrainHeight for non-login worlds
     // (login uses 3.0; everything else 1.5).
+    // Per-tile grass mask file. 256*256 raw bytes; 0xFF = grass on,
+    // 0x00 = grass off. No header, no encryption — purely an editor
+    // artifact (the engine's InitTerrainMappingLayer fills the buffer
+    // with 0xFF defaults on every OpenTerrainMapping; we override
+    // after that with the persisted mask in LoadCustomMap).
+    bool WriteLiveGrassDensity(int mapId)
+    {
+        // memcpy the engine buffer straight into the file — same shape
+        // and semantics.
+        std::vector<BYTE> buf(TERRAIN_TILE_COUNT, 0);
+        std::memcpy(buf.data(), TerrainGrassMask, TERRAIN_TILE_COUNT);
+        return WriteBinary(
+            MuEditor::CustomMap::GetCustomMapGrassPath(mapId), buf);
+    }
+
+    bool LoadLiveGrassDensity(int mapId)
+    {
+        const std::wstring path =
+            MuEditor::CustomMap::GetCustomMapGrassPath(mapId);
+        std::error_code ec;
+        if (!fs::exists(path, ec)) return false;
+
+        FILE* fp = _wfopen(path.c_str(), L"rb");
+        if (fp == nullptr) return false;
+
+        std::vector<BYTE> buf(TERRAIN_TILE_COUNT, 0);
+        const size_t read =
+            std::fread(buf.data(), 1, TERRAIN_TILE_COUNT, fp);
+        std::fclose(fp);
+        if (read != TERRAIN_TILE_COUNT) return false;
+
+        // Backward compat: existing .grass files written before this
+        // semantic change contain density-quantized bytes (0..255 from
+        // a 0..1 float). Any non-zero is "on" — matches the engine's
+        // gate (`!= 0`), so old files load cleanly.
+        std::memcpy(TerrainGrassMask, buf.data(), TERRAIN_TILE_COUNT);
+        return true;
+    }
+
     bool WriteLiveHeightOZB(int mapId)
     {
         constexpr float TERRAIN_HEIGHT_DECODE_FACTOR = 1.5f;
@@ -911,6 +998,13 @@ namespace MuEditor::CustomMap
         return GetCustomMapDirectory(mapId) + L"\\" + LIGHT_FILE_NAME;
     }
 
+    std::wstring GetCustomMapGrassPath(int mapId)
+    {
+        return GetCustomMapDirectory(mapId) + L"\\" +
+               FormatIndexed(CUSTOM_FILE_PREFIX, mapId + 1) +
+               GRASS_FILE_EXT;
+    }
+
     std::wstring GetCustomMapManifestPath(int mapId)
     {
         return GetCustomMapDirectory(mapId) + L"\\" + MANIFEST_FILE_NAME;
@@ -929,10 +1023,11 @@ namespace MuEditor::CustomMap
                FormatIndexed(CUSTOM_FILE_PREFIX, mapId + 1) + TERRAIN_OBJ_EXT;
     }
 
-    bool CreateNewCustomMap(int mapId)
+    bool CreateNewCustomMap(int mapId, int baseWorld)
     {
         if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
             return false;
+        if (baseWorld < 1) baseWorld = 1;
         if (!EnsureSlotDirectory(mapId))
             return false;
 
@@ -966,12 +1061,46 @@ namespace MuEditor::CustomMap
         // ground textures don't inherit from the world the editor happens
         // to be standing in when the slot is loaded. See WORLD_TEXTURE_FILES
         // comment for the slot layout.
-        CopyDefaultWorldAssets(mapId);
+        CopyDefaultWorldAssets(mapId, baseWorld);
 
-        // Empty source manifest — a fresh slot has no side-loaded banks.
-        // Adding sources happens later through the editor UI (Phase 2).
-        WriteSourceManifest(GetCustomMapManifestPath(mapId), {});
+        // Manifest: no side-banks yet, but record the base world so
+        // future reseed / lazy-restore knows where to pull from.
+        SourceManifest m;
+        m.baseWorld = baseWorld;
+        WriteSourceManifest(GetCustomMapManifestPath(mapId), m);
 
+        // Default grass mask = 0xFF everywhere (engine default —
+        // tufts render on every tile until the user erases). The
+        // global "Grass overlay (tufts)" toggle in Display options can
+        // suppress the whole pass if the user prefers a bare slot.
+        std::vector<BYTE> blankGrass(TERRAIN_TILE_COUNT, 0xFF);
+        WriteBinary(GetCustomMapGrassPath(mapId), blankGrass);
+
+        return true;
+    }
+
+    bool ReseedTileTexturesFromWorld(int mapId, int baseWorld)
+    {
+        if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
+            return false;
+        if (baseWorld < 1) return false;
+        if (!EnsureSlotDirectory(mapId)) return false;
+
+        CopyDefaultWorldAssets(mapId, baseWorld);
+
+        // Persist the choice so reloads use the new base from now on.
+        const std::wstring manifestPath = GetCustomMapManifestPath(mapId);
+        SourceManifest m = ReadSourceManifest(manifestPath);
+        m.baseWorld = baseWorld;
+        if (!WriteSourceManifest(manifestPath, m))
+            return false;
+
+        // Apply the new tile bytes to the live GL slots immediately so the
+        // user doesn't have to teleport out and back to see the change.
+        // CGlobalBitmap caches by filename — if we skipped the eviction the
+        // next LoadBitmap would see the same .OZJ path and short-circuit.
+        EvictWorldTileBitmapSlots();
+        LoadWorldTextures(BuildCustomRelativeDir(mapId));
         return true;
     }
 
@@ -998,6 +1127,12 @@ namespace MuEditor::CustomMap
         // terrain reverts to whatever was on disk (initially the
         // all-zero flat OZB written by WriteBlankHeightOZB).
         if (!WriteLiveHeightOZB(mapId)) return false;
+
+        // Grass density (.grass): persists per-tile TerrainGrassTexture
+        // from the editor's grass painter. The engine never writes
+        // this back; it just rolls a fresh rand()%4/4 every map load,
+        // so without our save it'd be lost across sessions.
+        WriteLiveGrassDensity(mapId);
 
         // Partition live ObjectBlock into the main stream + one stream
         // per source-world bank that currently owns at least one live
@@ -1027,8 +1162,13 @@ namespace MuEditor::CustomMap
         // Banks that were side-loaded but emptied (every object deleted)
         // drop off the next save's manifest, which is the right semantics:
         // the slot only declares dependencies on what it actually uses.
+        // baseWorld is preserved from the existing manifest so saving
+        // doesn't reset the texture-seed choice the user made.
         std::sort(activeSources.begin(), activeSources.end());
-        if (!WriteSourceManifest(GetCustomMapManifestPath(mapId), activeSources))
+        const std::wstring manifestPath = GetCustomMapManifestPath(mapId);
+        SourceManifest m = ReadSourceManifest(manifestPath);
+        m.sources = activeSources;
+        if (!WriteSourceManifest(manifestPath, m))
             return false;
 
         return true;
@@ -1072,8 +1212,15 @@ namespace MuEditor::CustomMap
         if (OpenObjectsEnc(objMut.data()) < 0) return false;
 
         // Texture mapping layers -> TerrainMappingLayer1/2/Alpha. The loader
-        // calls InitTerrainMappingLayer() internally before reading.
+        // calls InitTerrainMappingLayer() internally before reading. That
+        // init also re-rolls TerrainGrassTexture[] with rand()%4/4 — so
+        // overriding with the persisted grass density has to happen AFTER
+        // this call (see LoadLiveGrassDensity below).
         if (OpenTerrainMapping(mapMut.data())   < 0) return false;
+
+        // Restore per-tile grass density painted in a previous session.
+        // Quiet no-op when the file isn't present (older slots).
+        LoadLiveGrassDensity(mapId);
 
         // Heightmap -> BackTerrainHeight. `false` = legacy 8-bit OZB path
         // (what we write in CreateNewCustomMap; not the 24-bit RGB variant
@@ -1086,16 +1233,23 @@ namespace MuEditor::CustomMap
         // heights and the freshly-loaded light buffer.
         OpenTerrainLight(lightArg.data());
 
+        // Read manifest once — its baseWorld field tells the lazy
+        // re-seed and the side-bank loop both where to pull from.
+        const std::wstring manifestPath = GetCustomMapManifestPath(mapId);
+        const SourceManifest manifest = ReadSourceManifest(manifestPath);
+
         // Slots created before the texture-copy step landed don't ship
-        // their own .OZJ/.OZT tiles. Detect that and run the copy now so
-        // older slots still come up correctly without the user having to
-        // recreate them.
+        // their own .OZJ/.OZT tiles. Detect that and run the copy now
+        // so older slots still come up correctly without the user
+        // having to recreate them. Use the manifest's baseWorld so a
+        // slot that originally seeded from Tarkan doesn't quietly get
+        // re-seeded with Lorencia bitmaps.
         std::error_code ec2;
         const fs::path probe =
             fs::path(GetCustomMapDirectory(mapId)) / L"TileGrass01.OZJ";
         if (!fs::exists(probe, ec2))
         {
-            CopyDefaultWorldAssets(mapId);
+            CopyDefaultWorldAssets(mapId, manifest.baseWorld);
         }
 
         // Reload tile bitmaps from the slot's own folder so the ground
@@ -1117,9 +1271,7 @@ namespace MuEditor::CustomMap
         // .obj loaded above — order doesn't actually matter (each goes
         // into its own ObjectBlock slot), but doing per-source last keeps
         // the iteration order predictable for debugging.
-        const std::vector<int> sources =
-            ReadSourceManifest(GetCustomMapManifestPath(mapId));
-        for (int sourceWorld : sources)
+        for (int sourceWorld : manifest.sources)
         {
             const int baseOffset =
                 MuEditor::CustomMap::LoadSourceBank(sourceWorld);

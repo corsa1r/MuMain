@@ -62,6 +62,13 @@ unsigned char   TerrainMappingLayer2[TERRAIN_SIZE * TERRAIN_SIZE];
 float           TerrainMappingAlpha[TERRAIN_SIZE * TERRAIN_SIZE];
 float           TerrainGrassTexture[TERRAIN_SIZE * TERRAIN_SIZE];
 float           TerrainGrassWind[TERRAIN_SIZE * TERRAIN_SIZE];
+
+// Editor-driven per-tile grass mask. 0 = suppress grass tuft for this
+// tile (user explicitly erased it); non-zero = engine default. The
+// grass render path early-outs when the tile's mask is 0. Defaults to
+// 0xFF everywhere so vanilla map behavior is unchanged — only paints
+// from the DevEditor's grass brush ever set entries to 0.
+unsigned char   TerrainGrassMask[TERRAIN_SIZE * TERRAIN_SIZE];
 #ifdef ASG_ADD_MAP_KARUTAN
 float			g_fTerrainGrassWind1[TERRAIN_SIZE * TERRAIN_SIZE];
 #endif	// ASG_ADD_MAP_KARUTAN
@@ -94,6 +101,7 @@ void InitTerrainMappingLayer()
         TerrainMappingLayer2[i] = 255;
         TerrainMappingAlpha[i] = 0.0f;
         TerrainGrassTexture[i] = static_cast<float>(rand() % 4) / 4.0f;
+        TerrainGrassMask[i]    = 0xFF;        // default: render grass
 #ifdef ASG_ADD_MAP_KARUTAN
         g_fTerrainGrassWind1[i] = 0.0f;
 #endif
@@ -1632,6 +1640,11 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
             CurrentLayer == 0 && (gMapManager.InBloodCastle() == false)
             )
         {
+            // Editor per-tile mask gate: user has explicitly removed
+            // grass at this tile (TerrainGrassMask == 0). Default for
+            // every tile is 0xFF so vanilla behavior is unchanged.
+            if (TerrainGrassMask[TerrainIndex1] == 0) return;
+
             int Texture = BITMAP_MAPGRASS + TerrainMappingLayer1[TerrainIndex1];
 
             BITMAP_t* pBitmap = Bitmaps.FindTexture(Texture);

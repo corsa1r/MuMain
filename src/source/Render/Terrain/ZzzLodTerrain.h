@@ -8,6 +8,7 @@ extern float		 BackTerrainHeight[];
 extern unsigned char TerrainMappingLayer1[];
 extern unsigned char TerrainMappingLayer2[];
 extern float         TerrainMappingAlpha[];
+extern unsigned char TerrainGrassMask[];     // 0 = hide grass at tile, default 0xFF
 extern WORD          TerrainWall[];
 
 inline int TERRAIN_INDEX(int x, int y)
