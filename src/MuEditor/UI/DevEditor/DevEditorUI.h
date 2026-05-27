@@ -112,7 +112,8 @@ public:
         return m_BrushPaintOnDrag
             || m_PlaceOnClickEnabled
             || m_DeleteOnClickEnabled
-            || m_PaintTextureOnDrag;
+            || m_PaintTextureOnDrag
+            || m_HeightBrushMode != 0;
     }
 
     // Render toggle accessors
@@ -181,6 +182,12 @@ private:
     void RenderDisplayOptionsPanel();
     void RenderCursorStatusFooter();
     int  ResolveCurrentBrushMode() const;
+
+    // Terrain Height sculptor — own tab, own brush. Mutex'd with the
+    // painter brushes via SetExclusiveBrushMode / SetHeightBrushMode.
+    void RenderTerrainHeightTab();
+    void HandleHeightBrushInput();
+    void SetHeightBrushMode(int mode);
     void HidePlacementPreview();    // call when mode exits or source vanishes
     void ClearDeleteHoverPreview(); // restores alpha on the current hover, nulls it
     void PushUndo(DevEditorUndoAction action);
@@ -258,6 +265,17 @@ private:
     // controls every painter mode.
     bool  m_PaintTextureOnDrag   = false;
     int   m_TextureBrushIndex    = 0;     // 0..29 = BITMAP_MAPTILE + N
+
+    // Terrain Height sculptor (separate tab; mutually exclusive with the
+    // painter brushes above). Mode: 0 = Off, 1 = Raise, 2 = Lower,
+    // 3 = Flat (blends each corner's height toward m_HeightFlatTarget).
+    // Strength is height delta per frame at the brush center; soft
+    // brush applies a radial falloff so edges feather smoothly.
+    int   m_HeightBrushMode      = 0;
+    int   m_HeightRadius         = 6;
+    float m_HeightStrength       = 8.0f;
+    bool  m_HeightSoft           = true;
+    float m_HeightFlatTarget     = 0.0f;
     // 0 = Eraser (fades TerrainMappingAlpha back to 0, revealing Layer1)
     // 1 = Base    (sets TerrainMappingLayer1; alpha stays / resets to 0)
     // 2 = Overlay (sets TerrainMappingLayer2 + writes Alpha; the soft

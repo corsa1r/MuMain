@@ -786,6 +786,29 @@ namespace
             MuEditor::CustomMap::GetCustomMapMapPath(mapId), encrypted);
     }
 
+    // Encodes live BackTerrainHeight into the legacy OZB byte layout:
+    //   4-byte prefix (zero, loader fseeks past it),
+    //   1080-byte BMP-like header (zero, loader only memcpys for round-trip),
+    //   256*256 height bytes (Z / TERRAIN_HEIGHT_DECODE_FACTOR, clamped).
+    // The decode factor matches OpenTerrainHeight for non-login worlds
+    // (login uses 3.0; everything else 1.5).
+    bool WriteLiveHeightOZB(int mapId)
+    {
+        constexpr float TERRAIN_HEIGHT_DECODE_FACTOR = 1.5f;
+        std::vector<BYTE> buf(HEIGHT_OZB_FILE_SIZE, 0);
+        BYTE* heights =
+            buf.data() + HEIGHT_OZB_PREFIX_SIZE + HEIGHT_OZB_HEADER_SIZE;
+        for (int i = 0; i < TERRAIN_TILE_COUNT; ++i)
+        {
+            float h = BackTerrainHeight[i] / TERRAIN_HEIGHT_DECODE_FACTOR;
+            if (h < 0.f)        h = 0.f;
+            else if (h > 255.f) h = 255.f;
+            heights[i] = static_cast<BYTE>(h);
+        }
+        return WriteBinary(
+            MuEditor::CustomMap::GetCustomMapHeightPath(mapId), buf);
+    }
+
     bool WriteBlankHeightOZB(int mapId)
     {
         return WriteBinary(
@@ -969,6 +992,12 @@ namespace MuEditor::CustomMap
         // get wiped on the next Load because the on-disk .map still
         // carries whatever was last written (initially WriteBlankMapFile).
         if (!WriteLiveMapFile(mapId)) return false;
+
+        // Heightmap (TerrainHeight.OZB): persists the live sculptor
+        // state from BackTerrainHeight. Without this, raised/lowered
+        // terrain reverts to whatever was on disk (initially the
+        // all-zero flat OZB written by WriteBlankHeightOZB).
+        if (!WriteLiveHeightOZB(mapId)) return false;
 
         // Partition live ObjectBlock into the main stream + one stream
         // per source-world bank that currently owns at least one live

@@ -307,6 +307,12 @@ void CDevEditorUI::Render(bool* p_open)
             ImGui::EndTabItem();
         }
 
+        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_height")))
+        {
+            RenderTerrainHeightTab();
+            ImGui::EndTabItem();
+        }
+
         ImGui::EndTabBar();
     }
 
@@ -1370,6 +1376,213 @@ void CDevEditorUI::HandlePaintBrushInput()
     HandlePlaceObjectInput();
     HandleDeleteObjectInput();
     HandlePaintTextureInput();
+    HandleHeightBrushInput();
+}
+
+void CDevEditorUI::RenderTerrainHeightTab()
+{
+    // Colored banner. Same visual idiom as the painter tab so the user
+    // always knows which sculptor sub-mode is engaged.
+    struct ToolPresentation { const char* label; ImVec4 color; };
+    const ToolPresentation P[] = {
+        { "OFF — pick a brush below",  ImVec4(0.40f, 0.40f, 0.40f, 1.0f) },
+        { "RAISE TERRAIN",              ImVec4(0.40f, 0.85f, 0.40f, 1.0f) },
+        { "LOWER TERRAIN",              ImVec4(0.85f, 0.55f, 0.20f, 1.0f) },
+        { "FLATTEN TERRAIN",            ImVec4(0.55f, 0.70f, 0.95f, 1.0f) },
+    };
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.13f, 1.0f));
+    ImGui::BeginChild("##heightheader",
+                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2.3f),
+                      true);
+    ImGui::PushStyleColor(ImGuiCol_Text, P[m_HeightBrushMode].color);
+    ImGui::Text("%s", P[m_HeightBrushMode].label);
+    ImGui::PopStyleColor();
+    if (m_HeightBrushMode == 3)
+        ImGui::Text("Radius: %d   Strength: %.1f   Target: %.0f",
+            m_HeightRadius, m_HeightStrength, m_HeightFlatTarget);
+    else
+        ImGui::Text("Radius: %d   Strength: %.1f",
+            m_HeightRadius, m_HeightStrength);
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    // Brush sub-mode radio.
+    int mode = m_HeightBrushMode;
+    int newMode = mode;
+    ImGui::TextDisabled("Sculpt brush (mutually exclusive):");
+    ImGui::RadioButton("Off##h",     &newMode, 0); ImGui::SameLine();
+    ImGui::RadioButton("Raise##h",   &newMode, 1); ImGui::SameLine();
+    ImGui::RadioButton("Lower##h",   &newMode, 2); ImGui::SameLine();
+    ImGui::RadioButton("Flat##h",    &newMode, 3);
+    if (newMode != mode) SetHeightBrushMode(newMode);
+
+    RenderUndoControls();
+
+    ImGui::Separator();
+
+    if (m_HeightBrushMode == 0)
+    {
+        ImGui::TextWrapped(
+            "Raise / Lower add or subtract height under the cursor. "
+            "Flat blends each affected vertex toward a target height — "
+            "useful for carving plateaus. Soft brush feathers the edges "
+            "with a radial falloff for natural slopes.");
+        ImGui::TextDisabled("Pick a brush above to start sculpting.");
+        return;
+    }
+
+    // Common brush parameters.
+    ImGui::SliderInt("Brush radius (tiles)",
+                     &m_HeightRadius, 1, 32);
+    ImGui::SliderFloat("Strength (world units / frame)",
+                       &m_HeightStrength, 0.5f, 50.0f, "%.1f");
+    ImGui::Checkbox("Soft brush (radial falloff)",
+                    &m_HeightSoft);
+
+    if (m_HeightBrushMode == 3)
+    {
+        ImGui::SliderFloat("Flatten target Z",
+                           &m_HeightFlatTarget, -200.0f, 1500.0f, "%.0f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Sample at cursor"))
+        {
+            // Capture the current terrain height at the cursor as the
+            // flatten target — quickest way to "level this area to
+            // whatever I'm pointing at right now".
+            const BrushTarget cur = ResolveCursorTile();
+            if (cur.valid)
+            {
+                const int idx = cur.tileX + cur.tileY * TERRAIN_SIZE;
+                m_HeightFlatTarget = BackTerrainHeight[idx];
+            }
+        }
+    }
+
+    ImGui::TextDisabled(
+        "Left-click + drag on the world to sculpt. Save Map persists "
+        "the heightmap via TerrainHeight.OZB.");
+
+    RenderCursorStatusFooter();
+}
+
+void CDevEditorUI::HandleHeightBrushInput()
+{
+    if (m_HeightBrushMode == 0) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+
+    const BrushTarget cursor = ResolveCursorTile();
+    if (!cursor.valid) return;
+
+    const int   radius = m_HeightRadius < 1 ? 1 : m_HeightRadius;
+    const float frad   = static_cast<float>(radius);
+
+    const float ccx = static_cast<float>(cursor.tileX) + 0.5f;
+    const float ccy = static_cast<float>(cursor.tileY) + 0.5f;
+
+    // --- Step 1: snapshot static objects in the brush footprint. ----------
+    // For each object whose XY falls inside the (square AABB of the)
+    // brush, record (pointer, current Z offset above terrain). After
+    // the heightmap mutates we'll restore each object to the same
+    // *relative* height so trees on the ground stay on the ground and
+    // floating decor (banners, bridges) keeps its authored elevation.
+    struct ObjSnapshot { OBJECT* o; float relZ; };
+    static std::vector<ObjSnapshot> affected;   // reused across frames
+    affected.clear();
+
+    const float wMinX =
+        (static_cast<float>(cursor.tileX) - frad) * TERRAIN_SCALE;
+    const float wMaxX =
+        (static_cast<float>(cursor.tileX) + frad) * TERRAIN_SCALE;
+    const float wMinY =
+        (static_cast<float>(cursor.tileY) - frad) * TERRAIN_SCALE;
+    const float wMaxY =
+        (static_cast<float>(cursor.tileY) + frad) * TERRAIN_SCALE;
+
+    constexpr int OBJECT_BLOCK_COUNT = 256;
+    for (int b = 0; b < OBJECT_BLOCK_COUNT; ++b)
+    {
+        for (OBJECT* o = ObjectBlock[b].Head; o != nullptr; o = o->Next)
+        {
+            if (!o->Live) continue;
+            if (o->Position[0] < wMinX || o->Position[0] > wMaxX) continue;
+            if (o->Position[1] < wMinY || o->Position[1] > wMaxY) continue;
+
+            const float terrainZ =
+                RequestTerrainHeight(o->Position[0], o->Position[1]);
+            affected.push_back({o, o->Position[2] - terrainZ});
+        }
+    }
+
+    // --- Step 2: mutate the heightmap at every corner under the brush. ----
+    const int cornerStartX = cursor.tileX - radius;
+    const int cornerEndX   = cursor.tileX + radius;
+    const int cornerStartY = cursor.tileY - radius;
+    const int cornerEndY   = cursor.tileY + radius;
+
+    bool touched = false;
+    for (int yi = cornerStartY; yi <= cornerEndY; ++yi)
+    {
+        if (yi < 0 || yi >= TERRAIN_SIZE) continue;
+        for (int xi = cornerStartX; xi <= cornerEndX; ++xi)
+        {
+            if (xi < 0 || xi >= TERRAIN_SIZE) continue;
+
+            const float dx = static_cast<float>(xi) - ccx;
+            const float dy = static_cast<float>(yi) - ccy;
+            const float dist = std::sqrt(dx * dx + dy * dy);
+
+            float falloff = 1.0f;
+            if (m_HeightSoft)
+            {
+                if (dist >= frad) continue;
+                falloff = 1.0f - (dist / frad);
+            }
+            else if (dist >= frad) { continue; }
+
+            const int idx = xi + yi * TERRAIN_SIZE;
+            switch (m_HeightBrushMode)
+            {
+                case 1:  // Raise
+                    BackTerrainHeight[idx] += m_HeightStrength * falloff;
+                    break;
+                case 2:  // Lower
+                    BackTerrainHeight[idx] -= m_HeightStrength * falloff;
+                    break;
+                case 3:  // Flat — blend toward target
+                {
+                    const float k =
+                        (m_HeightStrength * 0.05f) * falloff;
+                    BackTerrainHeight[idx] +=
+                        (m_HeightFlatTarget - BackTerrainHeight[idx]) * k;
+                    break;
+                }
+            }
+            touched = true;
+        }
+    }
+
+    if (!touched) return;
+
+    // --- Step 3: restore each affected object's relative height. ----------
+    // RequestTerrainHeight now reads the *new* BackTerrainHeight, so
+    // newTerrainZ + relZ puts the object back at the same delta above
+    // (or below) the ground it had before the brush ran.
+    for (const auto& snap : affected)
+    {
+        const float newTerrain =
+            RequestTerrainHeight(snap.o->Position[0], snap.o->Position[1]);
+        snap.o->Position[2] = newTerrain + snap.relZ;
+    }
+
+    // Re-bake normals + lighting so the terrain visually updates this
+    // frame. Object Z fixups above run *before* this since RequestTerrain-
+    // Height samples BackTerrainHeight, not the cached normals.
+    CreateTerrainNormal();
+    CreateTerrainLight();
 }
 
 void CDevEditorUI::SetExclusiveBrushMode(int mode)
@@ -1386,6 +1599,25 @@ void CDevEditorUI::SetExclusiveBrushMode(int mode)
     // applies to the delete-hover preview when leaving delete mode.
     if (!m_PlaceOnClickEnabled)  HidePlacementPreview();
     if (!m_DeleteOnClickEnabled) ClearDeleteHoverPreview();
+
+    // Picking any painter brush also kills the height-sculptor brush
+    // (cross-tab mutex). The reverse direction lives in
+    // SetHeightBrushMode.
+    if (mode != 0) m_HeightBrushMode = 0;
+}
+
+void CDevEditorUI::SetHeightBrushMode(int mode)
+{
+    m_HeightBrushMode = mode;
+    if (mode != 0)
+    {
+        // Engaging the height sculptor kills painter brushes so the
+        // LMB only feeds one editor tool at a time.
+        SetExclusiveBrushMode(0);
+        // Restore the kill — SetExclusiveBrushMode(0) zeroed
+        // m_HeightBrushMode too because of the cross-mutex above.
+        m_HeightBrushMode = mode;
+    }
 }
 
 namespace

@@ -158,6 +158,7 @@
   "dev_log_debug_info_copied": "Debug info copied to clipboard",
 
   "dev_tab_terrain_painter": "Terrain Painter",
+  "dev_tab_terrain_height": "Terrain Height",
 
   "dev_menu_file": "File",
   "dev_menu_file_new_map": "New Map...",
