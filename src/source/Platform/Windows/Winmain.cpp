@@ -1383,8 +1383,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     pfd.nVersion = 1;
     pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
     pfd.iPixelType = PFD_TYPE_RGBA;
-    pfd.cColorBits = 16;
-    pfd.cDepthBits = 16;
+    // 32-bit color + 24-bit depth + 8-bit stencil — the standard modern
+    // pixel format. Original client used 16/16/8, which Windows drivers
+    // often downgrade further on certain GPU/driver combos, leaving
+    // characters z-fighting with their own equipped items. Requesting a
+    // matched 32/24/8 format gives drivers a canonical choice to grant.
+    pfd.cColorBits = 32;
+    pfd.cDepthBits = 24;
     pfd.cStencilBits = 8;
 
     if (!(g_hDC = GetDC(g_hWnd)))
@@ -1434,6 +1439,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     SetFocus(g_hWnd);
 
     g_ErrorReport.Write(L"> OpenGL init success.\r\n");
+
+    // Verify what the driver actually granted. PIXELFORMATDESCRIPTOR is
+    // a request; some driver/GPU combos silently downgrade — e.g.,
+    // granting 16-bit depth even when 24 was asked for, which causes
+    // catastrophic z-fighting between character body parts at any
+    // meaningful camera distance. Log the actual granted format so we
+    // can confirm 24/8 at runtime.
+    PIXELFORMATDESCRIPTOR grantedPfd = {};
+    grantedPfd.nSize = sizeof(grantedPfd);
+    grantedPfd.nVersion = 1;
+    const int grantedFormat = GetPixelFormat(g_hDC);
+    if (grantedFormat != 0 &&
+        DescribePixelFormat(g_hDC, grantedFormat, sizeof(grantedPfd), &grantedPfd) != 0)
+    {
+        g_ErrorReport.Write(
+            L"> GL pixel format granted: color=%u depth=%u stencil=%u\r\n",
+            static_cast<unsigned>(grantedPfd.cColorBits),
+            static_cast<unsigned>(grantedPfd.cDepthBits),
+            static_cast<unsigned>(grantedPfd.cStencilBits));
+    }
+    GLint depthBitsGL = 0;
+    glGetIntegerv(GL_DEPTH_BITS, &depthBitsGL);
+    g_ErrorReport.Write(L"> GL_DEPTH_BITS reported by driver: %d\r\n", depthBitsGL);
 
     // Soft-shadow FBO + blur. Failure here is non-fatal — RenderBodyShadow
     // falls back to the legacy straight-to-back-buffer path.

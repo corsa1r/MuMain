@@ -114,7 +114,13 @@ void CErrorReport::WriteDebugInfoStr(wchar_t* lpszToWrite)
     if (m_hFile != INVALID_HANDLE_VALUE)
     {
         DWORD dwNumber;
-        WriteFile(m_hFile, lpszToWrite, wcslen(lpszToWrite), &dwNumber, NULL);
+        // wcslen returns the wchar_t count, not byte count. Each wide
+        // character is 2 bytes on Windows, so we must multiply by
+        // sizeof(wchar_t) — otherwise every line ends up truncated to
+        // half its length, with the trailing wchars silently dropped.
+        WriteFile(m_hFile, lpszToWrite,
+                  wcslen(lpszToWrite) * sizeof(wchar_t),
+                  &dwNumber, NULL);
 
         if (dwNumber == 0)
         {
@@ -146,7 +152,7 @@ void CErrorReport::HexWrite(void* pBuffer, int iSize)
         if (i > 0 && i < iSize - 1) {
             if (i % 16 == 15) {	//. new line
                 offset += mu_swprintf(szLine + offset, L"\r\n");
-                WriteFile(m_hFile, szLine, wcslen(szLine), &dwWritten, NULL);
+                WriteFile(m_hFile, szLine, wcslen(szLine) * sizeof(wchar_t), &dwWritten, NULL);
                 offset = 0;
                 offset += mu_swprintf(szLine + offset, L"           : ");
             }
@@ -156,7 +162,7 @@ void CErrorReport::HexWrite(void* pBuffer, int iSize)
         }
     }
     offset += mu_swprintf(szLine + offset, L"\r\n");
-    WriteFile(m_hFile, szLine, wcslen(szLine), &dwWritten, NULL);
+    WriteFile(m_hFile, szLine, wcslen(szLine) * sizeof(wchar_t), &dwWritten, NULL);
 }
 
 void CErrorReport::AddSeparator(void)

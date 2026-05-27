@@ -801,6 +801,24 @@ void OrbitalCamera::UpdateConfigForView()
     // the terrain hull but left object culling at the static initial value.
     m_Config.terrainCullRange = m_Config.farPlane * RENDER_DISTANCE_MULTIPLIER;
     m_Config.objectCullRange  = m_Config.farPlane;
+
+#ifdef _EDITOR
+    // Editor max-radius (9000) is 3× production. The base zoomScale
+    // formula above only gently grows farPlane with radius, so at max
+    // zoom the far plane ends up barely past the hero — clipping any
+    // terrain/objects behind them. Ensure the far plane is always at
+    // least 1.5× the camera-to-hero distance so the user can actually
+    // see what they're trying to author at the extended zoom.
+    const float editorMinFar = m_Radius * 1.5f;
+    if (m_Config.farPlane < editorMinFar)
+    {
+        m_Config.farPlane = editorMinFar;
+        m_State.ViewFar   = editorMinFar;
+        g_Camera.ViewFar  = editorMinFar;
+        m_Config.terrainCullRange = editorMinFar * RENDER_DISTANCE_MULTIPLIER;
+        m_Config.objectCullRange  = editorMinFar;
+    }
+#endif
 }
 
 void OrbitalCamera::UpdateFrustum()

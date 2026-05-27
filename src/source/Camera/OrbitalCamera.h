@@ -106,7 +106,18 @@ private:
     // DEFAULT matches that so orbital starts at exactly the Default cam's
     // position. MIN/MAX bracket how far the player can move from there.
     static constexpr float MIN_RADIUS = 600.0f;
+    // Editor builds get 9× the zoom-out range so authors can frame the
+    // entire 256×256 terrain (~25,600 world units wide) from a single
+    // viewpoint for large-scale brush / object work. The matching far-
+    // plane / cull-range bump lives in UpdateConfigForView — without it,
+    // terrain past the original far-plane gets clipped at the extended
+    // radius. Production builds keep the tighter 3000 cap so gameplay
+    // framing matches the classic feel.
+#ifdef _EDITOR
+    static constexpr float MAX_RADIUS = 27000.0f;
+#else
     static constexpr float MAX_RADIUS = 3000.0f;
+#endif
     static constexpr float DEFAULT_RADIUS = 1735.0f;
 
     // Input state (middle-mouse drag tracking)

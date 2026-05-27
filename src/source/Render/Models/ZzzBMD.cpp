@@ -1371,6 +1371,15 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     if (enableColor) glDisableClientState(GL_COLOR_ARRAY);
     glDisableClientState(GL_VERTEX_ARRAY);
+
+    // Restore depth mask. The RENDER_BRIGHT path above disables it via
+    // EnableAlphaBlend() and the explicit DisableDepthMask() in the
+    // no-texture branch — without this restoration the next RenderMesh
+    // call (e.g. the next body part of the same character) would draw
+    // without writing depth, leaving its silhouette unable to occlude
+    // subsequent equipment items. Manifests as shield/helmet flicker
+    // and "items rendered over body" at certain poses.
+    EnableDepthMask();
 }
 
 void BMD::RenderMeshAlternative(int iRndExtFlag, int iParam, int i, int RenderFlag, float Alpha, int BlendMesh, float BlendMeshLight, float BlendMeshTexCoordU, float BlendMeshTexCoordV, int MeshTexture)
@@ -1706,6 +1715,9 @@ void BMD::RenderMeshAlternative(int iRndExtFlag, int iParam, int i, int RenderFl
         }
     }
     glEnd();
+
+    // Restore depth mask — see RenderMesh's tail comment for rationale.
+    EnableDepthMask();
 }
 
 void BMD::RenderMeshEffect(int i, int iType, int iSubType, vec3_t Angle, VOID* obj)
@@ -2182,6 +2194,9 @@ void BMD::RenderMeshTranslate(int i, int RenderFlag, float Alpha, int BlendMesh,
         }
     }
     glEnd();
+
+    // Restore depth mask — see RenderMesh's tail comment for rationale.
+    EnableDepthMask();
 }
 
 void BMD::RenderBodyTranslate(int Flag, float Alpha, int BlendMesh, float BlendMeshLight, float BlendMeshTexCoordU, float BlendMeshTexCoordV, int HiddenMesh, int Texture)

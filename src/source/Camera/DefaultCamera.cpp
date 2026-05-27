@@ -79,7 +79,20 @@ namespace
         { 1400.f, 1.04f },  // 4
         { 1500.f, 1.08f },  // 5
         { 1600.f, 1.23f },  // 6
-        { 1700.f, 1.33f },  // 7
+        { 1700.f, 1.33f },  // 7 — gameplay max (production cap)
+#ifdef _EDITOR
+        // Editor-only ladder extension for large-terrain authoring.
+        // Production caps at rung 7 (1700 / 1.33×) to keep the classic
+        // gameplay framing. Editor authors need much wider framing for
+        // brush / object placement on the full 256×256 (~25600u) map,
+        // so the rungs below run from 2.5× to ~10× the production max
+        // with proportionally lifted far-plane multipliers.
+        { 3000.f,  2.50f },  // 8
+        { 5000.f,  4.00f },  // 9
+        { 8000.f,  6.00f },  // 10
+        { 12000.f, 9.00f },  // 11
+        { 17000.f, 12.00f }, // 12 — frames most of the map
+#endif
     };
     constexpr int PLAYER_ZOOM_LEVEL_DEFAULT = 3;
     constexpr int PLAYER_ZOOM_LEVEL_COUNT   = static_cast<int>(std::size(PLAYER_ZOOM_LADDER));
@@ -436,6 +449,18 @@ bool DefaultCamera::Update()
     float effectiveFarPlane = m_Config.farPlane;
 
 #ifdef _EDITOR
+    // Editor extended-zoom rungs (8+, viewFarMult > 1.5) need
+    // g_Camera.ViewFar to actually scale up — otherwise CreateFrustrum
+    // (in ZzzLodTerrain) builds the terrain hull off the static 3000-
+    // unit far-plane and crops everything past that distance no matter
+    // how far the camera pulls back. Override only when we're on an
+    // extended rung so production-equivalent rungs (0–7) keep the
+    // baseline "FIX Issue #1" behavior intact.
+    if (m_State.ViewFar > effectiveFarPlane * 1.5f)
+        effectiveFarPlane = m_State.ViewFar;
+#endif
+
+#ifdef _EDITOR
     // Log only when the value changes
     static float lastLoggedValue = -1.0f;
     if (effectiveFarPlane != lastLoggedValue)
@@ -474,6 +499,24 @@ void DefaultCamera::CalculateCameraViewFar()
         m_State.ViewFar = baseFarPlane * PLAYER_ZOOM_LADDER[g_shCameraLevel].viewFarMult;
     else
         m_State.ViewFar = baseFarPlane;  // cutscene / out-of-range fallback
+
+#ifdef _EDITOR
+    // Editor-only extended-zoom rungs (8..12) push ViewFar well past
+    // the config's static terrainCullRange (4200), so terrain beyond
+    // that distance gets frustum-culled even though the projection
+    // could render it. Scale the cull ranges by the same multiplier so
+    // the visible terrain extends with the camera pull-out.
+    //
+    // Gated behind ENABLE_EDITOR — production keeps the static
+    // 4200/3000 cull values for predictable framerate at gameplay
+    // zoom levels (where ViewFar never exceeds the base × 1.33 rung).
+    if (g_shCameraLevel >= 0 && g_shCameraLevel < PLAYER_ZOOM_LEVEL_COUNT)
+    {
+        const float mult = PLAYER_ZOOM_LADDER[g_shCameraLevel].viewFarMult;
+        m_Config.terrainCullRange = baseFarPlane * mult * RENDER_DISTANCE_MULTIPLIER;
+        m_Config.objectCullRange  = baseFarPlane * mult;
+    }
+#endif
 }
 
 namespace
