@@ -65,6 +65,22 @@ namespace MuEditor::CustomMap
     // on directory/IO failure.
     bool WriteWeatherFlags(int mapId, unsigned int flags);
 
+    // Writes a fresh TerrainLight.OZJ for the slot from a caller-
+    // supplied 256×256 RGB buffer. `rgb256` must point to
+    // TERRAIN_SIZE*TERRAIN_SIZE*3 bytes laid out row-major as
+    // (R,G,B) per vertex. JPEG-encodes the buffer with the same OZJ
+    // wire format the engine reads (24-byte prefix + JPEG payload).
+    // Used by the Lighting Bake button. Returns false on encode or
+    // file-write failure.
+    bool WriteTerrainLightRGB(int mapId, const unsigned char* rgb256);
+
+    // Re-reads the slot's TerrainLight.OZJ through the engine's
+    // OpenTerrainLight path (which also re-runs CreateTerrainNormal
+    // and CreateTerrainLight against the live heightmap, so dynamic
+    // slope shading composites correctly with the new ambient buffer).
+    // No-op if the file isn't present.
+    void ReloadTerrainLightFromSlot(int mapId);
+
     // Picks the highest-priority weather flag and loads its source
     // world's leaf01/leaf02 bitmaps into BITMAP_LEAF1/LEAF2 (force-
     // evicting the existing slot first so the bitmap cache can't

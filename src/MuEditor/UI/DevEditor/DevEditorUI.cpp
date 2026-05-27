@@ -19,6 +19,9 @@
 #include "CustomMap/CustomMapIO.h"
 #include "CustomMap/SourceBank.h"
 #include "CustomMap/CustomWeather.h"
+#include "CustomMap/LightingBaker.h"
+
+#include <chrono>
 #include "Core/Globals/_define.h"          // TW_* flags, TERRAIN_SIZE
 #include "Render/Terrain/ZzzLodTerrain.h"  // AddTerrainAttribute, SelectXF/YF
 #include "Render/Textures/ZzzOpenglUtil.h" // EnableAlphaBlend / DisableTexture etc.
@@ -325,6 +328,12 @@ void CDevEditorUI::Render(bool* p_open)
         if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_weather")))
         {
             RenderWeatherTab();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_lighting")))
+        {
+            RenderLightingTab();
             ImGui::EndTabItem();
         }
 
@@ -1745,6 +1754,105 @@ void CDevEditorUI::RenderWeatherTab()
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(Save Map persists the selection)");
+}
+
+void CDevEditorUI::RenderLightingTab()
+{
+    if (m_CurrentCustomMapId < 0)
+    {
+        ImGui::TextDisabled("Lighting is per custom map.");
+        ImGui::TextDisabled("Create or load a custom map first.");
+        return;
+    }
+
+    ImGui::TextWrapped(
+        "Bakes per-vertex lighting into TerrainLight.OZJ: sun shadows "
+        "cast against the heightmap, sky ambient occlusion in crevices, "
+        "and a sky-color tint. The engine adds dynamic slope shading "
+        "on top after reload. Bake again after editing terrain height.");
+    ImGui::Separator();
+
+    // --- Sun ---
+    ImGui::TextDisabled("Sun");
+    ImGui::SliderFloat("Azimuth (deg)",  &m_LightSunAzimuth,  0.0f, 360.0f, "%.0f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Compass direction of the sun. 0 = east (+X), "
+                          "90 = north (+Y), 180 = west, 270 = south.");
+    ImGui::SliderFloat("Altitude (deg)", &m_LightSunAltitude, 5.0f,  90.0f, "%.0f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Elevation above horizon. 5 = sunset (long shadows), "
+                          "90 = noon (short shadows).");
+    ImGui::ColorEdit3("Sun color", m_LightSunColor);
+
+    ImGui::Separator();
+
+    // --- Sky / AO ---
+    ImGui::TextDisabled("Sky ambient + AO");
+    ImGui::ColorEdit3("Sky color", m_LightSkyColor);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Base ambient tint, modulated by AO. Try cool blues "
+                          "for cold maps, warm orange for desert, dim gray for "
+                          "dungeons.");
+    ImGui::SliderFloat("Ambient floor", &m_LightAmbientFloor, 0.0f, 0.5f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Minimum light everywhere — keeps deep shadows "
+                          "from going pure black.");
+    ImGui::SliderInt  ("AO samples",     &m_LightAoSamples,    8,  128);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hemisphere rays per vertex. 16-32 = fast preview, "
+                          "64-128 = final bake. Bake time scales linearly.");
+    ImGui::SliderFloat("AO max distance", &m_LightAoDistance,  200.0f, 5000.0f, "%.0f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How far AO rays travel before being considered "
+                          "'escaped'. Shorter = local crevice shading; "
+                          "longer = darker under big geometry.");
+    ImGui::SliderFloat("AO strength",     &m_LightAoStrength,   0.25f, 4.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Exponent applied to the AO factor. <1 lightens "
+                          "shadows; >1 darkens them aggressively.");
+
+    ImGui::Separator();
+
+    // --- Bake button + timing ---
+    const bool canBake = !m_LightBakeRunning;
+    if (!canBake) ImGui::BeginDisabled();
+    if (ImGui::Button(m_LightBakeRunning ? "Baking..." : "Bake Lighting",
+                      ImVec2(200, 0)))
+    {
+        m_LightBakeRunning = true;
+        MuEditor::CustomMap::LightingBakeParams p;
+        p.sunAzimuth   = m_LightSunAzimuth;
+        p.sunAltitude  = m_LightSunAltitude;
+        p.sunColor[0]  = m_LightSunColor[0];
+        p.sunColor[1]  = m_LightSunColor[1];
+        p.sunColor[2]  = m_LightSunColor[2];
+        p.skyColor[0]  = m_LightSkyColor[0];
+        p.skyColor[1]  = m_LightSkyColor[1];
+        p.skyColor[2]  = m_LightSkyColor[2];
+        p.ambientFloor = m_LightAmbientFloor;
+        p.aoSamples    = m_LightAoSamples;
+        p.aoMaxDistance = m_LightAoDistance;
+        p.aoStrength   = m_LightAoStrength;
+
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool ok = MuEditor::CustomMap::BakeLighting(m_CurrentCustomMapId, p);
+        const auto t1 = std::chrono::steady_clock::now();
+        m_LightBakeMsLast = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        m_LightBakeRunning = false;
+        (void)ok;
+    }
+    if (!canBake) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Single-threaded bake. UI will be unresponsive for "
+                          "a few seconds depending on AO sample count.");
+    if (m_LightBakeMsLast > 0.0)
+        ImGui::Text("Last bake: %.0f ms", m_LightBakeMsLast);
+    else
+        ImGui::TextDisabled("No bake yet this session.");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("(Bake writes TerrainLight.OZJ; survives Save Map automatically.)");
 }
 
 void CDevEditorUI::RenderTerrainHeightTab()

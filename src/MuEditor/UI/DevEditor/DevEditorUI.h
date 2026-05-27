@@ -216,6 +216,22 @@ private:
     void RenderWeatherTab();
     unsigned int m_WeatherFlags = 0;  // CW_* bitmask
 
+    // Lighting tab: offline-bake terrain lighting (sun shadows + sky AO
+    // + sky tint) into TerrainLight.OZJ. Params live on the editor so
+    // they survive across tab switches; the bake itself happens only
+    // on button press.
+    void RenderLightingTab();
+    float m_LightSunAzimuth   = 135.0f;
+    float m_LightSunAltitude  = 55.0f;
+    float m_LightSunColor[3]  = { 1.00f, 0.95f, 0.85f };
+    float m_LightSkyColor[3]  = { 0.45f, 0.55f, 0.70f };
+    float m_LightAmbientFloor = 0.12f;
+    int   m_LightAoSamples    = 32;
+    float m_LightAoDistance   = 1500.0f;
+    float m_LightAoStrength   = 1.0f;
+    bool  m_LightBakeRunning  = false;
+    double m_LightBakeMsLast  = 0.0;
+
     // Currently-authored custom-map slot. -1 = no slot bound; Save Map is
     // disabled until either a New Map is created or a custom Load picks a
     // slot. Loading a classic world deliberately resets this back to -1

@@ -1088,6 +1088,48 @@ namespace MuEditor::CustomMap
         return true;
     }
 
+    bool WriteTerrainLightRGB(int mapId, const unsigned char* rgb256)
+    {
+        if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX)
+            return false;
+        if (rgb256 == nullptr) return false;
+        if (!EnsureSlotDirectory(mapId)) return false;
+
+        tjhandle handle = tjInitCompress();
+        if (handle == nullptr) return false;
+
+        const unsigned long maxJpegSize =
+            tjBufSize(TERRAIN_SIZE, TERRAIN_SIZE, TJSAMP_444);
+        std::vector<unsigned char> jpegBuf(maxJpegSize);
+        unsigned char* jpegPtr = jpegBuf.data();
+        unsigned long  jpegSize = maxJpegSize;
+        // BOTTOMUP because the engine's OpenJpegBuffer reads the
+        // decoded buffer into TerrainLight[] starting from the bottom
+        // row (matches BMP/TGA conventions). NOREALLOC keeps jpegBuf
+        // owning the storage instead of turbojpeg reallocating it.
+        const int flags = TJFLAG_BOTTOMUP | TJFLAG_NOREALLOC;
+        const int rc = tjCompress2(
+            handle, rgb256,
+            TERRAIN_SIZE, /*pitch=*/0, TERRAIN_SIZE,
+            TJPF_RGB, &jpegPtr, &jpegSize,
+            TJSAMP_444, LIGHT_OZJ_QUALITY, flags);
+        tjDestroy(handle);
+        if (rc != 0) return false;
+
+        std::vector<BYTE> ozj(LIGHT_OZJ_PREFIX_SIZE + jpegSize, 0);
+        std::memcpy(ozj.data() + LIGHT_OZJ_PREFIX_SIZE, jpegPtr, jpegSize);
+        return WriteBinary(GetCustomMapLightPath(mapId), ozj);
+    }
+
+    void ReloadTerrainLightFromSlot(int mapId)
+    {
+        if (mapId < CUSTOM_MAP_ID_MIN || mapId > CUSTOM_MAP_ID_MAX) return;
+        std::error_code ec;
+        if (!fs::exists(GetCustomMapLightPath(mapId), ec)) return;
+        std::wstring lightArg = BuildLightLoaderArg(mapId);
+        OpenTerrainLight(lightArg.data());
+    }
+
     void ApplyWeatherAssets(unsigned int flags)
     {
         // Priority order for LEAF1/LEAF2 texture pick — snow wins over
