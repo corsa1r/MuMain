@@ -381,6 +381,22 @@ private:
     DevEditorDefaultCameraOverride m_DefaultOverride;
     DevEditorOrbitalCameraOverride m_OrbitalOverride;
 
+    // Middle-mouse drag pan. Applied on top of the DefaultCamera position
+    // (see DevEditor_GetDefaultCameraOffset in DevEditorUI.cpp) regardless
+    // of whether the camera override is enabled — pan is a navigation aid,
+    // not part of the override tuning surface. World units, ABS frame.
+    float m_PanOffsetX     = 0.0f;
+    float m_PanOffsetY     = 0.0f;
+    bool  m_PanActive      = false;
+    int   m_PanLastMouseX  = 0;
+    int   m_PanLastMouseY  = 0;
+    void  HandleMiddleMousePan();
+
+public:
+    void GetCameraPanOffset(float& outX, float& outY) const { outX = m_PanOffsetX; outY = m_PanOffsetY; }
+    void ResetCameraPan() { m_PanOffsetX = m_PanOffsetY = 0.0f; m_PanActive = false; }
+private:
+
 
     // Render toggle flags
     // Working toggles

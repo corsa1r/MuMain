@@ -36,6 +36,7 @@ extern float g_fSpecialHeight;
 extern "C" bool DevEditor_IsCameraOverrideEnabled(const char* cameraName);
 extern "C" void DevEditor_ApplyCameraOverride(const char* cameraName, CameraConfig* cfg);
 extern "C" void DevEditor_GetDefaultCameraOffset(float* outX, float* outY, float* outZ);
+extern "C" void DevEditor_ResetCameraPan();
 #endif
 
 namespace
@@ -769,6 +770,11 @@ void DefaultCamera::UpdateCustomCameraDistance()
 void DefaultCamera::ResetView()
 {
     m_PlayerZoomLevel = PLAYER_ZOOM_LEVEL_DEFAULT;
+#ifdef _EDITOR
+    // F11 also clears any middle-mouse pan offset so the camera snaps back
+    // to its hero-anchored default position.
+    DevEditor_ResetCameraPan();
+#endif
 }
 
 // Forward-decl at file scope — extern "C" linkage specifiers can't sit

@@ -293,6 +293,7 @@ void CDevEditorUI::Render(bool* p_open)
         // Painter input must still run when window is collapsed — the user
         // may have enabled paint-on-drag from a previous frame.
         HandlePaintBrushInput();
+        HandleMiddleMousePan();
         return;
     }
 
@@ -344,6 +345,7 @@ void CDevEditorUI::Render(bool* p_open)
 
     ImGui::End();
     HandlePaintBrushInput();
+    HandleMiddleMousePan();
 }
 
 void CDevEditorUI::RenderScenesTab()
@@ -1656,6 +1658,70 @@ void CDevEditorUI::HandlePaintBrushInput()
     HandlePaintTextureInput();
     HandlePaintGrassInput();
     HandleHeightBrushInput();
+}
+
+void CDevEditorUI::HandleMiddleMousePan()
+{
+    extern EGameScene SceneFlag;
+    if (SceneFlag != MAIN_SCENE) { m_PanActive = false; return; }
+
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+    {
+        m_PanActive = false;
+        return;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    // Don't start a pan over a panel/menu, but once the drag is in flight
+    // keep tracking even if the cursor briefly slides over an overlay.
+    if (!m_PanActive && io.WantCaptureMouse) return;
+
+    const int mx = (int)io.MousePos.x;
+    const int my = (int)io.MousePos.y;
+
+    if (!m_PanActive)
+    {
+        m_PanActive = true;
+        m_PanLastMouseX = mx;
+        m_PanLastMouseY = my;
+        return;
+    }
+
+    const int dx = mx - m_PanLastMouseX;
+    const int dy = my - m_PanLastMouseY;
+    m_PanLastMouseX = mx;
+    m_PanLastMouseY = my;
+    if (dx == 0 && dy == 0) return;
+
+    // Inverse-yaw the screen delta into world space. The DefaultCamera
+    // applies Rz(Angle[2]) after Rx(Angle[0]), so the world's XY plane is
+    // rotated by Angle[2] on screen. Undoing that rotation lets a screen
+    // pixel translate to a consistent world step regardless of camera yaw.
+    // Pitch is not compensated — the editor's ~-48.5° pitch foreshortens
+    // screen Y a bit but a single uniform scale still feels natural for
+    // navigation; over-engineering it would make extreme override pitches
+    // produce huge jumps.
+    extern CameraState g_Camera;
+    const float yawRad = g_Camera.Angle[2] * 0.01745329f;
+    const float cosY = cosf(yawRad);
+    const float sinY = sinf(yawRad);
+
+    // Scale with camera distance so the same physical drag covers the same
+    // visible world span regardless of zoom rung. The ~700 divisor matches
+    // a typical 720p render height; tune by feel if the speed isn't right.
+    constexpr float PIXELS_PER_DISTANCE = 1.0f / 700.0f;
+    const float worldPerPixel = g_Camera.Distance * PIXELS_PER_DISTANCE;
+
+    const float fdx = static_cast<float>(dx) * worldPerPixel;
+    const float fdy = static_cast<float>(dy) * worldPerPixel;
+
+    // R(-yaw) on (fdx, fdy). Camera offset moves WITH the mouse direction
+    // (drag left -> camera moves left, revealing scene to the right).
+    const float wdx = cosY * fdx + sinY * fdy;
+    const float wdy = -sinY * fdx + cosY * fdy;
+
+    m_PanOffsetX += wdx;
+    m_PanOffsetY += wdy;
 }
 
 void CDevEditorUI::RenderGrassPainterPanel()
@@ -3164,16 +3230,30 @@ extern "C"
         if (outEnd)   *outEnd   = viewFar * endPct;
     }
 
+    // F11 ("Reset Camera View") hook: clears middle-mouse pan accumulator
+    // so the camera snaps back to its hero-anchored default. Called from
+    // DefaultCamera::ResetView() under _EDITOR. Safe to call any time.
+    void DevEditor_ResetCameraPan()
+    {
+        g_DevEditorUI.ResetCameraPan();
+    }
+
     // Default-camera-only accessors (position offset + 2D trapezoid width multipliers).
-    // Return identity/zero when override disabled or not in MAIN_SCENE.
+    // Returns the override offset (when enabled) PLUS the middle-mouse pan
+    // offset (always applied in MAIN_SCENE). The pan is independent of the
+    // override so dragging-to-pan works without first ticking the override
+    // checkbox.
     void DevEditor_GetDefaultCameraOffset(float* outX, float* outY, float* outZ)
     {
         extern EGameScene SceneFlag;
         const auto& ov = g_DevEditorUI.GetDefaultOverride();
-        const bool active = (SceneFlag == MAIN_SCENE) && ov.enabled;
-        if (outX) *outX = active ? ov.offsetX : 0.0f;
-        if (outY) *outY = active ? ov.offsetY : 0.0f;
-        if (outZ) *outZ = active ? ov.offsetZ : 0.0f;
+        const bool overrideActive = (SceneFlag == MAIN_SCENE) && ov.enabled;
+        float panX = 0.0f, panY = 0.0f;
+        if (SceneFlag == MAIN_SCENE)
+            g_DevEditorUI.GetCameraPanOffset(panX, panY);
+        if (outX) *outX = (overrideActive ? ov.offsetX : 0.0f) + panX;
+        if (outY) *outY = (overrideActive ? ov.offsetY : 0.0f) + panY;
+        if (outZ) *outZ = overrideActive ? ov.offsetZ : 0.0f;
     }
 
     // Orbital 2D culling: returns `true` when a custom view-aligned trapezoid
