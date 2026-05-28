@@ -98,19 +98,16 @@ void OpenModels(int Model, wchar_t* FileName, int i)
 void OpenPlayers()
 {
     ModelsDump = new BMD[MAX_MODELS + 1024];
-#ifdef _EDITOR
-    // Editor needs a deterministic Models[] location so the trailing 1024
-    // slots (Models[MAX_MODELS..MAX_MODELS+1023]) form a stable region the
-    // custom-map source-bank manager can side-load extra worlds' object
-    // banks into. The rand-based offset used in shipping builds is an
-    // ASLR-style obfuscation; pinning it to 0 gives the editor a reliable
-    // address window for cross-world model loading.
+    // The trailing 1024 slots (Models[MAX_MODELS..MAX_MODELS+1023]) are the stable
+    // address window the custom-map source-bank manager side-loads cross-world
+    // object banks into. Both editor and runtime builds need that window intact,
+    // so we pin Models = ModelsDump in both — the rand-based offset previously
+    // used in shipping builds was ASLR-style obfuscation that pushed the trailing
+    // region out of bounds (ModelsDump only holds MAX_MODELS + 1024 entries, and
+    // the rand could shift Models up to 1023 past the start, making the source
+    // bank writes overflow the allocation and crash).
     Models = ModelsDump;
     ZeroMemory(Models, (MAX_MODELS + 1024) * sizeof(BMD));
-#else
-    Models = ModelsDump + (rand() % 1024);
-    ZeroMemory(Models, MAX_MODELS * sizeof(BMD));
-#endif // _EDITOR
 
     gLoadData.AccessModel(MODEL_PLAYER, L"Data\\Player\\", L"Player");
 
