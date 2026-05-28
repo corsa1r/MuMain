@@ -23,6 +23,7 @@ FrameTimingState g_frameTiming;
 #include "WebzenScene.h"
 #include "LoginScene.h"
 #include "CharacterScene.h"
+#include "Network/ServerMapManifest.h"
 #include "MainScene.h"
 #include "LoadingScene.h"
 #include "Audio/DSPlaySound.h"
@@ -699,6 +700,17 @@ static void CheckServerConnection()
  */
 static void PlayWorldAmbientSounds()
 {
+    // Custom maps neutralise gMapManager.WorldActive to WD_0LORENCIA for renderer
+    // compatibility, which would otherwise leak Lorencia's wind+rain into every
+    // custom slot. Per-map ambient sound for custom maps is a future feature
+    // (manifest could carry a sound id); for now, silence them.
+    if (BloodlustMU::ServerMapManifest::Instance().IsCurrentlyInCustomMap())
+    {
+        StopBuffer(SOUND_WIND01, true);
+        StopBuffer(SOUND_RAIN01, true);
+        return;
+    }
+
     switch (gMapManager.WorldActive)
     {
     case WD_0LORENCIA:
@@ -846,6 +858,31 @@ static void StopInactiveAmbientSounds()
  */
 static void ManageBackgroundMusic()
 {
+    // Custom maps override WorldActive to WD_0LORENCIA for renderer compatibility,
+    // which would otherwise trigger MUSIC_MAIN_THEME / MUSIC_PUB on every custom slot.
+    // Per-map BGM for custom maps is a future feature (manifest could carry a music id);
+    // for now, force-stop any classic-world BGM and return so nothing plays.
+    if (BloodlustMU::ServerMapManifest::Instance().IsCurrentlyInCustomMap())
+    {
+        StopMp3(MUSIC_PUB);
+        StopMp3(MUSIC_MAIN_THEME);
+        StopMp3(MUSIC_CHURCH);
+        StopMp3(MUSIC_DEVIAS);
+        StopMp3(MUSIC_NORIA);
+        StopMp3(MUSIC_DUNGEON);
+        StopMp3(MUSIC_ATLANS);
+        StopMp3(MUSIC_ICARUS);
+        StopMp3(MUSIC_TARKAN);
+        StopMp3(MUSIC_LOSTTOWER_A);
+        StopMp3(MUSIC_KALIMA);
+        StopMp3(MUSIC_BC_HUNTINGGROUND);
+        StopMp3(MUSIC_BC_ADIA);
+        StopMp3(MUSIC_KANTURU_1ST);
+        StopMp3(MUSIC_ELBELAND);
+        StopMp3(MUSIC_SWAMP_OF_QUIET);
+        return;
+    }
+
     if (gMapManager.WorldActive == WD_0LORENCIA)
     {
         if (Hero->SafeZone)

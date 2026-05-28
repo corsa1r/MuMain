@@ -20,6 +20,8 @@
 #include "Audio/DSPlaySound.h"
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
+#include "Network/ServerMapManifest.h"
+#include "Network/MoveCommandData.h"
 #include "GameLogic/Skills/SkillComboStore.h"
 #include "Network/Server/Heartbeat.h"
 #include "GameLogic/Events/MatchEvent.h"
@@ -1223,7 +1225,15 @@ void ReceiveRevival(const BYTE* ReceiveBuffer)
         }
     }
 
-    if (gMapManager.WorldActive != Data->Map)
+    // Custom maps stick WorldActive at WD_0LORENCIA so the renderer's per-world
+    // bitmap chains don't crash, which makes the raw WorldActive comparison miss
+    // custom→classic and custom→custom transitions. ServerMapManifest tracks the
+    // real server-side number and bridges that gap.
+    const int currentServerMap =
+        BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+    const bool needsReload = (gMapManager.WorldActive != Data->Map)
+        || (currentServerMap != -1 && currentServerMap != Data->Map);
+    if (needsReload)
     {
         int OldWorld = gMapManager.WorldActive;
 
@@ -2064,7 +2074,14 @@ BOOL ReceiveTeleport(const BYTE* ReceiveBuffer, BOOL bEncrypted)
         ClearItems();
         ClearCharacters(HeroKey);
         RemoveAllShopTitleExceptHero();
-        if (gMapManager.WorldActive != Data->Map)
+        // See the parallel branch above for why we also consult ServerMapManifest
+        // here — custom maps pin WorldActive at WD_0LORENCIA for renderer safety,
+        // and the raw comparison alone misses transitions out of custom slots.
+        const int currentServerMap2 =
+            BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+        const bool needsReload2 = (gMapManager.WorldActive != Data->Map)
+            || (currentServerMap2 != -1 && currentServerMap2 != Data->Map);
+        if (needsReload2)
         {
             int OldWorld = gMapManager.WorldActive;
 
@@ -14715,6 +14732,22 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
         // Received mu helper config from server
         ReceiveMuHelperConfigurationData(received_span);
         break;
+    case 0xCC:
+    {
+        // Custom map manifest + warp list (server-pushed). See ServerMapManifest.cpp.
+        // 0xCC was chosen because 0xBA is already used by ReceiveSkillCount above.
+        auto sub = bIsC1C3 ? ReceiveBuffer[3] : ReceiveBuffer[4];
+        if (sub == 0x01)
+        {
+            if (BloodlustMU::ServerMapManifest::Instance().ApplyFromPacket(ReceiveBuffer, Size))
+            {
+                // Repopulate the Move List UI cache so the in-game Move window matches
+                // the server's current warp list (replaces the static BMD source).
+                SEASON3B::CMoveCommandData::GetInstance()->RebuildFromServerManifest();
+            }
+        }
+        break;
+    }
     default:
         break;
     }

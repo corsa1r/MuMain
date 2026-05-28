@@ -17,7 +17,9 @@
 
 // Map authoring
 #include "CustomMap/CustomMapIO.h"
+#include "CustomMap/MapPackageWriter.h"
 #include "CustomMap/SourceBank.h"
+#include <algorithm>
 #include "CustomMap/CustomWeather.h"
 #include "CustomMap/LightingBaker.h"
 
@@ -911,6 +913,14 @@ void CDevEditorUI::RenderFileMenuBar()
             m_RequestOpenLoadMap = true;
         }
 
+        // "Export Package..." — produces a .bmap that can be uploaded via the
+        // admin panel on any server (dev, prod, friend's). Saves locally first
+        // so the export bundles the latest state from disk.
+        if (ImGui::MenuItem("Export Package...", nullptr, false, canSave))
+        {
+            m_RequestOpenExportPackage = true;
+        }
+
         ImGui::EndMenu();
     }
 
@@ -960,9 +970,15 @@ void CDevEditorUI::RenderFileMenuModals()
         ImGui::OpenPopup(LOAD_MAP_POPUP_ID);
         m_RequestOpenLoadMap = false;
     }
+    if (m_RequestOpenExportPackage)
+    {
+        ImGui::OpenPopup("Export Map Package###ExportPackagePopup");
+        m_RequestOpenExportPackage = false;
+    }
 
     RenderNewMapModal();
     RenderLoadMapModal();
+    RenderExportPackageModal();
 }
 
 void CDevEditorUI::RenderNewMapModal()
@@ -1048,6 +1064,106 @@ void CDevEditorUI::RenderNewMapModal()
     if (ImGui::Button(EDITOR_TEXT("dev_btn_cancel"), ImVec2(120, 0)))
     {
         ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+void CDevEditorUI::RenderExportPackageModal()
+{
+    if (!ImGui::BeginPopupModal("Export Map Package###ExportPackagePopup", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        return;
+    }
+
+    ImGui::TextWrapped(
+        "Writes a .bmap (ZIP) for the active slot. Upload via the admin panel "
+        "on any server (dev / prod) to register the map.");
+    ImGui::Separator();
+
+    ImGui::InputText("Display name", m_ExportDisplayName,
+                     IM_ARRAYSIZE(m_ExportDisplayName));
+    ImGui::InputText("Warp name (optional)", m_ExportWarpName,
+                     IM_ARRAYSIZE(m_ExportWarpName));
+    ImGui::InputInt("Level requirement", &m_ExportLevelReq);
+    if (m_ExportLevelReq < 0) m_ExportLevelReq = 0;
+    ImGui::InputInt("Cost (zen)", &m_ExportCost);
+    if (m_ExportCost < 0) m_ExportCost = 0;
+    int sx = m_ExportSpawnX, sy = m_ExportSpawnY;
+    ImGui::InputInt("Spawn X", &sx);
+    ImGui::InputInt("Spawn Y", &sy);
+    m_ExportSpawnX = static_cast<uint8_t>(std::clamp(sx, 0, 255));
+    m_ExportSpawnY = static_cast<uint8_t>(std::clamp(sy, 0, 255));
+
+    // Default output path: alongside the slot folder so the file is easy to
+    // find. The user can move/rename freely after — package format is
+    // identified by content, not filename.
+    std::wstring defaultPath;
+    if (m_CurrentCustomMapId >= 0)
+    {
+        wchar_t buf[260];
+        std::swprintf(buf, std::size(buf),
+                      L"Data\\World\\Custom\\World%d\\package.bmap",
+                      m_CurrentCustomMapId + 1);
+        defaultPath = buf;
+    }
+    ImGui::TextDisabled("Output: %ls", defaultPath.c_str());
+
+    if (ImGui::Button("Export", ImVec2(120, 0)) && m_CurrentCustomMapId >= 0)
+    {
+        // Persist the in-memory edits to disk first so the package picks them up.
+        MuEditor::CustomMap::SaveCustomMap(m_CurrentCustomMapId);
+
+        // Convert display name from UTF-8 (ImGui InputText) to wide.
+        std::wstring displayW;
+        if (m_ExportDisplayName[0] != '\0')
+        {
+            int n = MultiByteToWideChar(CP_UTF8, 0, m_ExportDisplayName, -1, nullptr, 0);
+            if (n > 0)
+            {
+                displayW.resize(static_cast<size_t>(n - 1));
+                MultiByteToWideChar(CP_UTF8, 0, m_ExportDisplayName, -1,
+                                    displayW.data(), n);
+            }
+        }
+        if (displayW.empty())
+        {
+            wchar_t fallback[64];
+            std::swprintf(fallback, std::size(fallback), L"CustomMap%d",
+                          m_CurrentCustomMapId);
+            displayW = fallback;
+        }
+
+        auto result = MuEditor::CustomMap::ExportMapPackage(
+            m_CurrentCustomMapId, displayW, defaultPath,
+            std::string(m_ExportWarpName),
+            m_ExportLevelReq, m_ExportCost,
+            m_ExportSpawnX, m_ExportSpawnY);
+
+        if (result.success)
+        {
+            char status[300];
+            std::snprintf(status, sizeof(status),
+                          "Exported: %ls", result.outputPath.c_str());
+            m_LastExportStatus = status;
+            ImGui::CloseCurrentPopup();
+        }
+        else
+        {
+            m_LastExportStatus = "Export failed: " + result.error;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0)))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+
+    if (!m_LastExportStatus.empty())
+    {
+        ImGui::Separator();
+        ImGui::TextWrapped("%s", m_LastExportStatus.c_str());
     }
 
     ImGui::EndPopup();

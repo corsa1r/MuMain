@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "UIMapName.h"
 #include "World/MapInfra/MapManager.h"
+#include "Network/ServerMapManifest.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Textures/ZzzTexture.h"
 
@@ -142,6 +143,16 @@ void CUIMapName::ShowMapName()
     m_dwDeltaTickSum = 0;
 
     if (gMapManager.WorldActive == WD_40AREA_FOR_GM)
+    {
+        m_eState = HIDE;
+        return;
+    }
+
+    // No per-map banner asset exists for custom maps yet — they don't ship a tga
+    // matching the editor-chosen Number. Suppress the banner entirely; a future
+    // change can pull a custom banner image from the server-side manifest or the
+    // map's own slot directory.
+    if (BloodlustMU::ServerMapManifest::Instance().IsCurrentlyInCustomMap())
     {
         m_eState = HIDE;
         return;

@@ -206,6 +206,7 @@ private:
     void SetExclusiveBrushMode(int mode);
     void RenderNewMapModal();
     void RenderLoadMapModal();
+    void RenderExportPackageModal();
     void RenderTerrainPainterTab();
     void HandlePaintBrushInput();
 
@@ -253,6 +254,19 @@ private:
     // stack, which BeginPopupModal at window scope can't find.
     bool m_RequestOpenNewMap  = false;
     bool m_RequestOpenLoadMap = false;
+    bool m_RequestOpenExportPackage = false;
+
+    // Last export status string, shown briefly under the menu bar after
+    // an Export Package... action completes.
+    std::string m_LastExportStatus;
+
+    // Inputs for the Export Map Package modal — buffered across frames.
+    char        m_ExportDisplayName[64] = {};
+    char        m_ExportWarpName[64]    = {};
+    int         m_ExportLevelReq        = 0;
+    int         m_ExportCost            = 0;
+    uint8_t     m_ExportSpawnX          = 0;
+    uint8_t     m_ExportSpawnY          = 0;
     int  m_NewMapIdInput      = 64;
     // Base-world picker for the New Map modal — determines which
     // classic world's tile bitmaps get copied into the new slot's

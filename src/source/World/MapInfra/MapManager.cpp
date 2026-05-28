@@ -2,6 +2,7 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include <filesystem>
 #include "World/MapInfra/MapManager.h"
 #include "Camera/CameraMove.h"
 #include "GameLogic/Events/Cinematic/CDirection.h"
@@ -19,6 +20,8 @@
 #include "Render/Textures/ZzzTexture.h"
 #include "GameLogic/Events/w_CursedTemple.h"
 #include "Network/Server/WSclient.h"
+#include "Network/ServerMapManifest.h"
+#include "CustomMap/CustomMapIO.h"
 
 
 CMapManager gMapManager;
@@ -1179,6 +1182,11 @@ void CMapManager::LoadWorld(int Map)
         Map = this->WorldActive = 9;
     }
 
+    // Stash the server-side map number BEFORE LoadCustomMap overrides WorldActive to
+    // WD_0LORENCIA. Anything in the UI that needs to know "what map are we really on?"
+    // (map-name display, welcome banner, ambient sound) reads it back from here.
+    BloodlustMU::ServerMapManifest::Instance().SetCurrentServerMapNumber(Map);
+
     this->DeleteObjects();
     DeleteNpcs();
     DeleteMonsters();
@@ -1198,6 +1206,46 @@ void CMapManager::LoadWorld(int Map)
     g_Direction.m_CKanturu.m_iNightmareState = 0;
 
     this->Load();
+
+    // Two ways to recognise a custom map:
+    //   1. The server-pushed manifest says so.
+    //   2. The custom-slot directory exists on disk.
+    // Falling back to the filesystem covers the re-login race: when a character's
+    // CurrentMap is a custom map, the server sends the manifest packet first and
+    // the CharacterInformation packet (which triggers LoadWorld) right after — if
+    // the client processes the second packet before the first is fully applied,
+    // IsCustomMap returns false and the classic loader tries Data\World101\..., crash.
+    // The filesystem probe is cheap and unambiguous on a client that has the assets.
+    bool isCustomMap = BloodlustMU::ServerMapManifest::Instance().IsCustomMap(Map);
+    if (!isCustomMap)
+    {
+        std::error_code _ec;
+        if (std::filesystem::exists(MuEditor::CustomMap::GetCustomMapDirectory(Map), _ec))
+        {
+            isCustomMap = true;
+        }
+    }
+
+    if (isCustomMap)
+    {
+        if (MuEditor::CustomMap::LoadCustomMap(Map))
+        {
+            // Leave WorldActive at WD_0LORENCIA (set inside LoadCustomMap) so the
+            // renderer's per-world bitmap fallback chains resolve to Lorencia's real
+            // assets — overriding to the raw map number (e.g. 100) makes per-frame
+            // texture loaders try Data\World101\<file> and dereference null bitmaps.
+            //
+            // The WSclient teleport handlers compare WorldActive to detect map
+            // transitions; with WorldActive stuck at 0, transitions out of a custom
+            // map would be missed. Those handlers now also consult
+            // ServerMapManifest::CurrentServerMapNumber() so custom→classic and
+            // custom→custom transitions still trigger a fresh LoadWorld.
+            return;
+        }
+        // Fall through to classic loader if the slot files are missing on this client —
+        // most likely an outdated client that didn't fetch the assets yet. The classic
+        // path will MessageBox on missing att/obj rather than silently render wrong terrain.
+    }
 
     wchar_t FileName[64];
     wchar_t WorldName[32];

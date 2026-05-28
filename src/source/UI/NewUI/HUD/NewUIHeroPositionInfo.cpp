@@ -7,6 +7,7 @@
 #include "Audio/DSPlaySound.h"
 #include "UI/NewUI/NewUISystem.h"
 #include "World/MapInfra/MapManager.h"
+#include "Network/ServerMapManifest.h"
 #include "MUHelper/MuHelper.h"
 
 using namespace SEASON3B;
@@ -196,7 +197,15 @@ bool CNewUIHeroPositionInfo::Render()
 
     MUHelper::g_MuHelper.IsActive() ? m_BtnStop.Render() : m_BtnStart.Render();
     //--
-    mu_swprintf(szText, L"%ls (%d , %d)", gMapManager.GetMapName(gMapManager.WorldActive), m_CurHeroPosition.x, m_CurHeroPosition.y);
+    // For custom maps, gMapManager.WorldActive is overridden to WD_0LORENCIA by the
+    // custom-map loader, so GetMapName would return "Lorencia". Pull the real name
+    // from the server-pushed manifest instead.
+    const wchar_t* mapName =
+        BloodlustMU::ServerMapManifest::Instance().IsCurrentlyInCustomMap()
+            ? BloodlustMU::ServerMapManifest::Instance().CurrentMapDisplayName()
+            : gMapManager.GetMapName(gMapManager.WorldActive);
+
+    mu_swprintf(szText, L"%ls (%d , %d)", mapName, m_CurHeroPosition.x, m_CurHeroPosition.y);
 
     g_pRenderText->RenderText(m_Pos.x + 10, m_Pos.y + 5, szText, WidenX + 20, 13 - 4, RT3_SORT_CENTER);
 

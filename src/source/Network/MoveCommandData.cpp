@@ -3,8 +3,9 @@
 
 #include "stdafx.h"
 #include "MoveCommandData.h"
+#include "Network/ServerMapManifest.h"
 
-
+#include <cwchar>
 
 using namespace SEASON3B;
 
@@ -77,6 +78,45 @@ void CMoveCommandData::Release()
 bool CMoveCommandData::OpenMoveReqScript(const std::wstring& filename)
 {
     return CMoveCommandData::GetInstance()->Create(filename);
+}
+
+void CMoveCommandData::RebuildFromServerManifest()
+{
+    // Wipe whatever was loaded from BMD or a prior manifest.
+    Release();
+
+    const auto& warps = BloodlustMU::ServerMapManifest::Instance().Warps();
+    const auto& maps  = BloodlustMU::ServerMapManifest::Instance().Maps();
+
+    auto FindMapName = [&maps](int mapNumber) -> const wchar_t*
+    {
+        for (const auto& m : maps)
+        {
+            if (m.number == mapNumber)
+            {
+                return m.name.c_str();
+            }
+        }
+        return L"";
+    };
+
+    for (const auto& w : warps)
+    {
+        auto* p = new MOVEINFODATA{};
+        p->_ReqInfo.index = w.index;
+        p->_ReqInfo.iReqLevel = w.levelRequirement;
+        p->_ReqInfo.m_iReqMaxLevel = 0;
+        p->_ReqInfo.iReqZen = w.costs;
+        p->_ReqInfo.iGateNum = 0;
+        // Main map name = the destination map's display name from the manifest.
+        std::wcsncpy(p->_ReqInfo.szMainMapName, FindMapName(w.targetMapNumber),
+                     std::size(p->_ReqInfo.szMainMapName) - 1);
+        // Sub label = the warp entry's own name (e.g. "Devias2"). Players see this
+        // when one map has several variants in the list.
+        std::wcsncpy(p->_ReqInfo.szSubMapName, w.name.c_str(),
+                     std::size(p->_ReqInfo.szSubMapName) - 1);
+        m_listMoveInfoData.push_back(p);
+    }
 }
 
 int CMoveCommandData::GetNumMoveMap()

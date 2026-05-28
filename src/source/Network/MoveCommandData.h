@@ -42,6 +42,12 @@ namespace SEASON3B
         static CMoveCommandData* GetInstance();
         static bool OpenMoveReqScript(const std::wstring& filename);
 
+        // Rebuilds the warp list from the server-pushed BloodlustMU::ServerMapManifest cache.
+        // Called by the network dispatcher whenever a 0xBA / 0x01 manifest packet arrives.
+        // After this, the existing UI code (CNewUIMoveCommandWindow) renders the server's
+        // current warp list instead of whatever was loaded from MoveReq_<lang>.bmd at boot.
+        void RebuildFromServerManifest();
+
         int GetNumMoveMap();
         const MOVEINFODATA* GetMoveCommandDataByIndex(int iIndex);
         const std::list<MOVEINFODATA*>& GetMoveCommandDatalist();
