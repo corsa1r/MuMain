@@ -43,6 +43,7 @@
 // engine as a per-row UV scrambler) is NOT what controls grass
 // presence, so we persist the mask instead.
 extern unsigned char TerrainGrassMask[];
+extern unsigned char TerrainDarknessMask[];
 
 #include "SourceBank.h"                      // LoadSourceBank, FindSourceWorldByModelIndex
 
@@ -62,6 +63,7 @@ namespace
     constexpr const wchar_t* HEIGHT_FILE_NAME     = L"TerrainHeight.OZB";
     constexpr const wchar_t* LIGHT_FILE_NAME      = L"TerrainLight.OZJ";
     constexpr const wchar_t* GRASS_FILE_EXT       = L".grass";
+    constexpr const wchar_t* DARKNESS_FILE_NAME   = L"Darkness.dat";
     constexpr const wchar_t* MANIFEST_FILE_NAME   = L"sources.json";
     constexpr const wchar_t* SOURCE_DIR_PREFIX    = L"source_World";
 
@@ -893,6 +895,39 @@ namespace
         return true;
     }
 
+    // Per-vertex darkness mask painted in the DevEditor. 256*256 raw bytes;
+    // 0 = no darkening (default for fresh slots and vanilla maps), 255 =
+    // forced black after the lighting bake. Consumed by LightingBaker; no
+    // runtime effect until the user re-bakes. Optional asset — silently
+    // absent on slots authored before the painter existed.
+    bool WriteLiveDarknessMask(int mapId)
+    {
+        std::vector<BYTE> buf(TERRAIN_TILE_COUNT, 0);
+        std::memcpy(buf.data(), TerrainDarknessMask, TERRAIN_TILE_COUNT);
+        return WriteBinary(
+            MuEditor::CustomMap::GetCustomMapDarknessPath(mapId), buf);
+    }
+
+    bool LoadLiveDarknessMask(int mapId)
+    {
+        const std::wstring path =
+            MuEditor::CustomMap::GetCustomMapDarknessPath(mapId);
+        std::error_code ec;
+        if (!fs::exists(path, ec)) return false;
+
+        FILE* fp = _wfopen(path.c_str(), L"rb");
+        if (fp == nullptr) return false;
+
+        std::vector<BYTE> buf(TERRAIN_TILE_COUNT, 0);
+        const size_t read =
+            std::fread(buf.data(), 1, TERRAIN_TILE_COUNT, fp);
+        std::fclose(fp);
+        if (read != TERRAIN_TILE_COUNT) return false;
+
+        std::memcpy(TerrainDarknessMask, buf.data(), TERRAIN_TILE_COUNT);
+        return true;
+    }
+
     bool WriteLiveHeightOZB(int mapId)
     {
         constexpr float TERRAIN_HEIGHT_DECODE_FACTOR = 1.5f;
@@ -1017,6 +1052,11 @@ namespace MuEditor::CustomMap
         return GetCustomMapDirectory(mapId) + L"\\" +
                FormatIndexed(CUSTOM_FILE_PREFIX, mapId + 1) +
                GRASS_FILE_EXT;
+    }
+
+    std::wstring GetCustomMapDarknessPath(int mapId)
+    {
+        return GetCustomMapDirectory(mapId) + L"\\" + DARKNESS_FILE_NAME;
     }
 
     std::wstring GetCustomMapManifestPath(int mapId)
@@ -1292,6 +1332,11 @@ namespace MuEditor::CustomMap
         // so without our save it'd be lost across sessions.
         WriteLiveGrassDensity(mapId);
 
+        // Darkness mask (Darkness.dat): per-vertex painted darkness fed
+        // into the next lighting bake. Best-effort — a missing file at
+        // load just means "no painted darkness yet".
+        WriteLiveDarknessMask(mapId);
+
         // Partition live ObjectBlock into the main stream + one stream
         // per source-world bank that currently owns at least one live
         // object. Each per-source stream stores source-relative Types.
@@ -1386,6 +1431,9 @@ namespace MuEditor::CustomMap
         // Restore per-tile grass density painted in a previous session.
         // Quiet no-op when the file isn't present (older slots).
         LoadLiveGrassDensity(mapId);
+
+        // Restore the darkness mask used by the lighting bake.
+        LoadLiveDarknessMask(mapId);
 
         // Heightmap -> BackTerrainHeight. `false` = legacy 8-bit OZB path
         // (what we write in CreateNewCustomMap; not the 24-bit RGB variant

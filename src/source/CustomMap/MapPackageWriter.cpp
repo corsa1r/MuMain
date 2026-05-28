@@ -268,6 +268,7 @@ ExportResult ExportMapPackage(int mapId,
         { L"TerrainHeight.OZB",            true  },
         { L"TerrainLight.OZJ",             true  },
         { pattern(L"EncTerrain%d.grass"),  false },
+        { L"Darkness.dat",                 false },  // editor darkness mask, optional
         { L"sources.json",                 false },
         { L"mini_map.OZT",                 false },  // generated below if missing on disk
     };

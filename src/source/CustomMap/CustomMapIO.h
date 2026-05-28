@@ -75,6 +75,11 @@ namespace MuEditor::CustomMap
     // restore the user-painted state.
     std::wstring GetCustomMapGrassPath(int mapId);
 
+    // Per-vertex darkness mask painted in the DevEditor. 256x256 raw
+    // bytes; 0 = no darkening (default), 255 = forced black after bake.
+    // Consumed by LightingBaker; persisted alongside grass/light/etc.
+    std::wstring GetCustomMapDarknessPath(int mapId);
+
     // Manifest of side-loaded source worlds — sources.json at the slot
     // root. Each entry is a 1-based World folder index (e.g. 33 = Aida).
     // LoadCustomMap consults this list to side-load source banks before

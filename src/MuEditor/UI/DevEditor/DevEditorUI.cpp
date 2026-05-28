@@ -1301,6 +1301,7 @@ int CDevEditorUI::ResolveCurrentBrushMode() const
     if (m_DeleteOnClickEnabled) return 3;
     if (m_PaintTextureOnDrag)   return 4;
     if (m_PaintGrassOnDrag)     return 5;
+    if (m_PaintDarknessOnDrag)  return 6;
     return 0;
 }
 
@@ -1320,6 +1321,7 @@ void CDevEditorUI::RenderActiveToolHeader()
         { "DELETE OBJECT",            ImVec4(0.90f, 0.25f, 0.25f, 1.0f) },
         { "PAINT TEXTURE",            ImVec4(0.30f, 0.60f, 0.95f, 1.0f) },
         { "PAINT GRASS",              ImVec4(0.50f, 0.85f, 0.40f, 1.0f) },
+        { "PAINT DARKNESS",           ImVec4(0.55f, 0.40f, 0.85f, 1.0f) },
     };
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.13f, 1.0f));
@@ -1363,6 +1365,12 @@ void CDevEditorUI::RenderActiveToolHeader()
             ImGui::Text("Mode: %s   Radius: %d",
                 m_GrassEraseMode ? "Erase" : "Add",
                 m_BrushRadius);
+            break;
+        case 6:
+            ImGui::Text("Mode: %s   Radius: %d   Strength: %d",
+                m_DarknessEraseMode ? "Lighten" : "Darken",
+                m_BrushRadius,
+                m_DarknessStrength);
             break;
         default:
             ImGui::TextDisabled("Click a brush below to activate it.");
@@ -1549,7 +1557,8 @@ void CDevEditorUI::RenderTerrainPainterTab()
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_place"),   &newMode, 2); ImGui::SameLine();
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_delete"),  &newMode, 3); ImGui::SameLine();
     ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_texture"), &newMode, 4); ImGui::SameLine();
-    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_grass"),   &newMode, 5);
+    ImGui::RadioButton(EDITOR_TEXT("dev_brush_mode_grass"),   &newMode, 5); ImGui::SameLine();
+    ImGui::RadioButton("Darken",                              &newMode, 6);
     if (newMode != curMode)
     {
         SetExclusiveBrushMode(newMode);
@@ -1599,6 +1608,10 @@ void CDevEditorUI::RenderTerrainPainterTab()
 
         case 5:
             RenderGrassPainterPanel();
+            break;
+
+        case 6:
+            RenderDarknessPainterPanel();
             break;
     }
 
@@ -1657,6 +1670,7 @@ void CDevEditorUI::HandlePaintBrushInput()
     HandleDeleteObjectInput();
     HandlePaintTextureInput();
     HandlePaintGrassInput();
+    HandlePaintDarknessInput();
     HandleHeightBrushInput();
 }
 
@@ -1799,6 +1813,93 @@ void CDevEditorUI::HandlePaintGrassInput()
             if (dist >= frad) continue;
 
             TerrainGrassMask[x + y * TERRAIN_SIZE] = target;
+        }
+    }
+}
+
+void CDevEditorUI::RenderDarknessPainterPanel()
+{
+    ImGui::TextColored(ImVec4(0.85f, 0.75f, 1.0f, 1.0f),
+        "Strokes appear instantly — darkness is layered on top of the "
+        "baked lighting at render time. Survives map saves and packages.");
+    ImGui::Spacing();
+
+    ImGui::SliderInt(EDITOR_TEXT("dev_painter_radius"),
+                     &m_BrushRadius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
+    ImGui::SliderInt("Strength##dk", &m_DarknessStrength, 1, 255);
+    ImGui::Checkbox("Soft falloff##dk", &m_DarknessSoft);
+
+    int mode = m_DarknessEraseMode ? 1 : 0;
+    ImGui::RadioButton("Darken##dk",  &mode, 0); ImGui::SameLine();
+    ImGui::RadioButton("Lighten##dk", &mode, 1);
+    m_DarknessEraseMode = (mode == 1);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Clear darkness", ImVec2(220, 0)))
+    {
+        std::memset(TerrainDarknessMask, 0x00,
+                    TERRAIN_SIZE * TERRAIN_SIZE);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fill black", ImVec2(220, 0)))
+    {
+        std::memset(TerrainDarknessMask, 0xFF,
+                    TERRAIN_SIZE * TERRAIN_SIZE);
+    }
+
+    ImGui::TextDisabled(
+        "Left-click + drag to paint. Saved to Darkness.dat and packaged "
+        "with the .bmap so other clients see the same shadows.");
+}
+
+void CDevEditorUI::HandlePaintDarknessInput()
+{
+    if (!m_PaintDarknessOnDrag) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+
+    const BrushTarget cursor = ResolveCursorTile();
+    if (!cursor.valid) return;
+
+    const int radius = m_BrushRadius < 1 ? 1 : m_BrushRadius;
+    const float frad = static_cast<float>(radius);
+    const int origin = radius - 1;
+    const int extent = radius * 2 - 1;
+    const int strength = m_DarknessStrength;
+    const bool erase = m_DarknessEraseMode;
+    const bool soft = m_DarknessSoft;
+
+    // Accumulate strength into the byte mask each frame the LMB is held.
+    // Soft mode applies a radial falloff (1 - r/R) so brush edges feather;
+    // hard mode applies the full strength out to the circle's edge.
+    for (int dy = 0; dy < extent; ++dy)
+    {
+        const int y = cursor.tileY - origin + dy;
+        if (y < 0 || y >= TERRAIN_SIZE) continue;
+        for (int dx = 0; dx < extent; ++dx)
+        {
+            const int x = cursor.tileX - origin + dx;
+            if (x < 0 || x >= TERRAIN_SIZE) continue;
+
+            const int offX = dx - origin;
+            const int offY = dy - origin;
+            const float dist =
+                std::sqrt(static_cast<float>(offX * offX + offY * offY));
+            if (dist >= frad) continue;
+
+            const float falloff = soft ? (1.0f - dist / frad) : 1.0f;
+            const int delta =
+                static_cast<int>(static_cast<float>(strength) * falloff + 0.5f);
+            if (delta <= 0) continue;
+
+            unsigned char& cell =
+                TerrainDarknessMask[x + y * TERRAIN_SIZE];
+            int v = static_cast<int>(cell) + (erase ? -delta : delta);
+            if (v < 0)        v = 0;
+            else if (v > 255) v = 255;
+            cell = static_cast<unsigned char>(v);
         }
     }
 }
@@ -2300,12 +2401,13 @@ void CDevEditorUI::HandleHeightBrushInput()
 void CDevEditorUI::SetExclusiveBrushMode(int mode)
 {
     // Modes: 0=none, 1=paint attr, 2=place, 3=delete, 4=paint texture,
-    // 5=paint grass.
+    // 5=paint grass, 6=paint darkness.
     m_BrushPaintOnDrag     = (mode == 1);
     m_PlaceOnClickEnabled  = (mode == 2);
     m_DeleteOnClickEnabled = (mode == 3);
     m_PaintTextureOnDrag   = (mode == 4);
     m_PaintGrassOnDrag     = (mode == 5);
+    m_PaintDarknessOnDrag  = (mode == 6);
 
     // Leaving place mode must hide the ghost preview immediately,
     // otherwise the half-transparent OBJECT lingers in ObjectBlock

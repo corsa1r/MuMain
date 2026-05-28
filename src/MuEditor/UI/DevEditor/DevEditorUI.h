@@ -119,6 +119,7 @@ public:
             || m_DeleteOnClickEnabled
             || m_PaintTextureOnDrag
             || m_PaintGrassOnDrag
+            || m_PaintDarknessOnDrag
             || m_HeightBrushMode != 0;
     }
 
@@ -182,6 +183,8 @@ private:
     void RenderTexturePainterPanel();
     void HandlePaintGrassInput();
     void RenderGrassPainterPanel();
+    void HandlePaintDarknessInput();
+    void RenderDarknessPainterPanel();
     // UX restructure helpers (introduced when the tab grew past one
     // working screen). Each major brush gets its own dedicated panel
     // that's only visible when that mode is selected.
@@ -333,6 +336,16 @@ private:
     // add for erase. Mask is persisted to .grass on save.
     bool  m_PaintGrassOnDrag     = false;
     bool  m_GrassEraseMode       = false;
+
+    // Darkness painter. Writes a 0..255 byte into TerrainDarknessMask[] per
+    // tile; LightingBaker multiplies (1 - mask/255) into the final RGB so
+    // painted areas darken after the next bake. Brush strength is the delta
+    // applied per frame at the cursor (with radial falloff when soft mode is
+    // on). Erase subtracts toward 0. Mask persists to Darkness.dat.
+    bool  m_PaintDarknessOnDrag  = false;
+    bool  m_DarknessEraseMode    = false;
+    int   m_DarknessStrength     = 24;     // 0..255 per-frame delta
+    bool  m_DarknessSoft         = true;   // radial falloff inside the radius
 
     // Terrain Height sculptor (separate tab; mutually exclusive with the
     // painter brushes above). Mode: 0 = Off, 1 = Raise, 2 = Lower,

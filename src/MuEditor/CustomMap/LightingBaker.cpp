@@ -429,6 +429,12 @@ void BakeStripe(
                 b += bounceB * bInv * bounce;
             }
 
+            // NOTE: TerrainDarknessMask is intentionally NOT applied here.
+            // The mask is layered at render time (InitTerrainLight in
+            // ZzzLodTerrain.cpp) so the editor's painter shows results
+            // immediately without needing to re-bake. Baking into the OZJ
+            // here would double-apply when the OZJ is reloaded.
+
             const size_t outIdx = (static_cast<size_t>(y) * N + x) * 3;
             rgbOut[outIdx + 0] = ToByte(r);
             rgbOut[outIdx + 1] = ToByte(g);

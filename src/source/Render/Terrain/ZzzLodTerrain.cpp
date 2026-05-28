@@ -74,6 +74,12 @@ unsigned char   TerrainGrassMask[TERRAIN_SIZE * TERRAIN_SIZE];
 float			g_fTerrainGrassWind1[TERRAIN_SIZE * TERRAIN_SIZE];
 #endif	// ASG_ADD_MAP_KARUTAN
 
+// Per-vertex darkness mask painted in the DevEditor. 0 = no darkening,
+// 255 = fully black. Consumed by LightingBaker (multiplied into the final
+// RGB) so painted shadows survive into TerrainLight.OZJ. Defaults to 0
+// everywhere so existing maps are unaffected.
+unsigned char   TerrainDarknessMask[TERRAIN_SIZE * TERRAIN_SIZE];
+
 WORD            TerrainWall[TERRAIN_SIZE * TERRAIN_SIZE];
 
 float           SelectXF;
@@ -103,6 +109,7 @@ void InitTerrainMappingLayer()
         TerrainMappingAlpha[i] = 0.0f;
         TerrainGrassTexture[i] = static_cast<float>(rand() % 4) / 4.0f;
         TerrainGrassMask[i]    = 0xFF;        // default: render grass
+        TerrainDarknessMask[i] = 0x00;        // default: no painted darkness
 #ifdef ASG_ADD_MAP_KARUTAN
         g_fTerrainGrassWind1[i] = 0.0f;
 #endif
@@ -2789,6 +2796,20 @@ void InitTerrainLight()
         {
             int Index = TERRAIN_INDEX_REPEAT(xi, yi);
             VectorCopy(BackTerrainLight[Index], PrimaryTerrainLight[Index]);
+
+            // Editor darkness mask (also used by runtime — the mask is
+            // shipped with the .bmap). 0 = no change, 255 = fully black.
+            // Vanilla maps init it to 0 in InitTerrainMappingLayer so this
+            // is a true no-op on shipping content. Keeps live painting
+            // visible without needing a re-bake.
+            const unsigned char dk = TerrainDarknessMask[Index];
+            if (dk != 0)
+            {
+                const float keep = 1.0f - static_cast<float>(dk) * (1.0f / 255.0f);
+                PrimaryTerrainLight[Index][0] *= keep;
+                PrimaryTerrainLight[Index][1] *= keep;
+                PrimaryTerrainLight[Index][2] *= keep;
+            }
         }
     }
     float WindScale;
