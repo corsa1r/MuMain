@@ -254,12 +254,14 @@ bool SaveTerrainAttribute(wchar_t* FileName, int iMap)
 
 void AddTerrainAttribute(int x, int y, BYTE att)
 {
+    if (x < 0 || x >= TERRAIN_SIZE || y < 0 || y >= TERRAIN_SIZE) return;
     int     iIndex = (x + (y * TERRAIN_SIZE));
     TerrainWall[iIndex] |= att;
 }
 
 void SubTerrainAttribute(int x, int y, BYTE att)
 {
+    if (x < 0 || x >= TERRAIN_SIZE || y < 0 || y >= TERRAIN_SIZE) return;
     int     iIndex = (x + (y * TERRAIN_SIZE));
 
     TerrainWall[iIndex] ^= (TerrainWall[iIndex] & att);

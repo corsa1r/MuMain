@@ -1240,6 +1240,16 @@ void CMapManager::LoadWorld(int Map)
             // map would be missed. Those handlers now also consult
             // ServerMapManifest::CurrentServerMapNumber() so custom→classic and
             // custom→custom transitions still trigger a fresh LoadWorld.
+
+            // Refresh the minimap from the custom slot's directory. The classic
+            // path at the end of LoadWorld would try Data\World%d\mini_map.OZT
+            // with WorldActive (= WD_0LORENCIA after LoadCustomMap), which would
+            // load Lorencia's minimap; without this call the user sees stale
+            // minimap data from whichever map they came from.
+            wchar_t customMinimapFolder[64];
+            mu_swprintf(customMinimapFolder, L"World\\Custom\\World%d", Map + 1);
+            g_pNewUIMiniMap->UnloadImages();
+            g_pNewUIMiniMap->LoadImages(customMinimapFolder);
             return;
         }
         // Fall through to classic loader if the slot files are missing on this client —

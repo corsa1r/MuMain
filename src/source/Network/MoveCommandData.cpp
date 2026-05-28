@@ -117,6 +117,11 @@ void CMoveCommandData::RebuildFromServerManifest()
                      std::size(p->_ReqInfo.szSubMapName) - 1);
         m_listMoveInfoData.push_back(p);
     }
+
+    m_listMoveInfoData.sort([](const MOVEINFODATA* a, const MOVEINFODATA* b)
+    {
+        return a->_ReqInfo.index < b->_ReqInfo.index;
+    });
 }
 
 int CMoveCommandData::GetNumMoveMap()

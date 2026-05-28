@@ -16,6 +16,8 @@
 #include <wincrypt.h>           // CryptAcquireContext / CryptHashData (for SHA-256)
 #pragma comment(lib, "advapi32.lib")
 
+#include "Render/Terrain/ZzzLodTerrain.h"   // TerrainWall (live attribute grid)
+
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -267,7 +269,83 @@ ExportResult ExportMapPackage(int mapId,
         { L"TerrainLight.OZJ",             true  },
         { pattern(L"EncTerrain%d.grass"),  false },
         { L"sources.json",                 false },
+        { L"mini_map.OZT",                 false },  // generated below if missing on disk
     };
+
+    // Generate a minimap (256x256 BGRA OZT) from the editor's live TerrainWall buffer
+    // if the slot folder doesn't already have one. This is the same file the runtime
+    // client's CNewUIMiniMap::LoadImages() reads — without it, pressing TAB on a
+    // custom map keeps showing the previously visited map's minimap.
+    {
+        constexpr int W = 256;
+        constexpr int H = 256;
+        // OZT layout matches GlobalBitmap.cpp's OpenTga reader:
+        //   [0..11]  unused (12 bytes)
+        //   [12..15] x/y origin (4 bytes, zeros)
+        //   [16..17] width (LE int16)
+        //   [18..19] height (LE int16)
+        //   [20]     bit depth (must be 32)
+        //   [21]     descriptor (zero)
+        //   [22..]   pixel data, BGRA, top-to-bottom rows
+        std::vector<uint8_t> ozt(22 + W * H * 4, 0);
+        ozt[16] = static_cast<uint8_t>(W & 0xFF);
+        ozt[17] = static_cast<uint8_t>((W >> 8) & 0xFF);
+        ozt[18] = static_cast<uint8_t>(H & 0xFF);
+        ozt[19] = static_cast<uint8_t>((H >> 8) & 0xFF);
+        ozt[20] = 32;
+        ozt[21] = 0;
+
+        // TW_* bit definitions (mirror Core/Globals/_define.h to avoid pulling in
+        // half the engine for this one helper).
+        constexpr WORD TW_SAFEZONE_BIT = 0x0001;
+        constexpr WORD TW_NOMOVE_BIT   = 0x0004;
+        constexpr WORD TW_NOGROUND_BIT = 0x0008;
+
+        // Minimap axis convention: the marker renderer in CNewUIMiniMap maps
+        // image_col <- Hero->PositionY and image_row <- Hero->PositionX (see
+        // NewUIMiniMap.cpp Tx/Ty math). On top of that, the OZT loader in
+        // GlobalBitmap::OpenTga flips rows (ny - 1 - y) for OpenGL's bottom-up
+        // texture convention. So file pixel (px, py) must hold the tile at
+        // game (PosX = H-1-py, PosY = px) = TerrainWall[px * W + (H-1-py)].
+        for (int py = 0; py < H; ++py)
+        {
+            for (int px = 0; px < W; ++px)
+            {
+                WORD attr = TerrainWall[px * W + (H - 1 - py)];
+                uint8_t r = 0, g = 0, b = 0, a = 255;
+                if (attr & (TW_NOMOVE_BIT | TW_NOGROUND_BIT))
+                {
+                    // Walls / void — dark.
+                    r = 30; g = 30; b = 30;
+                }
+                else if (attr & TW_SAFEZONE_BIT)
+                {
+                    // Safezones — soft blue.
+                    r = 100; g = 140; b = 220;
+                }
+                else
+                {
+                    // Walkable terrain — neutral green.
+                    r = 80; g = 130; b = 70;
+                }
+                const size_t off = 22 + (py * W + px) * 4;
+                ozt[off + 0] = b;
+                ozt[off + 1] = g;
+                ozt[off + 2] = r;
+                ozt[off + 3] = a;
+            }
+        }
+
+        // Stash on disk in the slot folder too so the editor itself can render
+        // its own minimap without re-exporting.
+        const std::wstring localPath = (fs::path(slotDir) / L"mini_map.OZT").wstring();
+        std::ofstream f(localPath, std::ios::binary);
+        if (f)
+        {
+            f.write(reinterpret_cast<const char*>(ozt.data()),
+                    static_cast<std::streamsize>(ozt.size()));
+        }
+    }
 
     std::vector<uint8_t> zipBuffer;
     std::vector<CentralEntry> central;
