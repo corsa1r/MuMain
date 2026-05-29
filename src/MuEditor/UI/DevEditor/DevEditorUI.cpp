@@ -1344,8 +1344,8 @@ void CDevEditorUI::RenderActiveToolHeader()
             break;
         case 2:
             if (m_PlaceSourceWorld >= 0)
-                ImGui::Text("Source: World%d   Slot: %d   Scale: %.2f",
-                    m_PlaceSourceWorld, m_PlaceLocalType, m_PlaceScale);
+                ImGui::Text("Source: World%d   Slot: %d   Scale: %.2f   Z: %+.1fu",
+                    m_PlaceSourceWorld, m_PlaceLocalType, m_PlaceScale, m_PlaceZOffset);
             else
                 ImGui::Text("No source bank selected.");
             break;
@@ -2413,7 +2413,15 @@ void CDevEditorUI::SetExclusiveBrushMode(int mode)
     // otherwise the half-transparent OBJECT lingers in ObjectBlock
     // until the next HandlePlaceObjectInput frame runs. Same reasoning
     // applies to the delete-hover preview when leaving delete mode.
-    if (!m_PlaceOnClickEnabled)  HidePlacementPreview();
+    if (!m_PlaceOnClickEnabled)
+    {
+        HidePlacementPreview();
+        // Z-offset is a per-session placement override — clear it when the
+        // user leaves Place mode so the next time they re-enter the ghost
+        // starts grounded again. They can re-build the offset with the
+        // Shift+wheel control or the panel slider.
+        m_PlaceZOffset = 0.0f;
+    }
     if (!m_DeleteOnClickEnabled) ClearDeleteHoverPreview();
 
     // Picking any painter brush also kills the height-sculptor brush
@@ -2723,6 +2731,18 @@ void CDevEditorUI::RenderPlaceObjectPanel()
     ImGui::SliderFloat(EDITOR_TEXT("dev_place_angle"),
                        &m_PlaceAngleZ, 0.0f, 360.0f, "%.0f deg");
 
+    // Vertical lift in world units. Keyboard wins for fine values;
+    // Shift+mouse-wheel is the fast way to add ±25u per tick from the
+    // viewport. Allowing negative values lets you sink objects into the
+    // ground (e.g. half-buried statues, stones flush with the terrain).
+    ImGui::DragFloat("Z offset (Shift+wheel)",
+                     &m_PlaceZOffset, 1.0f, -500.0f, 1000.0f, "%.1f u");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset Z"))
+    {
+        m_PlaceZOffset = 0.0f;
+    }
+
     ImGui::TextDisabled("%s", EDITOR_TEXT("dev_place_click_help"));
 }
 
@@ -2760,18 +2780,31 @@ void CDevEditorUI::HandlePlaceObjectInput()
         return;
     }
 
-    // Mouse wheel rotates the ghost preview. Cameras have already been
-    // gated to skip wheel-zoom while IsPlacementMode() so we can read
-    // the global MouseWheel safely. Each tick rotates 15 degrees;
-    // wrap to [0, 360) for a stable display value.
+    // Mouse wheel rotates the ghost preview (no modifier) or lifts the
+    // ghost on the Z axis when Shift is held — same wheel, two roles.
+    // Cameras have already been gated to skip wheel-zoom while
+    // IsPlacementMode() so we can read the global MouseWheel safely.
     {
         extern int MouseWheel;
         if (MouseWheel != 0)
         {
-            constexpr float DEGREES_PER_TICK = 15.0f;
-            m_PlaceAngleZ += static_cast<float>(MouseWheel) * DEGREES_PER_TICK;
-            while (m_PlaceAngleZ < 0.0f)    m_PlaceAngleZ += 360.0f;
-            while (m_PlaceAngleZ >= 360.0f) m_PlaceAngleZ -= 360.0f;
+            constexpr float DEGREES_PER_TICK     = 15.0f;
+            // Z-LIFT_PER_TICK is chosen to feel "one floor of a building
+            // per tick" — TERRAIN_SCALE is 100u so 25u ≈ a quarter-tile
+            // of vertical lift. Hold Shift and spin the wheel to stack
+            // multiple ticks fast.
+            constexpr float Z_LIFT_PER_TICK      = 25.0f;
+            if (io.KeyShift)
+            {
+                m_PlaceZOffset += static_cast<float>(MouseWheel) * Z_LIFT_PER_TICK;
+            }
+            else
+            {
+                m_PlaceAngleZ += static_cast<float>(MouseWheel) * DEGREES_PER_TICK;
+                while (m_PlaceAngleZ < 0.0f)    m_PlaceAngleZ += 360.0f;
+                while (m_PlaceAngleZ >= 360.0f) m_PlaceAngleZ -= 360.0f;
+            }
+
             MouseWheel = 0;     // consume so nothing else picks it up
         }
     }
@@ -2782,6 +2815,12 @@ void CDevEditorUI::HandlePlaceObjectInput()
         HidePlacementPreview();
         return;
     }
+
+    // Apply Shift+wheel vertical lift on top of the terrain-anchored Z.
+    // The cursor still tracks the ground (X/Y unchanged) so you can drop
+    // signs on walls, lanterns at arch height, etc. without altering the
+    // base tile position.
+    pos[2] += m_PlaceZOffset;
 
     const int baseOffset =
         MuEditor::CustomMap::GetSourceBankBaseOffset(m_PlaceSourceWorld);

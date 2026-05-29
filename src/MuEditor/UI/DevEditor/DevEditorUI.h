@@ -304,6 +304,11 @@ private:
     int   m_PlaceLocalType      = 0;
     float m_PlaceScale          = 1.0f;
     float m_PlaceAngleZ         = 0.0f;
+    // Vertical offset applied on top of the terrain-anchored ground Z when
+    // committing a placed object. Driven by Shift+mouse-wheel during Place
+    // mode so the cursor still rolls rotation when Shift isn't held. Reset
+    // to 0 on Place mode exit. World units (TERRAIN_SCALE is 100).
+    float m_PlaceZOffset        = 0.0f;
     bool  m_PlaceOnClickEnabled = false;
     // Case-insensitive substring filter for the slot picker grid.
     // Matches against BMD::Name and Textures[].FileName so a user can
