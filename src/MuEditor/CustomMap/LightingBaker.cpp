@@ -3,7 +3,7 @@
 #ifdef _EDITOR
 
 #include "CustomMap/LightingBaker.h"
-#include "CustomMap/CustomMapIO.h"           // WriteTerrainLightRGB, ReloadTerrainLightFromSlot
+#include "CustomMap/CustomMapIO.h"           // WriteTerrainLightRGB, ReloadTerrainLightFromSlot, GetCustomMapDirectory
 
 #include "Core/Globals/_define.h"            // TERRAIN_SIZE, TERRAIN_SCALE
 #include "Core/Globals/_TextureIndex.h"      // BITMAP_MAPTILE
@@ -12,9 +12,12 @@
 #include "Engine/Object/ZzzObject.h"         // ObjectBlock, OBJECT
 #include "Engine/Object/w_ObjectInfo.h"      // OBJECT struct
 
+#include "../../ThirdParty/json.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -513,6 +516,103 @@ bool BakeLighting(int mapId, const LightingBakeParams& params)
 
     if (!WriteTerrainLightRGB(mapId, rgb.data())) return false;
     ReloadTerrainLightFromSlot(mapId);
+
+    // Side-effect: persist the params we just baked with. Keeps the JSON in
+    // sync with TerrainLight.OZJ — re-opening the slot then pressing Bake
+    // produces the same result instead of blowing the map out with defaults.
+    // Best-effort; a failure here doesn't invalidate the bake itself.
+    SaveLightingParams(mapId, params);
+    return true;
+}
+
+namespace {
+
+// Schema marker on the JSON. Older slots without this can still be loaded
+// (every field has a default), but bumping this lets future migrations
+// detect old files explicitly.
+constexpr int kLightingParamsSchemaVersion = 1;
+
+std::filesystem::path LightingParamsPath(int mapId)
+{
+    return std::filesystem::path(MuEditor::CustomMap::GetCustomMapDirectory(mapId)) / L"Lighting.json";
+}
+
+// nlohmann::json doesn't natively know how to read into a float[3], so we
+// pull each component manually. Keeping it inline (vs. a custom adl_serializer)
+// avoids the ceremony for what's a one-off use site.
+void ReadColor(const nlohmann::json& j, const char* key, float (&out)[3])
+{
+    if (auto it = j.find(key); it != j.end() && it->is_array() && it->size() == 3)
+    {
+        for (size_t i = 0; i < 3; ++i) out[i] = it->at(i).get<float>();
+    }
+}
+
+} // anonymous namespace
+
+bool SaveLightingParams(int mapId, const LightingBakeParams& params)
+{
+    nlohmann::json j;
+    j["schema"]          = kLightingParamsSchemaVersion;
+    j["sunAzimuth"]      = params.sunAzimuth;
+    j["sunAltitude"]     = params.sunAltitude;
+    j["sunColor"]        = { params.sunColor[0], params.sunColor[1], params.sunColor[2] };
+    j["skyColor"]        = { params.skyColor[0], params.skyColor[1], params.skyColor[2] };
+    j["ambientFloor"]    = params.ambientFloor;
+    j["aoSamples"]       = params.aoSamples;
+    j["aoMaxDistance"]   = params.aoMaxDistance;
+    j["aoStrength"]      = params.aoStrength;
+    j["bounceStrength"]  = params.bounceStrength;
+    j["includeObjects"]  = params.includeObjects;
+    j["threadCount"]     = params.threadCount;
+
+    std::error_code ec;
+    const auto path = LightingParamsPath(mapId);
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return false;
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) return false;
+    const auto text = j.dump(2);
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    return out.good();
+}
+
+bool LoadLightingParams(int mapId, LightingBakeParams& outParams)
+{
+    const auto path = LightingParamsPath(mapId);
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) return false;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) return false;
+
+    nlohmann::json j;
+    try
+    {
+        in >> j;
+    }
+    catch (const std::exception&)
+    {
+        // Malformed JSON — leave defaults intact rather than corrupt the bake.
+        return false;
+    }
+
+    // Tolerant read: every missing field keeps its struct default, every
+    // extra field is ignored. Lets the schema evolve without breaking old
+    // slots, and lets users hand-edit the file safely.
+    if (auto it = j.find("sunAzimuth");     it != j.end() && it->is_number()) outParams.sunAzimuth     = it->get<float>();
+    if (auto it = j.find("sunAltitude");    it != j.end() && it->is_number()) outParams.sunAltitude    = it->get<float>();
+    ReadColor(j, "sunColor", outParams.sunColor);
+    ReadColor(j, "skyColor", outParams.skyColor);
+    if (auto it = j.find("ambientFloor");   it != j.end() && it->is_number()) outParams.ambientFloor   = it->get<float>();
+    if (auto it = j.find("aoSamples");      it != j.end() && it->is_number_integer()) outParams.aoSamples = it->get<int>();
+    if (auto it = j.find("aoMaxDistance");  it != j.end() && it->is_number()) outParams.aoMaxDistance  = it->get<float>();
+    if (auto it = j.find("aoStrength");     it != j.end() && it->is_number()) outParams.aoStrength     = it->get<float>();
+    if (auto it = j.find("bounceStrength"); it != j.end() && it->is_number()) outParams.bounceStrength = it->get<float>();
+    if (auto it = j.find("includeObjects"); it != j.end() && it->is_boolean()) outParams.includeObjects = it->get<bool>();
+    if (auto it = j.find("threadCount");    it != j.end() && it->is_number_integer()) outParams.threadCount = it->get<int>();
+
     return true;
 }
 

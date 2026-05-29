@@ -476,15 +476,17 @@ namespace
             std::memcpy(&scale, decrypted.data() + dataPtr, sizeof(float));
             dataPtr += sizeof(float);
 
-            // Ground-snap on import: the .obj records absolute Z values
-            // measured against the source world's terrain (Aida's hills,
-            // for instance). Our custom slot has its own heightmap — a
-            // flat Z=0 plane for new maps — so the source's Z floats
-            // above (or sinks below) our ground. Override with the
-            // current terrain's height at this XY so trees plant
-            // themselves on whatever map they get imported into.
-            pos[2] = RequestTerrainHeight(pos[0], pos[1]);
-
+            // The saved Z is the object's authored absolute position in this
+            // slot's coordinate space (the editor anchors to slot terrain at
+            // placement and folds in the Shift+wheel Z-lift offset). Trust it.
+            //
+            // Earlier this branch unconditionally re-snapped to
+            // RequestTerrainHeight, which destroyed the editor's intentional
+            // lift — every object that the user lifted (signs on walls,
+            // lanterns on arches) loaded flat to the ground at runtime. The
+            // original ground-snap was a precaution for hypothetically
+            // copying records verbatim from a source world's .obj; no code
+            // path actually does that today, so the snap was net-harmful.
             const int absoluteType = static_cast<int>(relType) + baseOffset;
             CreateObject(absoluteType, pos, ang, scale);
         }

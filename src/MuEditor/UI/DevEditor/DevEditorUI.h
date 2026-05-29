@@ -210,6 +210,12 @@ private:
     void RenderNewMapModal();
     void RenderLoadMapModal();
     void RenderExportPackageModal();
+    // Read / write per-slot ExportDefaults.json so the export modal keeps
+    // its previous inputs (display name, warp name, level req, cost, spawn
+    // coords) instead of resetting to empty/zero each time. Best-effort —
+    // missing file is normal for fresh slots.
+    void LoadExportDefaultsFromSlot(int mapId);
+    void SaveExportDefaultsToSlot(int mapId);
     void RenderTerrainPainterTab();
     void HandlePaintBrushInput();
 
@@ -225,6 +231,12 @@ private:
     // they survive across tab switches; the bake itself happens only
     // on button press.
     void RenderLightingTab();
+    // Hydrate / reset the Light* fields below from Lighting.json in the slot
+    // folder. Called right after a successful LoadCustomMap so a re-bake on
+    // an existing slot reproduces the OZJ that's already there, instead of
+    // applying defaults and blowing out the map. Resets to compile-time
+    // defaults when no file is present (fresh slots, or pre-feature maps).
+    void HydrateLightingFromSlot(int mapId);
     float m_LightSunAzimuth   = 135.0f;
     float m_LightSunAltitude  = 55.0f;
     float m_LightSunColor[3]  = { 1.00f, 0.95f, 0.85f };
@@ -240,9 +252,11 @@ private:
     double m_LightBakeMsLast  = 0.0;
     // Auto-bake mode: triggers a fresh bake whenever a slider or color
     // picker is RELEASED (not while dragging — that would hitch the UI
-    // every frame). Stays off by default so a freshly-opened slot
-    // doesn't bake until the user explicitly clicks the button.
-    bool  m_LightLiveBake     = false;
+    // every frame). On by default — the slot's params are restored on
+    // load via HydrateLightingFromSlot so opening a slot doesn't trigger
+    // a no-op rebake, while any deliberate tweak commits the change
+    // straight to TerrainLight.OZJ without an extra button press.
+    bool  m_LightLiveBake     = true;
 
     // Currently-authored custom-map slot. -1 = no slot bound; Save Map is
     // disabled until either a New Map is created or a custom Load picks a

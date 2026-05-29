@@ -23,7 +23,10 @@
 #include "CustomMap/CustomWeather.h"
 #include "CustomMap/LightingBaker.h"
 
+#include "../../ThirdParty/json.hpp"
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include "Core/Globals/_define.h"          // TW_* flags, TERRAIN_SIZE
 #include "Render/Terrain/ZzzLodTerrain.h"  // AddTerrainAttribute, SelectXF/YF
 #include "Render/Textures/ZzzOpenglUtil.h" // EnableAlphaBlend / DisableTexture etc.
@@ -974,6 +977,15 @@ void CDevEditorUI::RenderFileMenuModals()
     }
     if (m_RequestOpenExportPackage)
     {
+        // Pre-fill from the slot's ExportDefaults.json (written by the last
+        // successful export) so the user doesn't retype the same display
+        // name / warp name / level / cost / spawn every time. The first
+        // export from a fresh slot still presents the compile-time defaults
+        // (empty strings, zeros) which is what we want.
+        if (m_CurrentCustomMapId >= 0)
+        {
+            LoadExportDefaultsFromSlot(m_CurrentCustomMapId);
+        }
         ImGui::OpenPopup("Export Map Package###ExportPackagePopup");
         m_RequestOpenExportPackage = false;
     }
@@ -1059,6 +1071,10 @@ void CDevEditorUI::RenderNewMapModal()
             // checkbox state to match (LoadCustomMap already set the
             // engine's active flag set to zero via the manifest).
             m_WeatherFlags = 0;
+            // New slots have no Lighting.json yet; this resets the Lighting
+            // tab sliders to their compile-time defaults so we don't inherit
+            // whatever values a previously-loaded slot left in m_Light*.
+            HydrateLightingFromSlot(newId);
             ImGui::CloseCurrentPopup();
         }
     }
@@ -1069,6 +1085,93 @@ void CDevEditorUI::RenderNewMapModal()
     }
 
     ImGui::EndPopup();
+}
+
+namespace
+{
+    // ExportDefaults.json lives in the slot folder. JSON for hand-editability
+    // (paste a name into another author's slot, etc.). Schema is tolerant —
+    // missing keys keep their compile-time defaults.
+    constexpr const wchar_t* EXPORT_DEFAULTS_FILE = L"ExportDefaults.json";
+
+    std::filesystem::path ExportDefaultsPath(int mapId)
+    {
+        return std::filesystem::path(MuEditor::CustomMap::GetCustomMapDirectory(mapId))
+               / EXPORT_DEFAULTS_FILE;
+    }
+}
+
+void CDevEditorUI::LoadExportDefaultsFromSlot(int mapId)
+{
+    // Reset to compile-time defaults first so slot-switching doesn't leak the
+    // previously-loaded slot's fields when the new slot has no JSON yet.
+    m_ExportDisplayName[0] = '\0';
+    m_ExportWarpName[0]    = '\0';
+    m_ExportLevelReq       = 0;
+    m_ExportCost           = 0;
+    m_ExportSpawnX         = 0;
+    m_ExportSpawnY         = 0;
+
+    const auto path = ExportDefaultsPath(mapId);
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) return;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) return;
+
+    nlohmann::json j;
+    try
+    {
+        in >> j;
+    }
+    catch (const std::exception&)
+    {
+        return;  // malformed — keep defaults
+    }
+
+    auto readString = [&](const char* key, char* dst, size_t cap)
+    {
+        if (auto it = j.find(key); it != j.end() && it->is_string())
+        {
+            const auto& s = it->get_ref<const std::string&>();
+            const size_t n = std::min(cap - 1, s.size());
+            std::memcpy(dst, s.data(), n);
+            dst[n] = '\0';
+        }
+    };
+    readString("displayName", m_ExportDisplayName, IM_ARRAYSIZE(m_ExportDisplayName));
+    readString("warpName",    m_ExportWarpName,    IM_ARRAYSIZE(m_ExportWarpName));
+    if (auto it = j.find("levelReq"); it != j.end() && it->is_number_integer())
+        m_ExportLevelReq = it->get<int>();
+    if (auto it = j.find("cost"); it != j.end() && it->is_number_integer())
+        m_ExportCost = it->get<int>();
+    if (auto it = j.find("spawnX"); it != j.end() && it->is_number_integer())
+        m_ExportSpawnX = static_cast<uint8_t>(std::clamp(it->get<int>(), 0, 255));
+    if (auto it = j.find("spawnY"); it != j.end() && it->is_number_integer())
+        m_ExportSpawnY = static_cast<uint8_t>(std::clamp(it->get<int>(), 0, 255));
+}
+
+void CDevEditorUI::SaveExportDefaultsToSlot(int mapId)
+{
+    if (mapId < 0) return;
+
+    nlohmann::json j;
+    j["displayName"] = std::string(m_ExportDisplayName);
+    j["warpName"]    = std::string(m_ExportWarpName);
+    j["levelReq"]    = m_ExportLevelReq;
+    j["cost"]        = m_ExportCost;
+    j["spawnX"]      = static_cast<int>(m_ExportSpawnX);
+    j["spawnY"]      = static_cast<int>(m_ExportSpawnY);
+
+    std::error_code ec;
+    const auto path = ExportDefaultsPath(mapId);
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return;
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) return;
+    const auto text = j.dump(2);
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 
 void CDevEditorUI::RenderExportPackageModal()
@@ -1149,6 +1252,11 @@ void CDevEditorUI::RenderExportPackageModal()
             std::snprintf(status, sizeof(status),
                           "Exported: %ls", result.outputPath.c_str());
             m_LastExportStatus = status;
+            // Capture the values that just produced a successful export so the
+            // next "Export Package..." opens pre-filled with them. Failed
+            // exports intentionally don't persist — the user is probably
+            // mid-edit and not finished tuning the inputs.
+            SaveExportDefaultsToSlot(m_CurrentCustomMapId);
             ImGui::CloseCurrentPopup();
         }
         else
@@ -1234,6 +1342,10 @@ void CDevEditorUI::RenderLoadMapModal()
                 // Weather tab reflects the slot's saved selection. The
                 // engine's live flags were already populated by LoadCustomMap.
                 m_WeatherFlags = MuEditor::CustomMap::ReadWeatherFlags(mapId);
+                // Same for the Lighting tab: pull the slot's Lighting.json so
+                // re-baking reproduces the existing TerrainLight.OZJ instead
+                // of applying default sliders that nuke the artistic intent.
+                HydrateLightingFromSlot(mapId);
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -2037,6 +2149,33 @@ void CDevEditorUI::RenderWeatherTab()
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(Save Map persists the selection)");
+}
+
+void CDevEditorUI::HydrateLightingFromSlot(int mapId)
+{
+    // Start from a default-constructed LightingBakeParams so missing fields
+    // (or no file at all) leave us with sensible defaults rather than zero /
+    // stale values from a previously-loaded slot.
+    MuEditor::CustomMap::LightingBakeParams params;
+    MuEditor::CustomMap::LoadLightingParams(mapId, params);
+
+    m_LightSunAzimuth     = params.sunAzimuth;
+    m_LightSunAltitude    = params.sunAltitude;
+    m_LightSunColor[0]    = params.sunColor[0];
+    m_LightSunColor[1]    = params.sunColor[1];
+    m_LightSunColor[2]    = params.sunColor[2];
+    m_LightSkyColor[0]    = params.skyColor[0];
+    m_LightSkyColor[1]    = params.skyColor[1];
+    m_LightSkyColor[2]    = params.skyColor[2];
+    m_LightAmbientFloor   = params.ambientFloor;
+    m_LightAoSamples      = params.aoSamples;
+    m_LightAoDistance     = params.aoMaxDistance;
+    m_LightAoStrength     = params.aoStrength;
+    m_LightBounceStrength = params.bounceStrength;
+    m_LightIncludeObjects = params.includeObjects;
+    m_LightThreadCount    = params.threadCount;
+    // Reset session counters — last-bake-ms is meaningless across slot loads.
+    m_LightBakeMsLast     = 0.0;
 }
 
 void CDevEditorUI::RenderLightingTab()

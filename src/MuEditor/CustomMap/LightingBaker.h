@@ -82,6 +82,22 @@ struct LightingBakeParams
 // is out of range or the JPEG encode/file write fails.
 bool BakeLighting(int mapId, const LightingBakeParams& params);
 
+// Persists the bake parameters next to the slot's other assets as
+// Lighting.json. Without this, the DevEditor's Lighting tab resets to
+// defaults whenever the slot is reopened — a re-bake then produces a
+// blown-out / dark map because the user no longer knows which sun
+// angle, AO strength, etc. produced the OZJ they were happy with.
+// The file is plain JSON so it's diff-friendly and survives a manual
+// edit if someone wants to mass-tweak. Returns false on IO failure.
+bool SaveLightingParams(int mapId, const LightingBakeParams& params);
+
+// Best-effort read of Lighting.json. Returns true if the file existed
+// and parsed cleanly; populates `outParams` with whatever fields were
+// present (missing fields keep their struct defaults). Returns false
+// if the file is absent or malformed — caller should keep its current
+// defaults rather than blank out.
+bool LoadLightingParams(int mapId, LightingBakeParams& outParams);
+
 }} // namespace MuEditor::CustomMap
 
 #endif // _EDITOR
