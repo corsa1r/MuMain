@@ -3,6 +3,7 @@
 #ifdef _EDITOR
 
 #include <vector>
+#include <unordered_map>
 
 #include "Camera/CameraMove.h"
 
@@ -101,7 +102,22 @@ public:
     // server are dropped — so we can paint terrain attributes and walk the
     // new layout without the live world fighting back. Triggered/cleared by
     // the File menu (New / Load Custom set it; Load Classic clears it).
-    bool IsOfflineAuthoring() const { return m_CurrentCustomMapId >= 0; }
+    // Offline-authoring requires BOTH a bound slot (so we have something to
+    // edit) AND the editor being actively open. Closing the editor reverts
+    // to the normal "online" state — monsters spawn, the server is allowed
+    // to correct the Hero's position, etc. — even though the slot binding
+    // stays remembered for the next session. m_OfflineAuthoringActive is
+    // flipped on by LoadCustomMap and off by DisableAllBrushes+close hooks.
+    bool IsOfflineAuthoring() const {
+        return m_OfflineAuthoringActive && m_CurrentCustomMapId >= 0;
+    }
+    // Called from the editor-close hooks (X button, Close Editor). Drops
+    // offline mode so the player rejoins the live world, and turns off
+    // any leftover brush so movement isn't gated either.
+    void OnEditorClosed() {
+        m_OfflineAuthoringActive = false;
+        DisableAllBrushes();
+    }
 
     // Any editor brush is consuming left-clicks this frame — paint,
     // place, or delete. The engine's click-to-move / attack gates swallow
@@ -178,6 +194,11 @@ private:
     void RenderPlaceObjectPanel();
     void RenderDeleteObjectPanel();
     void HandlePlaceObjectInput();
+    // Hover-state sub-routine of HandlePlaceObjectInput: finds the object
+    // under the cursor, draws a tooltip with its details, and consumes
+    // Ctrl+D to copy its properties into the placement state (transitioning
+    // to Selection state). No-op when the cursor isn't on terrain.
+    void HandlePlaceHoverPick();
     void HandleDeleteObjectInput();
     void HandlePaintTextureInput();
     void RenderTexturePainterPanel();
@@ -196,17 +217,39 @@ private:
 
     // Terrain Height sculptor — own tab, own brush. Mutex'd with the
     // painter brushes via SetExclusiveBrushMode / SetHeightBrushMode.
+    // (SetHeightBrushMode is also exposed publicly above for the
+    // DisableAllBrushes helper.)
     void RenderTerrainHeightTab();
     void HandleHeightBrushInput();
-    void SetHeightBrushMode(int mode);
     void HidePlacementPreview();    // call when mode exits or source vanishes
     void ClearDeleteHoverPreview(); // restores alpha on the current hover, nulls it
     void PushUndo(DevEditorUndoAction action);
     void PerformUndo();
     void RenderUndoControls();
+public:
     // Used by the mode radio buttons — keeps paint / place / delete
     // mutually exclusive so a single LMB click never triggers two of them.
+    // Public so the top-bar "Edit This Map" shortcut can switch into Place
+    // mode directly from MuEditorUI.
     void SetExclusiveBrushMode(int mode);
+    // Toolbar shortcut: equivalent to opening File → Load Map and
+    // re-picking the editor's current custom slot, then switching to
+    // Terrain Painter / Place mode. Defined out-of-line in the .cpp
+    // because the slot reload calls private hydrate helpers.
+    void RequestEditCurrentMap();
+    // Disable every brush (Terrain Painter modes + Terrain Height modes).
+    // Called whenever the editor closes or the user leaves the relevant
+    // tab — leaving a brush active keeps LMB / movement gates engaged,
+    // which strands the player in "frozen" state.
+    void DisableAllBrushes() {
+        SetExclusiveBrushMode(0);
+        SetHeightBrushMode(0);
+    }
+    void SetHeightBrushMode(int mode);
+private:
+    // One-frame latch: when set, the next Render() force-selects the
+    // Terrain Painter tab. Cleared inside the tab item begin call.
+    bool m_RequestSelectPainterTab = false;
     void RenderNewMapModal();
     void RenderLoadMapModal();
     void RenderExportPackageModal();
@@ -263,6 +306,14 @@ private:
     // slot. Loading a classic world deliberately resets this back to -1
     // (we don't want one-click "Save Map" overwriting shipping assets).
     int  m_CurrentCustomMapId = -1;
+
+    // True while the player is in "offline authoring" mode — the editor
+    // is actively open with a custom slot bound. Reset to false when the
+    // editor closes (X / Close Editor) so the player goes back online
+    // and the server starts spawning NPCs / monsters again. Distinct
+    // from m_CurrentCustomMapId, which is the *remembered* slot binding
+    // across editor sessions.
+    bool m_OfflineAuthoringActive = false;
 
     // Modal trigger state. The menu callback only sets these flags; the
     // actual ImGui::OpenPopup() call happens at window scope after the menu
@@ -324,11 +375,66 @@ private:
     // to 0 on Place mode exit. World units (TERRAIN_SCALE is 100).
     float m_PlaceZOffset        = 0.0f;
     bool  m_PlaceOnClickEnabled = false;
+    // Place mode runs as a small state machine:
+    //   Hover state    : m_PlaceHasSelection == false
+    //                    No ghost preview, ray-pick highlights the
+    //                    object under the cursor, Ctrl+D copies its
+    //                    properties into the placement state.
+    //   Selection state: m_PlaceHasSelection == true
+    //                    Existing flow — ghost follows cursor, wheel
+    //                    rotates, Shift+wheel lifts, click commits,
+    //                    Esc clears (back to Hover state).
+    //
+    // Picking a slot in the source-bank grid OR pressing Ctrl+D on a
+    // hovered object transitions Hover → Selection. Entering Place mode
+    // always resets to Hover so an old m_PlaceLocalType value can't
+    // sneak in a ghost the user didn't ask for.
+    bool  m_PlaceHasSelection   = false;
+    class OBJECT* m_PlaceHoverTarget = nullptr;
+    // Set by Ctrl+D when copying an existing object's properties. Holds the
+    // absolute Models[] index of the duplicate target so the commit path
+    // doesn't need the (sourceWorld, localType) pair — that mapping isn't
+    // always reversible for base-world objects. -1 = no override (the grid
+    // sourceWorld+localType path is in use).
+    int   m_PlaceAbsoluteType   = -1;
     // Case-insensitive substring filter for the slot picker grid.
     // Matches against BMD::Name and Textures[].FileName so a user can
     // type e.g. "tree" or ".tga" to narrow the 160-cell grid down to
     // visually-related models. Empty = show all.
     char  m_PlaceFilter[64]     = "";
+
+    // TEMP picker diagnostics — surfaced in the debug strip so we can see
+    // why hover finds (or misses) the cursor object. Remove once verified.
+    int   m_DbgPickIter   = 0;
+    int   m_DbgPickValid  = 0;
+    int   m_DbgPickHit    = 0;
+    float m_DbgRayOrigin[3] = {0,0,0};
+    float m_DbgRayFar[3]    = {0,0,0};
+
+    // Per-Type vertex-AABB cache. The engine never fills the per-OBJECT
+    // BoundingBox in release (BMD::Transform gates the update behind a dead
+    // EditFlag value), and the OBJECT struct's default bounds are tiny
+    // placeholders unrelated to the actual model. To get a tight hover box
+    // and ray-cast pick that "gift-wraps" the model, we read the BMD's raw
+    // vertex Positions once and cache the local-space min/max. World box is
+    // then o->Position + cachedLocal * o->Scale. Rotation is ignored (would
+    // require rotating the AABB), which yields a slightly oversized box for
+    // rotated objects — acceptable for picking and visually still snug.
+    struct LocalBounds {
+        float min[3] = {0, 0, 0};
+        float max[3] = {0, 0, 0};
+        bool  valid  = false;
+    };
+    std::unordered_map<int, LocalBounds> m_BMDLocalBoundsCache;
+    const LocalBounds& GetOrComputeLocalBounds(int type);
+
+public:
+    OBJECT* GetPlaceHoverTarget() const { return m_PlaceHoverTarget; }
+    // Same per-Type AABB the picker uses, so the highlight renderer can
+    // draw a box that exactly matches what was hit-tested.
+    bool GetWorldAABBForObject(const class OBJECT* o,
+                               float outMin[3], float outMax[3]);
+private:
 
     // Delete tool: click on the world; nearest live OBJECT within
     // m_DeleteRadius (world units) gets its Live flipped to false.

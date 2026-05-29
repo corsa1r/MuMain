@@ -11,6 +11,7 @@
 #include "Camera/OrbitalCamera.h"
 #include "Camera/FreeFlyCamera.h"
 #include "Camera/CameraMove.h"
+#include "Camera/CameraProjection.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "Data/GameConfig/GameConfig.h"
 #include "UI/Console/MuEditorConsoleUI.h"
@@ -284,8 +285,16 @@ void CDevEditorUI::ApplyDefaultOverrideToConfig(CameraConfig& cfg) const
 
 void CDevEditorUI::Render(bool* p_open)
 {
+    // Closed-by-X / hidden by toolbar: brushes left active would keep
+    // swallowing LMB / key input, AND the offline-authoring gate would
+    // keep the player frozen out of the live world (no NPCs, no monster
+    // spawns, server position corrections muted). OnEditorClosed drops
+    // both at once.
     if (!p_open || !*p_open)
+    {
+        OnEditorClosed();
         return;
+    }
 
     ImGui::SetNextWindowSize(ImVec2(450, 500), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(EDITOR_TEXT("label_dev_editor_title"),
@@ -299,6 +308,15 @@ void CDevEditorUI::Render(bool* p_open)
         HandleMiddleMousePan();
         return;
     }
+
+    // Track whether the Terrain Painter / Terrain Height tabs are the
+    // selected ones this frame. If the user navigates away while a brush
+    // is still active, the same gating problem hits (LMB / movement
+    // suppressed for a tool the user is no longer looking at), so we
+    // reset the corresponding brush in that case too. Set inside each
+    // tab's BeginTabItem block.
+    bool painterTabActiveThisFrame = false;
+    bool heightTabActiveThisFrame  = false;
 
     RenderFileMenuBar();
     RenderFileMenuModals();   // Same Begin/End scope as the menu callback.
@@ -319,14 +337,27 @@ void CDevEditorUI::Render(bool* p_open)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_painter")))
+        // The toolbar's "Edit This Map" shortcut requests a one-frame force-
+        // select of this tab so the user lands directly in Place mode
+        // without scanning the tab bar. The flag self-clears after the
+        // frame it's consumed.
+        ImGuiTabItemFlags painterFlags = ImGuiTabItemFlags_None;
+        if (m_RequestSelectPainterTab)
         {
+            painterFlags = ImGuiTabItemFlags_SetSelected;
+            m_RequestSelectPainterTab = false;
+        }
+        if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_painter"),
+                                 nullptr, painterFlags))
+        {
+            painterTabActiveThisFrame = true;
             RenderTerrainPainterTab();
             ImGui::EndTabItem();
         }
 
         if (ImGui::BeginTabItem(EDITOR_TEXT("dev_tab_terrain_height")))
         {
+            heightTabActiveThisFrame = true;
             RenderTerrainHeightTab();
             ImGui::EndTabItem();
         }
@@ -346,7 +377,38 @@ void CDevEditorUI::Render(bool* p_open)
         ImGui::EndTabBar();
     }
 
+    // Leaving the Terrain Painter / Terrain Height tabs while a brush is
+    // still engaged would strand the user with movement / LMB suppressed.
+    // Each tab owns its brush set, so we track them separately: a tab
+    // switch that lands on neither painter nor height clears both. The
+    // height tab's m_HeightBrushMode is tracked symmetrically below.
+    if (!painterTabActiveThisFrame && !heightTabActiveThisFrame)
+    {
+        DisableAllBrushes();
+    }
+    else if (!painterTabActiveThisFrame
+             && ResolveCurrentBrushMode() != 0)
+    {
+        SetExclusiveBrushMode(0);
+    }
+    else if (!heightTabActiveThisFrame && m_HeightBrushMode != 0)
+    {
+        SetHeightBrushMode(0);
+    }
+
     ImGui::End();
+
+    // The X-button case: ImGui::Begin will have flipped *p_open to false
+    // inside the call above when the user clicked the close icon. The
+    // caller wraps Render() in `if (m_bShowDevEditor)`, so on the *next*
+    // frame Render() won't run at all and a top-of-function check is too
+    // late. Drop offline mode + brushes right here, same frame, so the
+    // player rejoins the live world immediately.
+    if (p_open && !*p_open)
+    {
+        OnEditorClosed();
+    }
+
     HandlePaintBrushInput();
     HandleMiddleMousePan();
 }
@@ -1067,6 +1129,7 @@ void CDevEditorUI::RenderNewMapModal()
             MuEditor::CustomMap::LoadCustomMap(newId))
         {
             m_CurrentCustomMapId = newId;
+            m_OfflineAuthoringActive = true;
             // Fresh slots have no weather opted in — clear the editor's
             // checkbox state to match (LoadCustomMap already set the
             // engine's active flag set to zero via the manifest).
@@ -1279,6 +1342,33 @@ void CDevEditorUI::RenderExportPackageModal()
     ImGui::EndPopup();
 }
 
+// One-click "Edit This Map": runs the same flow the Load-Map modal does
+// for the currently-running custom slot. The engine records that slot
+// inside LoadCustomMap (GetActiveCustomSlot) — both editor- and warp-
+// driven loads go through there — so we just read it and reload. If the
+// engine isn't currently sitting on a custom map (classic world or
+// nothing loaded), we fall back to popping the modal so the user can
+// pick a slot manually.
+void CDevEditorUI::RequestEditCurrentMap()
+{
+    const int activeSlot = MuEditor::CustomMap::GetActiveCustomSlot();
+    if (activeSlot >= 0 &&
+        MuEditor::CustomMap::LoadCustomMap(activeSlot))
+    {
+        m_CurrentCustomMapId = activeSlot;
+        m_OfflineAuthoringActive = true;
+        m_WeatherFlags =
+            MuEditor::CustomMap::ReadWeatherFlags(activeSlot);
+        HydrateLightingFromSlot(activeSlot);
+    }
+    else
+    {
+        m_RequestOpenLoadMap = true;
+    }
+    m_RequestSelectPainterTab = true;
+    SetExclusiveBrushMode(2);
+}
+
 void CDevEditorUI::RenderLoadMapModal()
 {
     char popupLabel[128];
@@ -1311,6 +1401,7 @@ void CDevEditorUI::RenderLoadMapModal()
                 // checkbox state too — classic worlds are driven by the
                 // engine's WorldActive comparison, not our flag set.
                 m_CurrentCustomMapId = -1;
+                m_OfflineAuthoringActive = false;
                 m_WeatherFlags = 0;
                 ImGui::CloseCurrentPopup();
             }
@@ -1338,6 +1429,7 @@ void CDevEditorUI::RenderLoadMapModal()
             if (MuEditor::CustomMap::LoadCustomMap(mapId))
             {
                 m_CurrentCustomMapId = mapId;
+                m_OfflineAuthoringActive = true;
                 // Hydrate the editor's checkbox state from disk so the
                 // Weather tab reflects the slot's saved selection. The
                 // engine's live flags were already populated by LoadCustomMap.
@@ -2560,6 +2652,21 @@ void CDevEditorUI::SetExclusiveBrushMode(int mode)
         // starts grounded again. They can re-build the offset with the
         // Shift+wheel control or the panel slider.
         m_PlaceZOffset = 0.0f;
+        // Drop the hover target too — the highlight renderer should stop
+        // drawing the moment we're out of Place mode.
+        m_PlaceHoverTarget = nullptr;
+    }
+    else
+    {
+        // ENTERING Place mode: always start in Hover state. m_PlaceLocalType
+        // may carry a value from a previous session, but the user expects a
+        // clean "pick or hover" surface — don't sneak in a ghost they didn't
+        // ask for. They activate Selection state by clicking a grid slot or
+        // pressing Ctrl+D on a hovered object.
+        m_PlaceHasSelection = false;
+        m_PlaceAbsoluteType = -1;
+        m_PlaceHoverTarget  = nullptr;
+        m_PlaceZOffset      = 0.0f;
     }
     if (!m_DeleteOnClickEnabled) ClearDeleteHoverPreview();
 
@@ -2694,6 +2801,7 @@ void CDevEditorUI::RenderPlaceObjectPanel()
         return;
     }
 
+
     // Source picker.
     const char* curLabel = "(none)";
     char curBuf[32];
@@ -2813,7 +2921,15 @@ void CDevEditorUI::RenderPlaceObjectPanel()
         std::snprintf(label, sizeof(label), "%d", i);
         ImGui::PushID(i);
         if (ImGui::Button(label, ImVec2(GRID_CELL_SIZE, GRID_CELL_SIZE)))
+        {
             m_PlaceLocalType = i;
+            // Clicking a slot is a deliberate "I want to place this now",
+            // so move the place tool out of Hover state and into Selection.
+            m_PlaceHasSelection = true;
+            // Reset any Ctrl+D absolute-type override so the source-bank
+            // slot path takes over again.
+            m_PlaceAbsoluteType = -1;
+        }
 
         // Hover tooltip — BMD metadata so the cell number isn't the
         // only identifier. We deliberately skip BMD::Name because the
@@ -2901,20 +3017,404 @@ void CDevEditorUI::HidePlacementPreview()
     }
 }
 
+// Lazy per-Type cache. Returns the BMD's local-space vertex AABB. For
+// single-bone decor (the common case) v->Position IS the model-local point;
+// for multi-bone models we still treat it as a union of bone-local points,
+// which over-estimates slightly but keeps the picker working without
+// having to chase BoneMatrix bind-pose plumbing. Builds the cache entry on
+// first request for a given Type, then returns the cached entry forever.
+// Models may load asynchronously: if Meshs/Vertices aren't allocated yet,
+// we mark the entry invalid and try again next call (one cache slot per
+// Type, overwritten on retry).
+const CDevEditorUI::LocalBounds&
+CDevEditorUI::GetOrComputeLocalBounds(int type)
+{
+    auto it = m_BMDLocalBoundsCache.find(type);
+    if (it != m_BMDLocalBoundsCache.end() && it->second.valid)
+        return it->second;
+
+    LocalBounds& b = m_BMDLocalBoundsCache[type];
+    b.valid = false;
+
+    // Models is allocated as `MAX_MODELS + 1024` BMDs (see OpenPlayers in
+    // ZzzOpenData.cpp). The trailing 1024-slot window is where the editor's
+    // source-bank manager side-loads classic-world object banks — that's
+    // where the obelisk / signpost / tree models live for placed maps. The
+    // old upper bound (`type >= MAX_MODELS`) discarded every source-bank
+    // object, which is why hover ended up empty for every meaningfully
+    // visible model.
+    constexpr int MODELS_ALLOC_COUNT = MAX_MODELS + 1024;
+    if (type < 0 || type >= MODELS_ALLOC_COUNT) return b;
+    BMD& bmd = Models[type];
+    if (bmd.NumMeshs <= 0 || bmd.Meshs == nullptr) return b;
+
+    // Iterate triangles, not raw vertices. MU BMDs commonly contain orphan
+    // vertices that no triangle references (left over from animation rigs
+    // / particle attachments / earlier mesh edits). They sit at extreme
+    // coordinates that nothing actually draws, but a naive vertex scan
+    // pulls the AABB out to cover them. Driving the scan through Triangles
+    // [].VertexIndex[] keeps the bound tied to renderable geometry.
+    bool any = false;
+    auto trackVertex = [&](const float* p) {
+        if (!any) {
+            b.min[0] = b.max[0] = p[0];
+            b.min[1] = b.max[1] = p[1];
+            b.min[2] = b.max[2] = p[2];
+            any = true;
+        } else {
+            if (p[0] < b.min[0]) b.min[0] = p[0];
+            if (p[1] < b.min[1]) b.min[1] = p[1];
+            if (p[2] < b.min[2]) b.min[2] = p[2];
+            if (p[0] > b.max[0]) b.max[0] = p[0];
+            if (p[1] > b.max[1]) b.max[1] = p[1];
+            if (p[2] > b.max[2]) b.max[2] = p[2];
+        }
+    };
+    for (int m = 0; m < bmd.NumMeshs; ++m)
+    {
+        const Mesh_t& mesh = bmd.Meshs[m];
+        if (mesh.Vertices == nullptr) continue;
+        if (mesh.Triangles == nullptr || mesh.NumTriangles <= 0)
+        {
+            // No triangle list to walk — fall back to the raw vertex scan
+            // for this mesh. Unusual but better than zero bounds.
+            for (int v = 0; v < mesh.NumVertices; ++v)
+                trackVertex(mesh.Vertices[v].Position);
+            continue;
+        }
+        for (int t = 0; t < mesh.NumTriangles; ++t)
+        {
+            const Triangle_t& tri = mesh.Triangles[t];
+            const int n = (tri.Polygon > 0) ? tri.Polygon : 3;
+            for (int k = 0; k < n && k < 4; ++k)
+            {
+                const int idx = tri.VertexIndex[k];
+                if (idx < 0 || idx >= mesh.NumVertices) continue;
+                trackVertex(mesh.Vertices[idx].Position);
+            }
+        }
+    }
+    b.valid = any;
+    return b;
+}
+
+// Build the world-space AABB for an OBJECT using the cached local bounds.
+// Translates by o->Position and scales by o->Scale. Rotation around Z is
+// ignored — we'd need to rotate the AABB corners to track exactly, but
+// the resulting axis-aligned bound is already a tight enough hit envelope
+// for picking. Returns false if no usable bounds (caller can fall back).
+bool CDevEditorUI::GetWorldAABBForObject(const OBJECT* o,
+                                          float outMin[3], float outMax[3])
+{
+    if (o == nullptr) return false;
+    const LocalBounds& lb = GetOrComputeLocalBounds(o->Type);
+    if (!lb.valid) return false;
+
+    const float s = (o->Scale > 0.01f) ? o->Scale : 1.0f;
+    for (int k = 0; k < 3; ++k)
+    {
+        outMin[k] = o->Position[k] + lb.min[k] * s;
+        outMax[k] = o->Position[k] + lb.max[k] * s;
+    }
+    return true;
+}
+
+void CDevEditorUI::HandlePlaceHoverPick()
+{
+    // Proper camera→cursor ray cast against each live object's AABB. The
+    // older XY-tile picker missed elevated objects (signs on walls) because
+    // the cursor's "world position" is the terrain tile under the mouse,
+    // not what's visually under the mouse pointer in 3D. With Z-lift placed
+    // objects now common, we need the real ray.
+    //
+    // ScreenToWorldRay writes the global MousePosition (camera origin) and
+    // the supplied MouseTarget (far point along the ray through the cursor
+    // pixel). Direction is (target - origin), no need to normalise — the
+    // slab test scales linearly with direction length.
+    extern int MouseX, MouseY;
+    extern vec3_t MousePosition;
+    vec3_t rayFar;
+    CameraProjection::ScreenToWorldRay(g_Camera, MouseX, MouseY, rayFar);
+
+    m_DbgPickIter   = 0;
+    m_DbgPickValid  = 0;
+    m_DbgPickHit    = 0;
+    m_DbgRayOrigin[0] = MousePosition[0];
+    m_DbgRayOrigin[1] = MousePosition[1];
+    m_DbgRayOrigin[2] = MousePosition[2];
+    m_DbgRayFar[0] = rayFar[0];
+    m_DbgRayFar[1] = rayFar[1];
+    m_DbgRayFar[2] = rayFar[2];
+
+    const float dirX = rayFar[0] - MousePosition[0];
+    const float dirY = rayFar[1] - MousePosition[1];
+    const float dirZ = rayFar[2] - MousePosition[2];
+    // Inverse-direction trick: precompute 1/dir for the slab test. Guard
+    // against axis-aligned rays (dir component == 0) by using a huge value
+    // — the corresponding slab test then either trivially passes (origin
+    // already inside the slab) or trivially fails, which is correct.
+    constexpr float HUGE = 1e30f;
+    const float invX = (fabsf(dirX) > 1e-9f) ? 1.0f / dirX : (dirX >= 0 ? HUGE : -HUGE);
+    const float invY = (fabsf(dirY) > 1e-9f) ? 1.0f / dirY : (dirY >= 0 ? HUGE : -HUGE);
+    const float invZ = (fabsf(dirZ) > 1e-9f) ? 1.0f / dirZ : (dirZ >= 0 ? HUGE : -HUGE);
+
+    constexpr int OBJECT_BLOCK_COUNT = 256;
+    OBJECT* nearest      = nullptr;
+    float   bestScore    = 1e30f;   // weighted distance-to-ray, lower wins
+
+    // Squared length of the ray direction. We compare perpendicular
+    // distances from object pivots to the ray; |dir|^2 is the divisor that
+    // converts |dir × (pivot - origin)|^2 into squared perpendicular dist.
+    const float dirLen2 = dirX*dirX + dirY*dirY + dirZ*dirZ;
+    const float invDirLen2 = (dirLen2 > 1e-6f) ? 1.0f / dirLen2 : 0.0f;
+
+    for (int b = 0; b < OBJECT_BLOCK_COUNT; ++b)
+    {
+        for (OBJECT* o = ObjectBlock[b].Head; o != nullptr; o = o->Next)
+        {
+            if (!o->Live) continue;
+            if (o == m_PlacementPreview) continue;
+            ++m_DbgPickIter;
+
+            // Tight world-space AABB derived from the BMD's vertex bounds
+            // (per-Type cached). If the lookup fails the object has no real
+            // geometry (invisible spawn markers / logic nodes commonly
+            // used by classic worlds) — skip it so hover only fires on
+            // things the user can actually see.
+            float bMin[3], bMax[3];
+            if (!GetWorldAABBForObject(o, bMin, bMax))
+                continue;
+            const float bMinX = bMin[0], bMaxX = bMax[0];
+            const float bMinY = bMin[1], bMaxY = bMax[1];
+            const float bMinZ = bMin[2], bMaxZ = bMax[2];
+            ++m_DbgPickValid;
+
+            // Standard slab test on the AABB. tEntry / tExit are the ray
+            // parameters where it enters / leaves the box; the box is hit
+            // if tEntry <= tExit and tExit >= 0.
+            float t1 = (bMinX - MousePosition[0]) * invX;
+            float t2 = (bMaxX - MousePosition[0]) * invX;
+            float tMin = (t1 < t2) ? t1 : t2;
+            float tMax = (t1 < t2) ? t2 : t1;
+
+            t1 = (bMinY - MousePosition[1]) * invY;
+            t2 = (bMaxY - MousePosition[1]) * invY;
+            const float yMin = (t1 < t2) ? t1 : t2;
+            const float yMax = (t1 < t2) ? t2 : t1;
+            if (yMin > tMin) tMin = yMin;
+            if (yMax < tMax) tMax = yMax;
+
+            t1 = (bMinZ - MousePosition[2]) * invZ;
+            t2 = (bMaxZ - MousePosition[2]) * invZ;
+            const float zMin = (t1 < t2) ? t1 : t2;
+            const float zMax = (t1 < t2) ? t2 : t1;
+            if (zMin > tMin) tMin = zMin;
+            if (zMax < tMax) tMax = zMax;
+
+            if (tMax < 0.0f || tMin > tMax) continue;  // ray misses
+            ++m_DbgPickHit;
+
+            // Score = perpendicular distance from o.Position to the cursor
+            // ray. Tighter than picking by closest-tHit (which always grabs
+            // the outermost enveloping AABB when overlapping decoration
+            // shares a model) and tighter than smallest-volume (useless
+            // when all hits are the same model, all same size). The
+            // cursor's ray naturally passes closest to the pivot of the
+            // object the user is visually aiming at, so this surfaces the
+            // expected pick even in dense decoration clusters where a
+            // dozen instances of the same BMD overlap.
+            //
+            // |dir × (pivot - origin)|^2 / |dir|^2 = squared perp distance.
+            const float toX = o->Position[0] - MousePosition[0];
+            const float toY = o->Position[1] - MousePosition[1];
+            const float toZ = o->Position[2] - MousePosition[2];
+            const float cx = dirY * toZ - dirZ * toY;
+            const float cy = dirZ * toX - dirX * toZ;
+            const float cz = dirX * toY - dirY * toX;
+            const float perpDist2 =
+                (cx*cx + cy*cy + cz*cz) * invDirLen2;
+
+            if (perpDist2 < bestScore)
+            {
+                bestScore = perpDist2;
+                nearest   = o;
+            }
+        }
+    }
+
+    // Track the hovered target — the additive-green tint pass in
+    // DevEditor_RenderPlaceHoverHighlight reads it and overlays the model.
+    // No more alpha fade here: the tint itself is the affordance, and the
+    // previous 50% transparency was misleading when the user just wanted
+    // to inspect (not delete) the object.
+    m_PlaceHoverTarget = nearest;
+
+    // Tooltip floats next to the cursor. Offset down-right so the game's
+    // cursor sprite (~32px tall, drawn from the top-left of the hotspot)
+    // doesn't sit on top of the text. ImGui's MousePos is in actual screen
+    // pixels; the offset keeps the tooltip just outside the sprite without
+    // letting it crawl off the right edge of the viewport.
+    // BMD::Name is non-UTF-8 (CP949), so we follow the slot-grid convention
+    // and show the deterministic file path instead.
+    if (nearest != nullptr)
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        // Big offset down-right of the cursor: the game cursor sprite
+        // (~40-50px wide, hotspot near top-left) needs clearance so it
+        // doesn't sit on top of the tooltip's title line.
+        constexpr float TT_OFFX = 56.0f;
+        constexpr float TT_OFFY = 40.0f;
+        constexpr float TT_W_GUESS = 260.0f;  // assumed width for edge-clamp
+        float tx = mp.x + TT_OFFX;
+        float ty = mp.y + TT_OFFY;
+        // Clamp to viewport so the tooltip stays fully visible when the
+        // cursor is near the right/bottom edges.
+        const float maxX = vp->WorkPos.x + vp->WorkSize.x - TT_W_GUESS;
+        if (tx > maxX) tx = mp.x - TT_OFFX - TT_W_GUESS;
+        ImGui::SetNextWindowPos(ImVec2(tx, ty), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.85f);
+        ImGui::Begin("##place_hover_tooltip", nullptr,
+                     ImGuiWindowFlags_NoDecoration |
+                     ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoFocusOnAppearing |
+                     ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoNav |
+                     ImGuiWindowFlags_NoInputs);
+        const int sourceWorld =
+            MuEditor::CustomMap::FindSourceWorldByModelIndex(nearest->Type);
+        const int baseOffset = (sourceWorld >= 0)
+            ? MuEditor::CustomMap::GetSourceBankBaseOffset(sourceWorld)
+            : -1;
+
+        ImGui::TextColored(ImVec4(0.4f, 0.95f, 1.0f, 1.0f), "Hovered object");
+        ImGui::Separator();
+        ImGui::Text("Type: %d", static_cast<int>(nearest->Type));
+        if (sourceWorld >= 0 && baseOffset >= 0)
+        {
+            const int localSlot = nearest->Type - baseOffset;
+            ImGui::Text("Source: World%d / Slot %d", sourceWorld, localSlot);
+            ImGui::Text("File: Data\\Object%d\\Object%02d.bmd",
+                        sourceWorld, localSlot + 1);
+        }
+        else
+        {
+            ImGui::Text("Base-world object (no source bank)");
+        }
+        ImGui::Separator();
+        ImGui::Text("Pos: %.1f, %.1f, %.1f",
+                    nearest->Position[0], nearest->Position[1], nearest->Position[2]);
+        ImGui::Text("Scale: %.2f", nearest->Scale);
+        ImGui::Text("Rotation: %.0f deg (yaw)", nearest->Angle[2]);
+        const float terrainZ = RequestTerrainHeight(nearest->Position[0], nearest->Position[1]);
+        ImGui::Text("Z above terrain: %+.1f u", nearest->Position[2] - terrainZ);
+        ImGui::Separator();
+        ImGui::TextDisabled("Ctrl+D to duplicate");
+        ImGui::End();
+    }
+
+    // Ctrl+D: copy properties into the placement state and transition to
+    // Selection state. The duplicate spawns at the original's same world
+    // XYZ (per design) — moving the cursor afterward keeps the same
+    // height-above-terrain via m_PlaceZOffset.
+    if (nearest != nullptr
+        && ImGui::GetIO().KeyCtrl
+        && ImGui::IsKeyPressed(ImGuiKey_D, false))
+    {
+        m_PlaceAbsoluteType = nearest->Type;
+        m_PlaceScale        = nearest->Scale;
+        m_PlaceAngleZ       = nearest->Angle[2];
+
+        const float terrainZ =
+            RequestTerrainHeight(nearest->Position[0], nearest->Position[1]);
+        m_PlaceZOffset = nearest->Position[2] - terrainZ;
+
+        // Mirror sourceWorld + localType when discoverable so the panel
+        // header reads sensibly after the copy. The Ctrl+D path doesn't
+        // depend on these — m_PlaceAbsoluteType is authoritative — but
+        // syncing them avoids confusing the user with stale grid values.
+        const int sourceWorld =
+            MuEditor::CustomMap::FindSourceWorldByModelIndex(nearest->Type);
+        if (sourceWorld >= 0)
+        {
+            const int baseOffset =
+                MuEditor::CustomMap::GetSourceBankBaseOffset(sourceWorld);
+            if (baseOffset >= 0)
+            {
+                m_PlaceSourceWorld = sourceWorld;
+                m_PlaceLocalType   = nearest->Type - baseOffset;
+            }
+        }
+
+
+        m_PlaceHasSelection = true;
+        m_PlaceHoverTarget  = nullptr;
+    }
+}
+
 void CDevEditorUI::HandlePlaceObjectInput()
 {
-    // Mode-off / no source / mouse-over-UI / cursor-not-on-terrain all
-    // require the preview to go away. We short-circuit by hiding then
-    // returning so we don't accidentally commit on a stale frame.
-    if (!m_PlaceOnClickEnabled || m_PlaceSourceWorld < 0)
+    if (!m_PlaceOnClickEnabled)
     {
         HidePlacementPreview();
+        m_PlaceHoverTarget = nullptr;
         return;
     }
 
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse)
     {
+        HidePlacementPreview();
+        m_PlaceHoverTarget = nullptr;
+        return;
+    }
+
+    // ── Hover state ────────────────────────────────────────────────────
+    // No selection yet (no slot picked, no Ctrl+D consumed): pick the
+    // object under the cursor and surface it for inspection / Ctrl+D.
+    if (!m_PlaceHasSelection)
+    {
+        HidePlacementPreview();  // make sure no ghost lingers
+        this->HandlePlaceHoverPick();
+        return;
+    }
+
+    // ── Selection state ────────────────────────────────────────────────
+    // Esc clears the selection so the user can re-pick (or Ctrl+D on a
+    // different object) without exiting Place mode entirely.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        m_PlaceHasSelection = false;
+        m_PlaceAbsoluteType = -1;
+        m_PlaceZOffset      = 0.0f;
+        HidePlacementPreview();
+        return;
+    }
+
+    // Resolve the absolute Models[] index. Two paths:
+    //   - Ctrl+D copy: m_PlaceAbsoluteType holds the original's Type directly.
+    //   - Source-bank grid click: derive from sourceWorld + localType.
+    // The Ctrl+D path bypasses the bank lookup entirely so it survives even
+    // when the source world isn't loaded as a bank (e.g. base-world objects).
+    int absoluteType = -1;
+    if (m_PlaceAbsoluteType >= 0)
+    {
+        absoluteType = m_PlaceAbsoluteType;
+    }
+    else if (m_PlaceSourceWorld >= 0)
+    {
+        const int baseOffset =
+            MuEditor::CustomMap::GetSourceBankBaseOffset(m_PlaceSourceWorld);
+        if (baseOffset < 0)
+        {
+            HidePlacementPreview();
+            return;
+        }
+        absoluteType = baseOffset + m_PlaceLocalType;
+    }
+    else
+    {
+        // Selection state but neither path is valid — bail.
         HidePlacementPreview();
         return;
     }
@@ -2961,14 +3461,6 @@ void CDevEditorUI::HandlePlaceObjectInput()
     // base tile position.
     pos[2] += m_PlaceZOffset;
 
-    const int baseOffset =
-        MuEditor::CustomMap::GetSourceBankBaseOffset(m_PlaceSourceWorld);
-    if (baseOffset < 0)
-    {
-        HidePlacementPreview();
-        return;
-    }
-    const int absoluteType = baseOffset + m_PlaceLocalType;
     vec3_t angle = { 0.0f, 0.0f, m_PlaceAngleZ };
 
     // Spawn the preview lazily on the first valid frame. Subsequent
@@ -3712,6 +4204,22 @@ extern "C" {
 #endif
     }
 
+    // When true, the engine's keyboard handlers must skip this frame —
+    // an editor brush owns the keyboard so shortcuts like Ctrl+D
+    // (duplicate) and Esc (clear selection) don't double-trigger the
+    // game's 'D' command window or system menu. The gate wraps every
+    // SEASON3B::IsPress / IsRelease / IsRepeat call in NewUICommon.cpp;
+    // it stays false outside brush modes so the player keeps normal
+    // controls while just browsing the DevEditor window.
+    bool DevEditor_IsKeyboardCaptured()
+    {
+#ifdef _EDITOR
+        return g_DevEditorUI.IsPaintingTerrain();
+#else
+        return false;
+#endif
+    }
+
     // When true, the engine's click-to-move / attack handlers must skip
     // any LMB-driven action this frame — the editor's paint brush is
     // claiming the click. Used in ZzzInterface.cpp Attack() and the main
@@ -3779,6 +4287,109 @@ extern "C" {
         }
 
         RenderDebugBox(origin, sx, sy, sz, 1.0f, 0.2f, 0.2f);
+#endif
+    }
+
+    // Cyan wireframe box around the OBJECT the Place tool is currently
+    // hovering (Hover state). Mirrors RenderDeleteHoverHighlight but with a
+    // different colour so the two tools are visually distinct. No-op when
+    // not in Place mode or when no hover target is set.
+    void DevEditor_RenderPlaceHoverHighlight()
+    {
+#ifdef _EDITOR
+        // Hover highlight rendering disabled per user direction: the tint
+        // / wireframe / AABB approaches all had geometry / depth issues for
+        // animated decor. The picker still runs (drives the tooltip and
+        // Ctrl+D copy), there's just no on-world visualisation right now.
+        return;
+        OBJECT* target = g_DevEditorUI.GetPlaceHoverTarget();
+        if (target == nullptr) return;
+        if (!target->Live) return;
+        if (target->Type < 0 || target->Type >= MAX_MODELS + 1024) return;
+
+        BMD& bmd = Models[target->Type];
+        if (bmd.NumMeshs <= 0 || bmd.Meshs == nullptr) return;
+
+        const float s = (target->Scale > 0.01f) ? target->Scale : 1.0f;
+        // Two transform paths depending on whether the OBJECT carries its
+        // own per-bone matrix array. Animated characters / monsters do
+        // (allocated in SetCharacter or equivalent); static decor doesn't
+        // — the engine renders decor through a shared global BoneTransform
+        // that goes stale between objects. For the null case we fall back
+        // to building a single rotation matrix from the object's yaw,
+        // which is correct for single-bone decor (the common editor case).
+        const bool useBones = (target->BoneTransform != nullptr);
+        float rot[3][4];
+        if (!useBones) AngleMatrix(target->Angle, rot);
+
+        // Solid green silhouette over the actual model. Depth test is off
+        // so the tint can't disappear due to float-precision Z-fighting
+        // against the engine's earlier render of the same mesh — being
+        // able to *see* the highlight matters more than masking back faces.
+        // Alpha-blended so the tree's silhouette stays readable but
+        // unambiguously looks green.
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0.1f, 1.0f, 0.2f, 0.65f);   // bright green, mostly opaque
+
+        // World-space vertex = BoneMatrix * v.Position * Scale + Position.
+        // For animated objects (useBones=true) the bone matrix encodes the
+        // current pose, so leaves end up high, etc. For decor (useBones=
+        // false) we substitute a single yaw-only rotation, which matches
+        // what the engine effectively does when NumBones==1.
+        auto emitVertex = [&](const Vertex_t& v) {
+            float vp[3];
+            if (useBones && v.Node >= 0 && v.Node < bmd.NumBones)
+            {
+                VectorTransform(const_cast<float*>(v.Position),
+                                target->BoneTransform[v.Node], vp);
+            }
+            else
+            {
+                VectorRotate(const_cast<float*>(v.Position), rot, vp);
+            }
+            const float wx = vp[0] * s + target->Position[0];
+            const float wy = vp[1] * s + target->Position[1];
+            const float wz = vp[2] * s + target->Position[2];
+            glVertex3f(wx, wy, wz);
+        };
+
+        for (int m = 0; m < bmd.NumMeshs; ++m)
+        {
+            const Mesh_t& mesh = bmd.Meshs[m];
+            if (mesh.Vertices == nullptr) continue;
+            if (mesh.Triangles == nullptr || mesh.NumTriangles <= 0) continue;
+
+            for (int t = 0; t < mesh.NumTriangles; ++t)
+            {
+                const Triangle_t& tri = mesh.Triangles[t];
+                const int n = (tri.Polygon > 0 && tri.Polygon <= 4)
+                              ? tri.Polygon : 3;
+
+                // GL_TRIANGLE_FAN handles both triangles (n=3) and quads
+                // (n=4) with the same shape vertex stream.
+                glBegin(GL_TRIANGLE_FAN);
+                for (int k = 0; k < n; ++k)
+                {
+                    const int idx = tri.VertexIndex[k];
+                    if (idx < 0 || idx >= mesh.NumVertices) { glEnd(); goto next_tri; }
+                    emitVertex(mesh.Vertices[idx]);
+                }
+                glEnd();
+                next_tri:;
+            }
+        }
+
+        // Restore default GL state expected by the rest of the render loop.
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glEnable(GL_TEXTURE_2D);
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 #endif
     }
 

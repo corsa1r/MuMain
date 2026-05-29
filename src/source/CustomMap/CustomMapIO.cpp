@@ -1007,6 +1007,15 @@ namespace
 
 namespace MuEditor::CustomMap
 {
+    namespace
+    {
+        // Tracks the slot ID of the most recent successful LoadCustomMap.
+        // LoadClassicMap and the destructor case set this back to -1.
+        // Used by the editor's "Edit This Map" shortcut so it can auto-
+        // select the running slot without prompting the user.
+        int s_ActiveCustomSlot = -1;
+    }
+
     std::wstring GetCustomRootDirectory()
     {
         return std::wstring(CUSTOM_ROOT);
@@ -1515,7 +1524,13 @@ namespace MuEditor::CustomMap
                 baseOffset);
         }
 
+        s_ActiveCustomSlot = mapId;
         return true;
+    }
+
+    int GetActiveCustomSlot()
+    {
+        return s_ActiveCustomSlot;
     }
 
     bool LoadClassicMap(int worldFolderIndex)
@@ -1592,6 +1607,9 @@ namespace MuEditor::CustomMap
         // map, we'd otherwise be stuck with the neutralized
         // WD_0LORENCIA override.
         gMapManager.WorldActive = worldFolderIndex - 1;
+
+        // Classic load supersedes any prior custom-slot binding.
+        s_ActiveCustomSlot = -1;
 
         return true;
     }

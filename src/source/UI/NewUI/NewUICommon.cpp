@@ -108,18 +108,36 @@ bool SEASON3B::IsNone(int iVirtKey)
     return g_pNewKeyInput->IsNone(iVirtKey);
 }
 
+#ifdef _EDITOR
+// Forward-decl. Defined in DevEditorUI.cpp; returns true while any editor
+// brush (Place / Delete / Paint / etc.) is active. We swallow game key
+// handlers in that state so editor shortcuts (Ctrl+D duplicate, Esc to
+// drop selection, etc.) don't double-trigger gameplay actions like the
+// command window or the system-menu popup.
+extern "C" bool DevEditor_IsKeyboardCaptured();
+#endif
+
 bool SEASON3B::IsRelease(int iVirtKey)
 {
+#ifdef _EDITOR
+    if (DevEditor_IsKeyboardCaptured()) return false;
+#endif
     return g_pNewKeyInput->IsRelease(iVirtKey);
 }
 
 bool SEASON3B::IsPress(int iVirtKey)
 {
+#ifdef _EDITOR
+    if (DevEditor_IsKeyboardCaptured()) return false;
+#endif
     return g_pNewKeyInput->IsPress(iVirtKey);
 }
 
 bool SEASON3B::IsRepeat(int iVirtKey)
 {
+#ifdef _EDITOR
+    if (DevEditor_IsKeyboardCaptured()) return false;
+#endif
     return g_pNewKeyInput->IsRepeat(iVirtKey);
 }
 

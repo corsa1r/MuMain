@@ -2577,7 +2577,7 @@ void RenderDebugSphere(const vec3_t center, float radius, float r, float g, floa
     if (lighting) glEnable(GL_LIGHTING);
 }
 
-void RenderDebugBox(const vec3_t origin, float sizeX, float sizeY, float sizeZ, float r, float g, float b)
+void RenderDebugBox(const vec3_t origin, float sizeX, float sizeY, float sizeZ, float r, float g, float b, bool depthTestEnabled)
 {
     GLboolean depthTest = glIsEnabled(GL_DEPTH_TEST);
     GLboolean texture2D = glIsEnabled(GL_TEXTURE_2D);
@@ -2585,7 +2585,11 @@ void RenderDebugBox(const vec3_t origin, float sizeX, float sizeY, float sizeZ, 
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    glEnable(GL_DEPTH_TEST);
+    // Editor hover highlights need to show through opaque geometry (a tree's
+    // leaves would otherwise occlude the cyan wrap), so callers can opt out
+    // of depth testing.
+    if (depthTestEnabled) glEnable(GL_DEPTH_TEST);
+    else                  glDisable(GL_DEPTH_TEST);
 
     glColor3f(r, g, b);
     glLineWidth(1.0f);
