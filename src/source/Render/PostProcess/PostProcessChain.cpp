@@ -7,6 +7,7 @@
 #include "PostProcessSettings.h"
 #include "BloomPass.h"
 #include "SsaoPass.h"
+#include "LutPass.h"
 #include "ColorEffectPasses.h"
 
 #include <windows.h>
@@ -30,6 +31,7 @@ namespace PostProcess
             BloomPass*      s_bloomPass  = nullptr;
             ToneMapPass*    s_toneMap    = nullptr;
             ColorGradePass* s_colorGrade = nullptr;
+            LutPass*        s_lut        = nullptr;
             FxaaPass*       s_fxaa       = nullptr;
             SharpenPass*    s_sharpen    = nullptr;
             VignettePass*   s_vignette   = nullptr;
@@ -248,6 +250,9 @@ namespace PostProcess
                 add(std::make_unique<BloomPass>(),      s_bloomPass);
                 add(std::make_unique<ToneMapPass>(),    s_toneMap);
                 add(std::make_unique<ColorGradePass>(), s_colorGrade);
+                // LUT after the slider grade (final COLOR transform), before the
+                // spatial passes (AA/sharpen/vignette/grain).
+                add(std::make_unique<LutPass>(),        s_lut);
                 add(std::make_unique<FxaaPass>(),       s_fxaa);
                 add(std::make_unique<SharpenPass>(),    s_sharpen);
                 add(std::make_unique<VignettePass>(),   s_vignette);
@@ -265,6 +270,7 @@ namespace PostProcess
             // All were owned by s_passes, now cleared.
             s_ssao = nullptr;
             s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
+            s_lut = nullptr;
             s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
             s_available = false;
             s_width = s_height = 0;
@@ -353,6 +359,11 @@ namespace PostProcess
                 s_colorGrade->SetShadows(s.gradeShadows);
                 s_colorGrade->SetMidtones(s.gradeMidtones);
                 s_colorGrade->SetHighlights(s.gradeHighlights);
+            }
+            if (s_lut)
+            {
+                s_lut->SetActive(s.lut);
+                s_lut->SetLutFile(s.lutFile);
             }
             if (s_fxaa)
             {

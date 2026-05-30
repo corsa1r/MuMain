@@ -90,6 +90,8 @@ void GameConfig::Load()
     m_sharpenStrength  = ReadFloat(CfgSectionGraphics, CfgKeySharpenStrength, CfgDefaultSharpenStrength);
     m_filmGrain        = ReadBool (CfgSectionGraphics, CfgKeyFilmGrain, CfgDefaultFilmGrain);
     m_filmGrainStrength = ReadFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, CfgDefaultFilmGrainStrength);
+    m_lut              = ReadBool  (CfgSectionGraphics, CfgKeyLut, CfgDefaultLut);
+    m_lutFile          = ReadString(CfgSectionGraphics, CfgKeyLutFile, CfgDefaultLutFile);
 
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
@@ -171,6 +173,8 @@ void GameConfig::PersistGraphics()
     WriteFloat(CfgSectionGraphics, CfgKeySharpenStrength, m_sharpenStrength);
     WriteBool (CfgSectionGraphics, CfgKeyFilmGrain, m_filmGrain);
     WriteFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, m_filmGrainStrength);
+    WriteBool  (CfgSectionGraphics, CfgKeyLut, m_lut);
+    WriteString(CfgSectionGraphics, CfgKeyLutFile, m_lutFile);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -469,6 +473,16 @@ void GameConfig::SetFilmGrainStrength(float v)
 {
     m_filmGrainStrength = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFilmGrainStrength, v);
+}
+void GameConfig::SetLut(bool enabled)
+{
+    m_lut = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyLut, enabled);
+}
+void GameConfig::SetLutFile(const std::wstring& file)
+{
+    m_lutFile = file;
+    WriteString(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyLutFile, file);
 }
 
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)

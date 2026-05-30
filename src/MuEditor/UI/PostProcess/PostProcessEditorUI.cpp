@@ -9,6 +9,10 @@
 #include "Data/GameConfig/GameConfig.h"
 #include "../MuEditor/Core/MuEditorCore.h"   // g_MuEditorCore.SetHoveringUI
 
+#include <filesystem>
+#include <string>
+#include <cctype>
+
 CPostProcessEditorUI& CPostProcessEditorUI::GetInstance()
 {
     static CPostProcessEditorUI instance;
@@ -46,6 +50,11 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.sharpenStrength   = c.GetSharpenStrength();
     m_settings.filmGrain         = c.GetFilmGrain();
     m_settings.filmGrainStrength  = c.GetFilmGrainStrength();
+    m_settings.lut               = c.GetLut();
+    {
+        const std::wstring wf = c.GetLutFile();   // narrow (ASCII filename)
+        m_settings.lutFile.assign(wf.begin(), wf.end());
+    }
     m_loaded = true;
 }
 
@@ -80,6 +89,11 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetSharpenStrength(m_settings.sharpenStrength);
     c.SetFilmGrain(m_settings.filmGrain);
     c.SetFilmGrainStrength(m_settings.filmGrainStrength);
+    c.SetLut(m_settings.lut);
+    {
+        const std::string& f = m_settings.lutFile;   // widen (ASCII filename)
+        c.SetLutFile(std::wstring(f.begin(), f.end()));
+    }
 }
 
 void CPostProcessEditorUI::ApplyLive()
@@ -188,6 +202,39 @@ void CPostProcessEditorUI::Render()
     {
         changed |= ImGui::Checkbox("Enabled##grain", &m_settings.filmGrain);
         changed |= ImGui::SliderFloat("Strength##grain", &m_settings.filmGrainStrength, 0.0f, 0.3f, "%.3f");
+    }
+
+    if (ImGui::CollapsingHeader("LUT (.cube)", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##lut", &m_settings.lut);
+
+        // Dropdown of .cube files found in Data/PostProcess/. Scanned only while
+        // the combo is open (BeginCombo returns true), so no per-frame disk IO.
+        const char* preview = m_settings.lutFile.empty() ? "(none)" : m_settings.lutFile.c_str();
+        if (ImGui::BeginCombo("File##lut", preview))
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            for (const auto& entry : fs::directory_iterator("Data\\PostProcess", ec))
+            {
+                if (ec) break;
+                if (!entry.is_regular_file()) continue;
+                std::string ext = entry.path().extension().string();
+                for (char& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                if (ext != ".cube") continue;
+
+                std::string name = entry.path().filename().string();
+                const bool sel = (name == m_settings.lutFile);
+                if (ImGui::Selectable(name.c_str(), sel))
+                {
+                    m_settings.lutFile = name;
+                    changed = true;
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("Drop .cube files in Data/PostProcess/.");
     }
 
     ImGui::Separator();

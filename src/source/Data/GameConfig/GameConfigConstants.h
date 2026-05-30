@@ -65,6 +65,8 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeySharpenStrength[] = L"SharpenStrength";
     inline constexpr wchar_t CfgKeyFilmGrain[]       = L"FilmGrain";
     inline constexpr wchar_t CfgKeyFilmGrainStrength[] = L"FilmGrainStrength";
+    inline constexpr wchar_t CfgKeyLut[]             = L"LUT";
+    inline constexpr wchar_t CfgKeyLutFile[]         = L"LUTFile";
 }
 
 namespace CfgDefaults
@@ -138,4 +140,9 @@ namespace CfgDefaults
 
     inline constexpr bool  CfgDefaultFilmGrain      = true;
     inline constexpr float CfgDefaultFilmGrainStrength = 0.05f;
+
+    // LUT (.cube color grade) off by default; "look.cube" ships in
+    // Data/PostProcess/ so selecting it in the editor Just Works.
+    inline constexpr bool     CfgDefaultLut       = false;
+    inline constexpr wchar_t  CfgDefaultLutFile[] = L"look.cube";
 }

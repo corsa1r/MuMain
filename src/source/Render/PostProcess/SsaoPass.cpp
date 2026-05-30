@@ -68,7 +68,11 @@ void main()
     vec3 P = viewPos(vUV);
     vec3 N = normalize(cross(dFdx(P), dFdy(P)));
 
-    float ang = hash(vUV + fract(uTime)) * 6.2831853;
+    // Per-pixel rotation must be TEMPORALLY STABLE: depend only on pixel
+    // position, never on time. Animating it (the old `+ fract(uTime)`) made the
+    // AO noise change every frame, which reads as crawling "film grain" in dark
+    // areas. Static rotation + the blur pass yields stable, clean AO.
+    float ang = hash(vUV) * 6.2831853;
     float ca = cos(ang), sa = sin(ang);
 
     // 12 fixed disk directions over two rings; rotated per-pixel by 'ang'.

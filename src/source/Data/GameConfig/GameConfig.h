@@ -101,6 +101,13 @@ public:
     bool  GetFilmGrain()         const { return m_filmGrain; }
     float GetFilmGrainStrength() const { return m_filmGrainStrength; }
 
+    // [Graphics] LUT — .cube color grade. File is a bare name under
+    // Data/PostProcess/. Empty/missing => no grade.
+    bool         GetLut()     const { return m_lut; }
+    std::wstring GetLutFile() const { return m_lutFile; }
+    void SetLut(bool enabled);
+    void SetLutFile(const std::wstring& file);
+
     // [Graphics] — setters used by the live editor panel's "Save to config.ini".
     // Each updates the in-memory value and writes it through to config.ini.
     void SetBloomThreshold(float v);
@@ -195,6 +202,8 @@ private:
     float m_sharpenStrength;
     bool  m_filmGrain;
     float m_filmGrainStrength;
+    bool         m_lut;
+    std::wstring m_lutFile;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);

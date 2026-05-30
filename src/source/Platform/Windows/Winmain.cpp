@@ -1559,6 +1559,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.sharpenStrength   = cfg.GetSharpenStrength();
         pps.filmGrain         = cfg.GetFilmGrain();
         pps.filmGrainStrength = cfg.GetFilmGrainStrength();
+        pps.lut               = cfg.GetLut();
+        {
+            // Config stores the LUT filename as wide; Settings/LutPass use narrow
+            // (the name is ASCII, under Data/PostProcess/). Simple narrowing.
+            const std::wstring wf = cfg.GetLutFile();
+            pps.lutFile.assign(wf.begin(), wf.end());
+        }
         PostProcess::Chain::ApplySettings(pps);
 
         g_ErrorReport.Write(

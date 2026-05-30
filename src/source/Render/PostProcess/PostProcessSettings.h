@@ -12,10 +12,17 @@
 // ============================================================================
 #pragma once
 
+#include <string>
+
 namespace PostProcess
 {
     struct Settings
     {
+        // LUT (.cube 3D color grade). Filename under Data/PostProcess/; empty or
+        // missing => pass skips (no grade). Off by default — opt-in look.
+        bool        lut     = false;
+        std::string lutFile = "look.cube";
+
         // SSAO (depth-based ambient occlusion; darkens contact/crevice areas).
         // Heaviest, most scene-dependent effect — off by default. Runs first in
         // the chain so bloom/grading act on the occluded scene.
