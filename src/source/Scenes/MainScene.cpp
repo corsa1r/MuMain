@@ -9,6 +9,8 @@
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessPreset.h"
+#include "Network/ServerMapManifest.h"
 #include "Engine/Object/ZzzObject.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "Render/Terrain/ZzzLodTerrain.h"
@@ -345,6 +347,25 @@ void MoveMainScene()
 
     UpdateGameEntities();
 
+    // Per-map post-process preset auto-apply (the gameplay path). Watch the
+    // SERVER map number — NOT gMapManager.WorldActive, which custom maps pin to
+    // WD_0LORENCIA(0) for renderer compatibility, so it never changes between
+    // custom maps and every custom map would read as id 0. CurrentServerMapNumber()
+    // is the true per-map id (set for every map at the top of CMapManager::LoadWorld),
+    // so it flips on every warp, classic or custom. On a change, push that map's
+    // preset (or the global base) to the chain — this is what makes presets switch
+    // on teleport. (The editor's Override toggle calls ApplyForWorld directly.)
+    {
+        static int s_lastWorldForPP = -1000;
+        const int curWorld =
+            BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+        if (curWorld != s_lastWorldForPP)
+        {
+            s_lastWorldForPP = curWorld;
+            PostProcess::Presets::ApplyForWorld(curWorld);
+        }
+    }
+
     g_ConsoleDebug->UpdateMainScene();
 }
 
@@ -518,10 +539,9 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     RenderSprites();
     RenderParticles();
 
-    if (IsWaterTerrain() == false)
-    {
-        RenderPoints(byWaterMap);
-    }
+    // NOTE: damage numbers (RenderPoints) deliberately MOVED out of the captured
+    // scene — they are drawn after the post-process resolve in RenderMainScene so
+    // fog/grade/LUT don't tint the combat text. (Was: RenderPoints here.)
 
     EndSprite();
 
@@ -545,7 +565,8 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
 
         RenderSprites(byWaterMap);
         RenderParticles(byWaterMap);
-        RenderPoints(byWaterMap);
+        // RenderPoints moved post-resolve (see RenderMainScene) — combat text
+        // must not be post-processed.
 
         EndSprite();
         EndOpengl();
@@ -739,6 +760,17 @@ bool RenderMainScene()
         const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
         PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
     }
+
+    // Damage numbers / floating combat text: world-positioned, but must NOT be
+    // post-processed (fog/grade/LUT would tint them). Drawn HERE, after the
+    // scene resolve, straight onto the backbuffer — the 3D camera matrices set
+    // by SetupMainSceneViewport are still active (EndOpengl pops them below, and
+    // the post passes save/restore the matrix stack), so world->screen projection
+    // is still correct. Runs whether or not post-process is enabled (when off,
+    // the resolve is a no-op and this simply draws onto the direct scene).
+    BeginSprite();
+    RenderPoints(byWaterMap);
+    EndSprite();
 
     RenderMainSceneUI();
 

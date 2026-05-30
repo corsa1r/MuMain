@@ -63,6 +63,7 @@ namespace PostProcess
         PFNGLUNIFORM1FPROC               Uniform1f        = nullptr;
         PFNGLUNIFORM2FPROC               Uniform2f        = nullptr;
         PFNGLUNIFORM4FPROC               Uniform4f        = nullptr;
+        PFNGLUNIFORMMATRIX4FVPROC        UniformMatrix4fv = nullptr; // for fog inverse-view
 
         // Multitexture (passes that sample more than one input)
         PFNGLACTIVETEXTUREPROC           ActiveTexture    = nullptr;

@@ -44,6 +44,12 @@ namespace PostProcess
         float  farZ        = 0.0f;
         float  tanHalfFovX = 0.0f;
         float  tanHalfFovY = 0.0f;
+
+        // Inverse of the scene VIEW (modelview) matrix, column-major, for passes
+        // that need WORLD-space position from reconstructed view position (fog
+        // height fog keys off world Z — MU's up-axis). Identity if unavailable.
+        float  invView[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+        bool   hasInvView  = false;
     };
 
     class IPostProcessPass

@@ -7,6 +7,7 @@
 #include "PostProcessSettings.h"
 #include "BloomPass.h"
 #include "SsaoPass.h"
+#include "FogPass.h"
 #include "LutPass.h"
 #include "ColorEffectPasses.h"
 
@@ -28,6 +29,7 @@ namespace PostProcess
             // Non-owning pointers to each pass (owned by s_passes). Let
             // ApplySettings()/ToggleBloom() reach a pass without a lookup.
             SsaoPass*       s_ssao       = nullptr;
+            FogPass*        s_fog        = nullptr;
             BloomPass*      s_bloomPass  = nullptr;
             ToneMapPass*    s_toneMap    = nullptr;
             ColorGradePass* s_colorGrade = nullptr;
@@ -112,6 +114,36 @@ namespace PostProcess
                 glColorMask(s.colorMask[0], s.colorMask[1], s.colorMask[2], s.colorMask[3]);
                 glColor4fv(s.color);
                 glViewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
+            }
+
+            // Invert a column-major 4x4 (MESA gluInvertMatrix). Returns false if
+            // singular (out left untouched). Used to turn the scene modelview
+            // into an inverse-view so fog can reconstruct WORLD position.
+            bool InvertMatrix4(const float m[16], float out[16])
+            {
+                float inv[16];
+                inv[0]  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+                inv[4]  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+                inv[8]  =  m[4]*m[9]*m[15]  - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+                inv[12] = -m[4]*m[9]*m[14]  + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+                inv[1]  = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+                inv[5]  =  m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+                inv[9]  = -m[0]*m[9]*m[15]  + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+                inv[13] =  m[0]*m[9]*m[14]  - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+                inv[2]  =  m[1]*m[6]*m[15]  - m[1]*m[7]*m[14]  - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7]  - m[13]*m[3]*m[6];
+                inv[6]  = -m[0]*m[6]*m[15]  + m[0]*m[7]*m[14]  + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7]  + m[12]*m[3]*m[6];
+                inv[10] =  m[0]*m[5]*m[15]  - m[0]*m[7]*m[13]  - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7]  - m[12]*m[3]*m[5];
+                inv[14] = -m[0]*m[5]*m[14]  + m[0]*m[6]*m[13]  + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6]  + m[12]*m[2]*m[5];
+                inv[3]  = -m[1]*m[6]*m[11]  + m[1]*m[7]*m[10]  + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7]   + m[9]*m[3]*m[6];
+                inv[7]  =  m[0]*m[6]*m[11]  - m[0]*m[7]*m[10]  - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7]   - m[8]*m[3]*m[6];
+                inv[11] = -m[0]*m[5]*m[11]  + m[0]*m[7]*m[9]   + m[4]*m[1]*m[11] - m[4]*m[3]*m[9]  - m[8]*m[1]*m[7]   + m[8]*m[3]*m[5];
+                inv[15] =  m[0]*m[5]*m[10]  - m[0]*m[6]*m[9]   - m[4]*m[1]*m[10] + m[4]*m[2]*m[9]  + m[8]*m[1]*m[6]   - m[8]*m[2]*m[5];
+
+                float det = m[0]*inv[0] + m[1]*inv[4] + m[2]*inv[8] + m[3]*inv[12];
+                if (det == 0.0f) return false;
+                det = 1.0f / det;
+                for (int i = 0; i < 16; ++i) out[i] = inv[i] * det;
+                return true;
             }
 
             void DestroyTargets()
@@ -247,6 +279,9 @@ namespace PostProcess
                     s_passes.emplace_back(std::move(pass));
                 };
                 add(std::make_unique<SsaoPass>(),       s_ssao);
+                // Fog after SSAO (AO darkens real geometry first), before bloom
+                // (bright sources still bloom through the haze).
+                add(std::make_unique<FogPass>(),        s_fog);
                 add(std::make_unique<BloomPass>(),      s_bloomPass);
                 add(std::make_unique<ToneMapPass>(),    s_toneMap);
                 add(std::make_unique<ColorGradePass>(), s_colorGrade);
@@ -269,6 +304,7 @@ namespace PostProcess
             s_passes.clear();
             // All were owned by s_passes, now cleared.
             s_ssao = nullptr;
+            s_fog = nullptr;
             s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
             s_lut = nullptr;
             s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
@@ -332,6 +368,15 @@ namespace PostProcess
                 s_ssao->SetRadius(s.ssaoRadius);
                 s_ssao->SetStrength(s.ssaoStrength);
                 s_ssao->SetPower(s.ssaoPower);
+            }
+            if (s_fog)
+            {
+                s_fog->SetActive(s.fog);
+                s_fog->SetColor(s.fogR, s.fogG, s.fogB);
+                s_fog->SetDensity(s.fogDensity);
+                s_fog->SetStart(s.fogStart);
+                s_fog->SetHeightStrength(s.fogHeightStrength);
+                s_fog->SetHeightTop(s.fogHeightTop);
             }
             if (s_bloomPass)
             {
@@ -490,6 +535,20 @@ namespace PostProcess
                 }
             }
 
+            // Capture + invert the scene VIEW (modelview) matrix for world-space
+            // reconstruction (fog height fog). Same timing guarantee as the
+            // projection above: at this point the modelview top-of-stack is
+            // still the scene camera view (BeginOpengl set it; EndOpengl pops
+            // later, after the UI). Column-major from GL; invert keeps that
+            // layout so the shader uploads it with transpose=GL_FALSE.
+            float ppInvView[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+            bool  ppHasInvView = false;
+            {
+                GLfloat mv[16] = {0};
+                glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+                ppHasInvView = InvertMatrix4(mv, ppInvView); // leaves identity on failure
+            }
+
             // Force a clean, known state for the full-screen passes.
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             glDisable(GL_DEPTH_TEST);
@@ -574,6 +633,8 @@ namespace PostProcess
                 ctx.farZ           = ppFar;
                 ctx.tanHalfFovX    = ppTanX;
                 ctx.tanHalfFovY    = ppTanY;
+                ctx.hasInvView     = ppHasInvView;
+                for (int k = 0; k < 16; ++k) ctx.invView[k] = ppInvView[k];
 
                 active[i]->Execute(ctx);
                 readTex = nextRead;

@@ -61,12 +61,21 @@ void GameConfig::Load()
     // previous bug: these were read in Winmain AFTER Load() had already deleted
     // [Graphics], so the flags were always the defaults.)
     m_postProcess      = ReadBool (CfgSectionGraphics, CfgKeyPostProcess, CfgDefaultPostProcess);
+    m_ppGlobalOverride = ReadBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, CfgDefaultPPGlobalOverride);
     m_anisotropic      = ReadBool (CfgSectionGraphics, CfgKeyAnisotropic, CfgDefaultAnisotropic);
     m_anisotropicLevel = ReadInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, CfgDefaultAnisotropicLevel);
     m_ssao             = ReadBool (CfgSectionGraphics, CfgKeySSAO, CfgDefaultSSAO);
     m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
     m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
     m_ssaoPower        = ReadFloat(CfgSectionGraphics, CfgKeySSAOPower, CfgDefaultSSAOPower);
+    m_fog              = ReadBool (CfgSectionGraphics, CfgKeyFog, CfgDefaultFog);
+    m_fogColorR        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorR, CfgDefaultFogColorR);
+    m_fogColorG        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorG, CfgDefaultFogColorG);
+    m_fogColorB        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorB, CfgDefaultFogColorB);
+    m_fogDensity       = ReadFloat(CfgSectionGraphics, CfgKeyFogDensity, CfgDefaultFogDensity);
+    m_fogStart         = ReadFloat(CfgSectionGraphics, CfgKeyFogStart, CfgDefaultFogStart);
+    m_fogHeightStrength = ReadFloat(CfgSectionGraphics, CfgKeyFogHeightStrength, CfgDefaultFogHeightStrength);
+    m_fogHeightTop     = ReadFloat(CfgSectionGraphics, CfgKeyFogHeightTop, CfgDefaultFogHeightTop);
     m_bloom            = ReadBool (CfgSectionGraphics, CfgKeyBloom, CfgDefaultBloom);
     m_bloomStrength    = ReadInt  (CfgSectionGraphics, CfgKeyBloomStrength, CfgDefaultBloomStrength);
     m_bloomThreshold   = ReadFloat(CfgSectionGraphics, CfgKeyBloomThreshold, CfgDefaultBloomThreshold);
@@ -144,12 +153,21 @@ void GameConfig::PersistGraphics()
     using namespace CfgKeys;
 
     WriteBool (CfgSectionGraphics, CfgKeyPostProcess, m_postProcess);
+    WriteBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, m_ppGlobalOverride);
     WriteBool (CfgSectionGraphics, CfgKeyAnisotropic, m_anisotropic);
     WriteInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, m_anisotropicLevel);
     WriteBool (CfgSectionGraphics, CfgKeySSAO, m_ssao);
     WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOPower, m_ssaoPower);
+    WriteBool (CfgSectionGraphics, CfgKeyFog, m_fog);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorR, m_fogColorR);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorG, m_fogColorG);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorB, m_fogColorB);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogDensity, m_fogDensity);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogStart, m_fogStart);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogHeightStrength, m_fogHeightStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogHeightTop, m_fogHeightTop);
     WriteBool (CfgSectionGraphics, CfgKeyBloom, m_bloom);
     WriteInt  (CfgSectionGraphics, CfgKeyBloomStrength, m_bloomStrength);
     WriteFloat(CfgSectionGraphics, CfgKeyBloomThreshold, m_bloomThreshold);
@@ -323,6 +341,11 @@ void GameConfig::SetPostProcess(bool enabled)
     m_postProcess = enabled;
     WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPostProcess, enabled);
 }
+void GameConfig::SetPPGlobalOverride(bool enabled)
+{
+    m_ppGlobalOverride = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPPGlobalOverride, enabled);
+}
 void GameConfig::SetAnisotropic(bool enabled)
 {
     m_anisotropic = enabled;
@@ -368,6 +391,46 @@ void GameConfig::SetSSAOPower(float v)
 {
     m_ssaoPower = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOPower, v);
+}
+void GameConfig::SetFog(bool enabled)
+{
+    m_fog = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFog, enabled);
+}
+void GameConfig::SetFogColorR(float v)
+{
+    m_fogColorR = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorR, v);
+}
+void GameConfig::SetFogColorG(float v)
+{
+    m_fogColorG = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorG, v);
+}
+void GameConfig::SetFogColorB(float v)
+{
+    m_fogColorB = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorB, v);
+}
+void GameConfig::SetFogDensity(float v)
+{
+    m_fogDensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogDensity, v);
+}
+void GameConfig::SetFogStart(float v)
+{
+    m_fogStart = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogStart, v);
+}
+void GameConfig::SetFogHeightStrength(float v)
+{
+    m_fogHeightStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogHeightStrength, v);
+}
+void GameConfig::SetFogHeightTop(float v)
+{
+    m_fogHeightTop = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogHeightTop, v);
 }
 void GameConfig::SetBloomThreshold(float v)
 {

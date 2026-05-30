@@ -79,6 +79,7 @@ namespace PostProcess
         ok &= LoadProc(s_procs.Uniform4f,              "glUniform4f");
 
         ok &= LoadProc(s_procs.ActiveTexture,          "glActiveTexture");
+        ok &= LoadProc(s_procs.UniformMatrix4fv,       "glUniformMatrix4fv");
 
         if (!ok)
             OutputDebugStringA("[PostProcess] failed to resolve required GL entry points\n");

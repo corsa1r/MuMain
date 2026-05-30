@@ -15,6 +15,7 @@
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/PostProcess/PostProcessChain.h"
 #include "Render/PostProcess/PostProcessSettings.h"
+#include "Render/PostProcess/PostProcessPreset.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "Scenes/SceneCore.h"
 #include "Render/Models/ZzzBMD.h"
@@ -1536,6 +1537,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.ssaoRadius        = cfg.GetSSAORadius();
         pps.ssaoStrength      = cfg.GetSSAOStrength();
         pps.ssaoPower         = cfg.GetSSAOPower();
+        pps.fog               = cfg.GetFog();
+        pps.fogR              = cfg.GetFogColorR();
+        pps.fogG              = cfg.GetFogColorG();
+        pps.fogB              = cfg.GetFogColorB();
+        pps.fogDensity        = cfg.GetFogDensity();
+        pps.fogStart          = cfg.GetFogStart();
+        pps.fogHeightStrength = cfg.GetFogHeightStrength();
+        pps.fogHeightTop      = cfg.GetFogHeightTop();
         pps.bloom             = cfg.GetBloom();
         pps.bloomStrength     = cfg.GetBloomStrength();
         pps.bloomThreshold    = cfg.GetBloomThreshold();
@@ -1567,6 +1576,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
             pps.lutFile.assign(wf.begin(), wf.end());
         }
         PostProcess::Chain::ApplySettings(pps);
+
+        // Seed the per-map preset system with this global look + the override
+        // flag. From here, map entry (MoveMainScene) applies per-map presets
+        // (or the global base) via Presets::ApplyForWorld.
+        PostProcess::Presets::Init(pps, cfg.GetPPGlobalOverride());
 
         g_ErrorReport.Write(
             L"> PostProcess init (on=%d bloom=%d tonemap=%d grade=%d fxaa=%d sharpen=%d vignette=%d grain=%d).\r\n",

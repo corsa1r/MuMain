@@ -6,7 +6,9 @@
 #include "imgui.h"
 
 #include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessPreset.h"
 #include "Data/GameConfig/GameConfig.h"
+#include "Network/ServerMapManifest.h"        // CurrentServerMapNumber (true map id)
 #include "../MuEditor/Core/MuEditorCore.h"   // g_MuEditorCore.SetHoveringUI
 
 #include <filesystem>
@@ -27,6 +29,14 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.ssaoRadius        = c.GetSSAORadius();
     m_settings.ssaoStrength      = c.GetSSAOStrength();
     m_settings.ssaoPower         = c.GetSSAOPower();
+    m_settings.fog               = c.GetFog();
+    m_settings.fogR              = c.GetFogColorR();
+    m_settings.fogG              = c.GetFogColorG();
+    m_settings.fogB              = c.GetFogColorB();
+    m_settings.fogDensity        = c.GetFogDensity();
+    m_settings.fogStart          = c.GetFogStart();
+    m_settings.fogHeightStrength = c.GetFogHeightStrength();
+    m_settings.fogHeightTop      = c.GetFogHeightTop();
     m_settings.bloom             = c.GetBloom();
     m_settings.bloomStrength     = c.GetBloomStrength();
     m_settings.bloomThreshold    = c.GetBloomThreshold();
@@ -66,6 +76,14 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetSSAORadius(m_settings.ssaoRadius);
     c.SetSSAOStrength(m_settings.ssaoStrength);
     c.SetSSAOPower(m_settings.ssaoPower);
+    c.SetFog(m_settings.fog);
+    c.SetFogColorR(m_settings.fogR);
+    c.SetFogColorG(m_settings.fogG);
+    c.SetFogColorB(m_settings.fogB);
+    c.SetFogDensity(m_settings.fogDensity);
+    c.SetFogStart(m_settings.fogStart);
+    c.SetFogHeightStrength(m_settings.fogHeightStrength);
+    c.SetFogHeightTop(m_settings.fogHeightTop);
     c.SetBloom(m_settings.bloom);
     c.SetBloomStrength(m_settings.bloomStrength);
     c.SetBloomThreshold(m_settings.bloomThreshold);
@@ -129,12 +147,55 @@ void CPostProcessEditorUI::Render()
         g_MuEditorCore.SetHoveringUI(true);
     }
 
+    // Resync the sliders when the active map changed under us (the per-map
+    // preset system applied a different look on map entry). Pull the settings
+    // Presets actually applied so the panel mirrors what's on screen. Skipped
+    // while Global Override is on (then every map shows the same global look,
+    // which the user is editing directly).
+    {
+        const int aw = PostProcess::Presets::GetActiveWorld();
+        if (aw != m_lastPanelWorld)
+        {
+            m_lastPanelWorld = aw;
+            if (!PostProcess::Presets::GetGlobalOverride())
+                m_settings = PostProcess::Presets::GetCurrent();
+        }
+    }
+
     // 'changed' aggregates every widget edit this frame; if anything moved we
     // re-apply the whole settings block to the live chain at the end.
     bool changed = false;
 
     changed |= ImGui::Checkbox("PostProcess (master)", &m_postProcessEnabled);
     ImGui::TextDisabled("Off = scene renders straight to backbuffer.");
+    ImGui::Separator();
+
+    if (ImGui::CollapsingHeader("Presets (per-map)", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        bool ov = PostProcess::Presets::GetGlobalOverride();
+        if (ImGui::Checkbox("Global Override (ignore per-map)", &ov))
+        {
+            PostProcess::Presets::SetGlobalOverride(ov);
+            GameConfig::GetInstance().SetPPGlobalOverride(ov);
+            // Re-apply so the switch takes effect immediately on this map.
+            PostProcess::Presets::ApplyForWorld(BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber());
+        }
+
+        const int world = BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+        const bool has = PostProcess::Presets::HasMapPreset(world);
+        ImGui::Text("Current map: %d   %s", world, has ? "[has preset]" : "[no preset]");
+
+        if (ImGui::Button("Save as Map Preset"))
+            PostProcess::Presets::SaveMapPreset(world, m_settings);
+        ImGui::SameLine();
+        if (ImGui::Button("Delete Map Preset"))
+        {
+            PostProcess::Presets::DeleteMapPreset(world);
+            PostProcess::Presets::ApplyForWorld(world);   // revert to global base
+        }
+        ImGui::TextDisabled("Map preset = current sliders, auto-applied on entry.");
+        ImGui::TextDisabled("'Save to config.ini' (below) sets the GLOBAL/fallback look.");
+    }
     ImGui::Separator();
 
     if (ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
@@ -144,6 +205,22 @@ void CPostProcessEditorUI::Render()
         changed |= ImGui::SliderFloat("Strength##ssao", &m_settings.ssaoStrength, 0.0f, 3.0f, "%.2f");
         changed |= ImGui::SliderFloat("Power##ssao", &m_settings.ssaoPower, 0.5f, 4.0f, "%.2f");
         ImGui::TextDisabled("Depth-based; darkens crevices/contact. Heavy.");
+    }
+
+    if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##fog", &m_settings.fog);
+        float col[3] = { m_settings.fogR, m_settings.fogG, m_settings.fogB };
+        if (ImGui::ColorEdit3("Color##fog", col))
+        {
+            m_settings.fogR = col[0]; m_settings.fogG = col[1]; m_settings.fogB = col[2];
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Density##fog", &m_settings.fogDensity, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Start##fog", &m_settings.fogStart, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Height Str##fog", &m_settings.fogHeightStrength, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Height Top##fog", &m_settings.fogHeightTop, 0.0f, 1000.0f, "%.0f");
+        ImGui::TextDisabled("Depth haze; Start=where it begins, Height=low mist.");
     }
 
     if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
@@ -240,7 +317,12 @@ void CPostProcessEditorUI::Render()
     ImGui::Separator();
 
     if (ImGui::Button("Save to config.ini"))
+    {
         SaveToConfig();
+        // Keep the live global base in sync so Global Override reflects edits
+        // without a restart.
+        PostProcess::Presets::SetGlobalBase(m_settings);
+    }
     ImGui::SameLine();
     if (ImGui::Button("Reload from config"))
     {

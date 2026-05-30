@@ -58,6 +58,11 @@ public:
     bool GetPostProcess() const { return m_postProcess; }
     void SetPostProcess(bool enabled);
 
+    // [Graphics] GlobalOverride — true = global look overrides all per-map
+    // presets; false = per-map presets active (global is the fallback).
+    bool GetPPGlobalOverride() const { return m_ppGlobalOverride; }
+    void SetPPGlobalOverride(bool enabled);
+
     // [Graphics] SSAO — depth-based ambient occlusion.
     bool  GetSSAO()          const { return m_ssao; }
     float GetSSAORadius()    const { return m_ssaoRadius; }
@@ -67,6 +72,24 @@ public:
     void SetSSAORadius(float v);
     void SetSSAOStrength(float v);
     void SetSSAOPower(float v);
+
+    // [Graphics] Fog — depth-based atmospheric haze.
+    bool  GetFog()              const { return m_fog; }
+    float GetFogColorR()        const { return m_fogColorR; }
+    float GetFogColorG()        const { return m_fogColorG; }
+    float GetFogColorB()        const { return m_fogColorB; }
+    float GetFogDensity()       const { return m_fogDensity; }
+    float GetFogStart()         const { return m_fogStart; }
+    float GetFogHeightStrength() const { return m_fogHeightStrength; }
+    float GetFogHeightTop()     const { return m_fogHeightTop; }
+    void SetFog(bool enabled);
+    void SetFogColorR(float v);
+    void SetFogColorG(float v);
+    void SetFogColorB(float v);
+    void SetFogDensity(float v);
+    void SetFogStart(float v);
+    void SetFogHeightStrength(float v);
+    void SetFogHeightTop(float v);
 
     // [Graphics] Bloom — whether the bloom pass is active when the chain runs.
     bool GetBloom() const { return m_bloom; }
@@ -173,12 +196,21 @@ private:
     int m_zoom;
 
     bool m_postProcess;
+    bool m_ppGlobalOverride;
     bool m_anisotropic;
     int  m_anisotropicLevel;
     bool  m_ssao;
     float m_ssaoRadius;
     float m_ssaoStrength;
     float m_ssaoPower;
+    bool  m_fog;
+    float m_fogColorR;
+    float m_fogColorG;
+    float m_fogColorB;
+    float m_fogDensity;
+    float m_fogStart;
+    float m_fogHeightStrength;
+    float m_fogHeightTop;
     bool m_bloom;
     int  m_bloomStrength;
     float m_bloomThreshold;

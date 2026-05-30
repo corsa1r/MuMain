@@ -36,12 +36,21 @@ namespace CfgKeys
 
     // Graphics — post-process chain
     inline constexpr wchar_t CfgKeyPostProcess[]     = L"PostProcess";
+    inline constexpr wchar_t CfgKeyPPGlobalOverride[] = L"GlobalOverride";
     inline constexpr wchar_t CfgKeyAnisotropic[]      = L"Anisotropic";
     inline constexpr wchar_t CfgKeyAnisotropicLevel[] = L"AnisotropicLevel";
     inline constexpr wchar_t CfgKeySSAO[]            = L"SSAO";
     inline constexpr wchar_t CfgKeySSAORadius[]      = L"SSAORadius";
     inline constexpr wchar_t CfgKeySSAOStrength[]    = L"SSAOStrength";
     inline constexpr wchar_t CfgKeySSAOPower[]       = L"SSAOPower";
+    inline constexpr wchar_t CfgKeyFog[]             = L"Fog";
+    inline constexpr wchar_t CfgKeyFogColorR[]       = L"FogColorR";
+    inline constexpr wchar_t CfgKeyFogColorG[]       = L"FogColorG";
+    inline constexpr wchar_t CfgKeyFogColorB[]       = L"FogColorB";
+    inline constexpr wchar_t CfgKeyFogDensity[]      = L"FogDensity";
+    inline constexpr wchar_t CfgKeyFogStart[]        = L"FogStart";
+    inline constexpr wchar_t CfgKeyFogHeightStrength[] = L"FogHeightStrength";
+    inline constexpr wchar_t CfgKeyFogHeightTop[]    = L"FogHeightTop";
     inline constexpr wchar_t CfgKeyBloom[]           = L"Bloom";
     inline constexpr wchar_t CfgKeyBloomStrength[]   = L"BloomStrength";
     inline constexpr wchar_t CfgKeyBloomThreshold[]  = L"BloomThreshold";
@@ -92,6 +101,11 @@ namespace CfgDefaults
     // direct-to-backbuffer path until the user opts in.
     inline constexpr bool CfgDefaultPostProcess = false;
 
+    // Per-map presets vs. one global look. false (default) = each map uses its
+    // own preset file (falling back to the global [Graphics] values when it has
+    // none); true = the global [Graphics] values override every map.
+    inline constexpr bool CfgDefaultPPGlobalOverride = false;
+
     // Anisotropic filtering on by default — pure texture-clarity win at MU's
     // oblique camera, independent of the post-process chain. 16x (clamped to
     // the driver's GL_MAX_TEXTURE_MAX_ANISOTROPY at apply time).
@@ -103,6 +117,16 @@ namespace CfgDefaults
     inline constexpr float CfgDefaultSSAORadius   = 60.0f;
     inline constexpr float CfgDefaultSSAOStrength = 1.0f;
     inline constexpr float CfgDefaultSSAOPower    = 1.5f;
+
+    // Fog off by default; cool dark-fantasy haze, distance-only (no height fog).
+    inline constexpr bool  CfgDefaultFog              = false;
+    inline constexpr float CfgDefaultFogColorR        = 0.04f;
+    inline constexpr float CfgDefaultFogColorG        = 0.05f;
+    inline constexpr float CfgDefaultFogColorB        = 0.07f;
+    inline constexpr float CfgDefaultFogDensity       = 0.6f;
+    inline constexpr float CfgDefaultFogStart         = 0.30f;
+    inline constexpr float CfgDefaultFogHeightStrength = 0.0f;
+    inline constexpr float CfgDefaultFogHeightTop     = 200.0f;
 
     // Bloom on by default once the chain is enabled; strength is an integer
     // multiplier where 1 == the tuned baseline glow, 2 == twice as strong, etc.

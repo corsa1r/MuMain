@@ -31,6 +31,16 @@ namespace PostProcess
         float ssaoStrength  = 1.0f;      // 0 = none .. higher = darker crevices
         float ssaoPower     = 1.5f;      // contrast of the AO falloff
 
+        // Fog (depth-based atmospheric haze; distance + optional height fog).
+        bool  fog               = false;
+        float fogR              = 0.04f; // cool dark-fantasy haze color
+        float fogG              = 0.05f;
+        float fogB              = 0.07f;
+        float fogDensity        = 0.6f;  // overall thickness (0..1-ish)
+        float fogStart          = 0.30f; // 0..1 of far plane before fog begins
+        float fogHeightStrength = 0.0f;  // 0 = distance fog only
+        float fogHeightTop      = 200.0f;// world Y below which height fog grows
+
         // Bloom (threshold bright-extract + blur + additive composite)
         bool  bloom           = true;
         int   bloomStrength   = 1;       // integer multiplier (1 = baseline glow)

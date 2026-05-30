@@ -43,6 +43,7 @@ private:
     bool m_postProcessEnabled = false;  // master [Graphics] PostProcess
     bool m_visible = false;
     bool m_loaded  = false;             // lazy: pull from config on first Render
+    int  m_lastPanelWorld = -1000;      // resync sliders when the active map changes
 };
 
 #define g_PostProcessEditorUI CPostProcessEditorUI::GetInstance()
