@@ -13,6 +13,7 @@
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Textures/ZzzTexture.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/PostProcess/PostProcessChain.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "Scenes/SceneCore.h"
 #include "Render/Models/ZzzBMD.h"
@@ -158,6 +159,7 @@ GLvoid KillGLWindow(GLvoid)
 {
     if (g_hRC)
     {
+        PostProcess::Chain::Shutdown();
         SoftShadow::Shutdown();
         wglMakeCurrent(nullptr, nullptr);
         if (!wglDeleteContext(g_hRC))
@@ -555,6 +557,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             OpenglWindowWidth = WindowWidth;
             OpenglWindowHeight = WindowHeight;
 
+            // Keep the off-screen scene RTV + post targets matched to the new
+            // backbuffer size. No-op when the chain is disabled/unavailable.
+            // Reallocating here (rather than leaving targets stale) is part of
+            // the resize/Alt-Tab robustness for the post-process path.
+            PostProcess::Chain::Resize(WindowWidth, WindowHeight);
+
             // Reinitialize fonts and update resolution-dependent systems
             ReinitializeFonts();
             UpdateResolutionDependentSystems();
@@ -914,6 +922,24 @@ MSG MainLoop()
                 // Update editor UI (must be before RenderScene)
                 g_MuEditorCore.Update();
 #endif
+
+                // F8 toggles bloom at runtime for live A/B comparison. (F5/F6/F7
+                // and F9/F11 are taken elsewhere; F8 is free.) Placed OUTSIDE
+                // _EDITOR so it works in normal client builds too.
+                static bool wasF8Pressed = false;
+                if (GetAsyncKeyState(VK_F8) & 0x8000)
+                {
+                    if (!wasF8Pressed)
+                    {
+                        const bool on = PostProcess::Chain::ToggleBloom();
+                        g_ErrorReport.Write(L"> PostProcess bloom: %s\r\n", on ? L"ON" : L"OFF");
+                        wasF8Pressed = true;
+                    }
+                }
+                else
+                {
+                    wasF8Pressed = false;
+                }
 
                 // Render game scene (ImGui rendering happens inside before SwapBuffers)
                 RenderScene(g_hDC);
@@ -1473,6 +1499,31 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     else
     {
         g_ErrorReport.Write(L"> SoftShadow init failed — falling back to legacy shadows.\r\n");
+    }
+
+    // Off-screen scene RTV + modular post-process chain. Created here on the
+    // current GL context, right after SoftShadow so it shares the same proven
+    // FBO/shader entry-point loading convention. Gated by a config flag and
+    // DEFAULTS TO DISABLED: unless [Graphics] PostProcess=1 is set in config.ini
+    // this only allocates resources and never alters the frame — guaranteed
+    // pixel parity with the legacy direct-to-backbuffer path.
+    if (PostProcess::Chain::Init(WindowWidth, WindowHeight))
+    {
+        GameConfig& cfg = GameConfig::GetInstance();
+        const bool enablePost = cfg.GetPostProcess();
+        PostProcess::Chain::SetEnabled(enablePost);
+
+        // Apply [Graphics] Bloom / BloomStrength on top of the chain state.
+        const bool bloomOn       = cfg.GetBloom();
+        const int  bloomStrength = cfg.GetBloomStrength();
+        PostProcess::Chain::ConfigureBloom(bloomOn, bloomStrength);
+
+        g_ErrorReport.Write(L"> PostProcess chain init success (enabled=%d, bloom=%d, strength=%d).\r\n",
+                            enablePost ? 1 : 0, bloomOn ? 1 : 0, bloomStrength);
+    }
+    else
+    {
+        g_ErrorReport.Write(L"> PostProcess chain unavailable — rendering direct to backbuffer.\r\n");
     }
 
     g_ErrorReport.AddSeparator();

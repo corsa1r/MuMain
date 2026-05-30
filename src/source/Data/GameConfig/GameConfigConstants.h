@@ -33,6 +33,11 @@ namespace CfgKeys
 
     // Camera
     inline constexpr wchar_t CfgKeyZoom[] = L"Zoom";
+
+    // Graphics
+    inline constexpr wchar_t CfgKeyPostProcess[]   = L"PostProcess";
+    inline constexpr wchar_t CfgKeyBloom[]         = L"Bloom";
+    inline constexpr wchar_t CfgKeyBloomStrength[] = L"BloomStrength";
 }
 
 namespace CfgDefaults
@@ -53,4 +58,13 @@ namespace CfgDefaults
     inline constexpr int CfgDefaultServerPort = 44406;
 
     inline constexpr int CfgDefaultZoom = 1735;  // OrbitalCamera DEFAULT_RADIUS — matches Default-cam camera-to-Hero distance
+
+    // Post-process chain off by default → guaranteed parity with the legacy
+    // direct-to-backbuffer path until the user opts in.
+    inline constexpr bool CfgDefaultPostProcess = false;
+
+    // Bloom on by default once the chain is enabled; strength is an integer
+    // multiplier where 1 == the tuned baseline glow, 2 == twice as strong, etc.
+    inline constexpr bool CfgDefaultBloom         = true;
+    inline constexpr int  CfgDefaultBloomStrength = 1;
 }

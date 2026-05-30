@@ -54,9 +54,18 @@ void GameConfig::Load()
 
     m_zoom = ReadInt(CfgSectionCamera, CfgKeyZoom, CfgDefaultZoom);
 
+    // Read BEFORE the obsolete-section cleanup below. (The previous bug: this
+    // was read in Winmain AFTER Load() had already deleted [Graphics], so the
+    // flag was always the default.)
+    m_postProcess   = ReadBool(CfgSectionGraphics, CfgKeyPostProcess, CfgDefaultPostProcess);
+    m_bloom         = ReadBool(CfgSectionGraphics, CfgKeyBloom, CfgDefaultBloom);
+    m_bloomStrength = ReadInt(CfgSectionGraphics, CfgKeyBloomStrength, CfgDefaultBloomStrength);
+
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
     // central registry of valid keys to keep in sync.
+    // NOTE: [Graphics] is a LIVE section again (PostProcess) — strip only its
+    // dead keys, NOT the whole section, or the saved flag would be wiped.
     RemoveObsoleteKey(CfgSectionGraphics, L"RenderTextType");
     RemoveObsoleteKey(CfgSectionGraphics, L"ColorDepth");      // 16/32bpp toggle, dead since fullscreen uses GetDesktopBitsPerPel
     RemoveObsoleteKey(CfgSectionAudio,    L"SoundEnabled");   // replaced by SoundVolume==0
@@ -64,7 +73,6 @@ void GameConfig::Load()
     RemoveObsoleteKey(CfgSectionAudio,    L"VolumeLevel");    // legacy single-volume key
     RemoveObsoleteKey(CfgSectionLogin,    L"Version");        // launcher metadata, never read by client
     RemoveObsoleteKey(CfgSectionLogin,    L"TestVersion");    // launcher metadata, never read by client
-    RemoveObsoleteSection(CfgSectionGraphics);                // empty after RenderTextType + ColorDepth removal
     RemoveObsoleteSection(L"PARTITION");                      // launcher metadata, never read by client
 }
 
@@ -89,6 +97,10 @@ void GameConfig::Save()
     WriteInt(CfgSectionConnectionSettings, CfgKeyServerPort, m_serverPort);
 
     WriteInt(CfgSectionCamera, CfgKeyZoom, m_zoom);
+
+    WriteBool(CfgSectionGraphics, CfgKeyPostProcess, m_postProcess);
+    WriteBool(CfgSectionGraphics, CfgKeyBloom, m_bloom);
+    WriteInt(CfgSectionGraphics, CfgKeyBloomStrength, m_bloomStrength);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -228,6 +240,26 @@ void GameConfig::WriteInt(const wchar_t* section, const wchar_t* key, int value)
 bool GameConfig::ReadBool(const wchar_t* section, const wchar_t* key, bool defaultValue)
 {
     return GetPrivateProfileIntW(section, key, defaultValue ? 1 : 0, m_configPath.c_str()) != 0;
+}
+
+void GameConfig::SetPostProcess(bool enabled)
+{
+    // Fully qualified: this function is outside the `using namespace` scope that
+    // Load()/Save() rely on.
+    m_postProcess = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPostProcess, enabled);
+}
+
+void GameConfig::SetBloom(bool enabled)
+{
+    m_bloom = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBloom, enabled);
+}
+
+void GameConfig::SetBloomStrength(int strength)
+{
+    m_bloomStrength = strength;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBloomStrength, strength);
 }
 
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)

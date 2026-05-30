@@ -28,6 +28,7 @@ FrameTimingState g_frameTiming;
 #include "LoadingScene.h"
 #include "Audio/DSPlaySound.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
+#include "Render/PostProcess/PostProcessChain.h"
 #include "Engine/Physics/PhysicsManager.h"
 #include "Core/Time/Timer.h"
 #include "Core/Input/Input.h"
@@ -1094,6 +1095,14 @@ void MainScene(HDC hDC)
     }
 
     UpdateCoreSystems();
+
+    // Requirement #3 — begin off-screen scene capture. When the post-process
+    // chain is disabled (default) this is a no-op: SetWorldClearColor()'s clear
+    // and the whole RenderCurrentScene below go straight to the backbuffer,
+    // pixel-identical to the legacy path. When enabled, all of that is captured
+    // into the scene RTV instead. Must wrap the clear, hence it sits here.
+    PostProcess::Chain::BeginSceneCapture();
+
     SetWorldClearColor();
 
     bool Success = false;
@@ -1101,6 +1110,16 @@ void MainScene(HDC hDC)
     try
     {
         Success = RenderCurrentScene(hDC);
+
+        // Resolve the captured scene through the post-process passes onto the
+        // backbuffer (no-op when disabled). Done BEFORE the HUD/ImGui overlays
+        // below so they render crisply on top of the post-processed 3D scene
+        // rather than being blurred/tinted by future effects.
+        {
+            const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
+            PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
+        }
+
         RenderDebugInfo();
         RenderFpsCounter();
         RenderLatencyMeter();

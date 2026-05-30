@@ -52,6 +52,21 @@ public:
     int GetZoom() const { return m_zoom; }
     void SetZoom(int zoom);
 
+    // Graphics — [Graphics] PostProcess. First-class persisted setting so it
+    // round-trips through Save() and survives the obsolete-section cleanup in
+    // Load() (which otherwise wipes the whole [Graphics] section on startup).
+    bool GetPostProcess() const { return m_postProcess; }
+    void SetPostProcess(bool enabled);
+
+    // [Graphics] Bloom — whether the bloom pass is active when the chain runs.
+    bool GetBloom() const { return m_bloom; }
+    void SetBloom(bool enabled);
+
+    // [Graphics] BloomStrength — integer multiplier over the tuned baseline
+    // glow (1 = baseline, 2 = double, ...). Stored raw; clamped at apply time.
+    int  GetBloomStrength() const { return m_bloomStrength; }
+    void SetBloomStrength(int strength);
+
     // Helpers
     static std::wstring BinaryToHex(const BYTE* data, DWORD size);
     static std::vector<BYTE> HexToBinary(const std::wstring& hex);
@@ -82,6 +97,10 @@ private:
     int m_serverPort;
 
     int m_zoom;
+
+    bool m_postProcess;
+    bool m_bloom;
+    int  m_bloomStrength;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);
