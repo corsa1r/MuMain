@@ -16,6 +16,14 @@ namespace PostProcess
 {
     struct Settings
     {
+        // SSAO (depth-based ambient occlusion; darkens contact/crevice areas).
+        // Heaviest, most scene-dependent effect — off by default. Runs first in
+        // the chain so bloom/grading act on the occluded scene.
+        bool  ssao          = false;
+        float ssaoRadius    = 60.0f;     // world units sampled around each pixel
+        float ssaoStrength  = 1.0f;      // 0 = none .. higher = darker crevices
+        float ssaoPower     = 1.5f;      // contrast of the AO falloff
+
         // Bloom (threshold bright-extract + blur + additive composite)
         bool  bloom           = true;
         int   bloomStrength   = 1;       // integer multiplier (1 = baseline glow)

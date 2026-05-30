@@ -32,6 +32,18 @@ namespace PostProcess
         int    width  = 0;
         int    height = 0;
         float  deltaSeconds = 0.0f;
+
+        // Camera projection params for depth-aware passes (SSAO, future fog).
+        // Extracted from the live GL projection matrix at resolve time. With
+        // these + sourceDepthTex a pass can reconstruct view-space position:
+        //   linearDepth(d) = (2*near*far) / (far+near - (d*2-1)*(far-near))
+        //   viewPos.xy     = (uv*2-1) * vec2(tanHalfFovX,tanHalfFovY) * linZ
+        //   viewPos.z      = -linZ
+        // All zero when the projection couldn't be read (pass should no-op AO).
+        float  nearZ       = 0.0f;
+        float  farZ        = 0.0f;
+        float  tanHalfFovX = 0.0f;
+        float  tanHalfFovY = 0.0f;
     };
 
     class IPostProcessPass

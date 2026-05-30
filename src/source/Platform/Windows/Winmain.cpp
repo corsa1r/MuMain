@@ -1518,6 +1518,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         // settings struct and apply it to the passes. The chain/passes never
         // touch the INI layer — they only see this struct.
         PostProcess::Settings pps;
+        pps.ssao              = cfg.GetSSAO();
+        pps.ssaoRadius        = cfg.GetSSAORadius();
+        pps.ssaoStrength      = cfg.GetSSAOStrength();
+        pps.ssaoPower         = cfg.GetSSAOPower();
         pps.bloom             = cfg.GetBloom();
         pps.bloomStrength     = cfg.GetBloomStrength();
         pps.bloomThreshold    = cfg.GetBloomThreshold();

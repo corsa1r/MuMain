@@ -61,6 +61,10 @@ void GameConfig::Load()
     // previous bug: these were read in Winmain AFTER Load() had already deleted
     // [Graphics], so the flags were always the defaults.)
     m_postProcess      = ReadBool (CfgSectionGraphics, CfgKeyPostProcess, CfgDefaultPostProcess);
+    m_ssao             = ReadBool (CfgSectionGraphics, CfgKeySSAO, CfgDefaultSSAO);
+    m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
+    m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
+    m_ssaoPower        = ReadFloat(CfgSectionGraphics, CfgKeySSAOPower, CfgDefaultSSAOPower);
     m_bloom            = ReadBool (CfgSectionGraphics, CfgKeyBloom, CfgDefaultBloom);
     m_bloomStrength    = ReadInt  (CfgSectionGraphics, CfgKeyBloomStrength, CfgDefaultBloomStrength);
     m_bloomThreshold   = ReadFloat(CfgSectionGraphics, CfgKeyBloomThreshold, CfgDefaultBloomThreshold);
@@ -136,6 +140,10 @@ void GameConfig::PersistGraphics()
     using namespace CfgKeys;
 
     WriteBool (CfgSectionGraphics, CfgKeyPostProcess, m_postProcess);
+    WriteBool (CfgSectionGraphics, CfgKeySSAO, m_ssao);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAOPower, m_ssaoPower);
     WriteBool (CfgSectionGraphics, CfgKeyBloom, m_bloom);
     WriteInt  (CfgSectionGraphics, CfgKeyBloomStrength, m_bloomStrength);
     WriteFloat(CfgSectionGraphics, CfgKeyBloomThreshold, m_bloomThreshold);
@@ -323,6 +331,26 @@ void GameConfig::SetBloomStrength(int strength)
 // --- Remaining [Graphics] setters (write-through to config.ini) -------------
 // All fully qualify the section/key namespaces because these live outside the
 // `using namespace` scope of Load()/Save().
+void GameConfig::SetSSAO(bool enabled)
+{
+    m_ssao = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAO, enabled);
+}
+void GameConfig::SetSSAORadius(float v)
+{
+    m_ssaoRadius = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAORadius, v);
+}
+void GameConfig::SetSSAOStrength(float v)
+{
+    m_ssaoStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOStrength, v);
+}
+void GameConfig::SetSSAOPower(float v)
+{
+    m_ssaoPower = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOPower, v);
+}
 void GameConfig::SetBloomThreshold(float v)
 {
     m_bloomThreshold = v;

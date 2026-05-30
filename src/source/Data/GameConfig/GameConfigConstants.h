@@ -36,6 +36,10 @@ namespace CfgKeys
 
     // Graphics — post-process chain
     inline constexpr wchar_t CfgKeyPostProcess[]     = L"PostProcess";
+    inline constexpr wchar_t CfgKeySSAO[]            = L"SSAO";
+    inline constexpr wchar_t CfgKeySSAORadius[]      = L"SSAORadius";
+    inline constexpr wchar_t CfgKeySSAOStrength[]    = L"SSAOStrength";
+    inline constexpr wchar_t CfgKeySSAOPower[]       = L"SSAOPower";
     inline constexpr wchar_t CfgKeyBloom[]           = L"Bloom";
     inline constexpr wchar_t CfgKeyBloomStrength[]   = L"BloomStrength";
     inline constexpr wchar_t CfgKeyBloomThreshold[]  = L"BloomThreshold";
@@ -83,6 +87,12 @@ namespace CfgDefaults
     // Post-process chain off by default → guaranteed parity with the legacy
     // direct-to-backbuffer path until the user opts in.
     inline constexpr bool CfgDefaultPostProcess = false;
+
+    // SSAO off by default (heaviest, most scene-dependent effect).
+    inline constexpr bool  CfgDefaultSSAO         = false;
+    inline constexpr float CfgDefaultSSAORadius   = 60.0f;
+    inline constexpr float CfgDefaultSSAOStrength = 1.0f;
+    inline constexpr float CfgDefaultSSAOPower    = 1.5f;
 
     // Bloom on by default once the chain is enabled; strength is an integer
     // multiplier where 1 == the tuned baseline glow, 2 == twice as strong, etc.

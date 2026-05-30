@@ -6,6 +6,7 @@
 #include "IPostProcessPass.h"
 #include "PostProcessSettings.h"
 #include "BloomPass.h"
+#include "SsaoPass.h"
 #include "ColorEffectPasses.h"
 
 #include <windows.h>
@@ -25,6 +26,7 @@ namespace PostProcess
 
             // Non-owning pointers to each pass (owned by s_passes). Let
             // ApplySettings()/ToggleBloom() reach a pass without a lookup.
+            SsaoPass*       s_ssao       = nullptr;
             BloomPass*      s_bloomPass  = nullptr;
             ToneMapPass*    s_toneMap    = nullptr;
             ColorGradePass* s_colorGrade = nullptr;
@@ -226,6 +228,8 @@ namespace PostProcess
             // ones in sequence (ping-pong) and the last active one writes the
             // backbuffer; if none are active the chain blits the scene straight
             // through, so no always-on passthrough pass is needed. Order matters:
+            //   SSAO       — darken contact/crevice AO first (depth-based), so
+            //                bloom & grading act on the occluded scene
             //   Bloom      — add glow (before tone map so highlights bloom)
             //   ToneMap    — roll bright values (incl. bloom) off filmically
             //   ColorGrade — mood (contrast/saturation/warmth) on the LDR image
@@ -240,6 +244,7 @@ namespace PostProcess
                     outPtr = pass.get();
                     s_passes.emplace_back(std::move(pass));
                 };
+                add(std::make_unique<SsaoPass>(),       s_ssao);
                 add(std::make_unique<BloomPass>(),      s_bloomPass);
                 add(std::make_unique<ToneMapPass>(),    s_toneMap);
                 add(std::make_unique<ColorGradePass>(), s_colorGrade);
@@ -258,6 +263,7 @@ namespace PostProcess
             DestroyTargets();
             s_passes.clear();
             // All were owned by s_passes, now cleared.
+            s_ssao = nullptr;
             s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
             s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
             s_available = false;
@@ -314,6 +320,13 @@ namespace PostProcess
 
         void ApplySettings(const Settings& s)
         {
+            if (s_ssao)
+            {
+                s_ssao->SetActive(s.ssao);
+                s_ssao->SetRadius(s.ssaoRadius);
+                s_ssao->SetStrength(s.ssaoStrength);
+                s_ssao->SetPower(s.ssaoPower);
+            }
             if (s_bloomPass)
             {
                 s_bloomPass->SetActive(s.bloom);
@@ -439,6 +452,33 @@ namespace PostProcess
             SavedGL saved;
             Snapshot(saved);
 
+            // Capture the camera projection for depth-aware passes (SSAO). At
+            // this point the scene's perspective is still the top of the GL
+            // projection stack (SetupMainSceneViewport's BeginOpengl pushed it;
+            // the matching EndOpengl runs later, after the UI). Read it BEFORE
+            // any DrawFullscreenQuad (which pushes/loads/pops identity). From a
+            // standard GL perspective matrix (column-major): m00 = 1/(aspect*
+            // tan(fovY/2)), m11 = 1/tan(fovY/2), m22 = -(f+n)/(f-n),
+            // m32 = -2fn/(f-n). Invert to near/far/tan. Left at 0 if the matrix
+            // isn't a usable perspective -> SSAO no-ops (outputs fully lit).
+            float ppNear = 0.0f, ppFar = 0.0f, ppTanX = 0.0f, ppTanY = 0.0f;
+            {
+                GLfloat proj[16] = {0};
+                glGetFloatv(GL_PROJECTION_MATRIX, proj);
+                const float m00 = proj[0], m11 = proj[5], m22 = proj[10], m32 = proj[14];
+                if (m00 != 0.0f && m11 != 0.0f &&
+                    (m22 - 1.0f) != 0.0f && (m22 + 1.0f) != 0.0f)
+                {
+                    ppTanX = 1.0f / m00;
+                    ppTanY = 1.0f / m11;
+                    ppNear = m32 / (m22 - 1.0f);
+                    ppFar  = m32 / (m22 + 1.0f);
+                    // Guard against a non-perspective / garbage matrix.
+                    if (ppNear <= 0.0f || ppFar <= 0.0f || ppFar <= ppNear)
+                        ppNear = ppFar = ppTanX = ppTanY = 0.0f;
+                }
+            }
+
             // Force a clean, known state for the full-screen passes.
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             glDisable(GL_DEPTH_TEST);
@@ -519,6 +559,10 @@ namespace PostProcess
                 ctx.width          = s_width;
                 ctx.height         = s_height;
                 ctx.deltaSeconds   = deltaSeconds;
+                ctx.nearZ          = ppNear;
+                ctx.farZ           = ppFar;
+                ctx.tanHalfFovX    = ppTanX;
+                ctx.tanHalfFovY    = ppTanY;
 
                 active[i]->Execute(ctx);
                 readTex = nextRead;

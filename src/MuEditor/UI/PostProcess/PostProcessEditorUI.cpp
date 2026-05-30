@@ -19,6 +19,10 @@ void CPostProcessEditorUI::LoadFromConfig()
 {
     GameConfig& c = GameConfig::GetInstance();
     m_postProcessEnabled         = c.GetPostProcess();
+    m_settings.ssao              = c.GetSSAO();
+    m_settings.ssaoRadius        = c.GetSSAORadius();
+    m_settings.ssaoStrength      = c.GetSSAOStrength();
+    m_settings.ssaoPower         = c.GetSSAOPower();
     m_settings.bloom             = c.GetBloom();
     m_settings.bloomStrength     = c.GetBloomStrength();
     m_settings.bloomThreshold    = c.GetBloomThreshold();
@@ -49,6 +53,10 @@ void CPostProcessEditorUI::SaveToConfig()
 {
     GameConfig& c = GameConfig::GetInstance();
     c.SetPostProcess(m_postProcessEnabled);
+    c.SetSSAO(m_settings.ssao);
+    c.SetSSAORadius(m_settings.ssaoRadius);
+    c.SetSSAOStrength(m_settings.ssaoStrength);
+    c.SetSSAOPower(m_settings.ssaoPower);
     c.SetBloom(m_settings.bloom);
     c.SetBloomStrength(m_settings.bloomStrength);
     c.SetBloomThreshold(m_settings.bloomThreshold);
@@ -114,6 +122,15 @@ void CPostProcessEditorUI::Render()
     changed |= ImGui::Checkbox("PostProcess (master)", &m_postProcessEnabled);
     ImGui::TextDisabled("Off = scene renders straight to backbuffer.");
     ImGui::Separator();
+
+    if (ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##ssao", &m_settings.ssao);
+        changed |= ImGui::SliderFloat("Radius##ssao", &m_settings.ssaoRadius, 5.0f, 300.0f, "%.0f");
+        changed |= ImGui::SliderFloat("Strength##ssao", &m_settings.ssaoStrength, 0.0f, 3.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Power##ssao", &m_settings.ssaoPower, 0.5f, 4.0f, "%.2f");
+        ImGui::TextDisabled("Depth-based; darkens crevices/contact. Heavy.");
+    }
 
     if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
     {

@@ -58,6 +58,16 @@ public:
     bool GetPostProcess() const { return m_postProcess; }
     void SetPostProcess(bool enabled);
 
+    // [Graphics] SSAO — depth-based ambient occlusion.
+    bool  GetSSAO()          const { return m_ssao; }
+    float GetSSAORadius()    const { return m_ssaoRadius; }
+    float GetSSAOStrength()  const { return m_ssaoStrength; }
+    float GetSSAOPower()     const { return m_ssaoPower; }
+    void SetSSAO(bool enabled);
+    void SetSSAORadius(float v);
+    void SetSSAOStrength(float v);
+    void SetSSAOPower(float v);
+
     // [Graphics] Bloom — whether the bloom pass is active when the chain runs.
     bool GetBloom() const { return m_bloom; }
     void SetBloom(bool enabled);
@@ -147,6 +157,10 @@ private:
     int m_zoom;
 
     bool m_postProcess;
+    bool  m_ssao;
+    float m_ssaoRadius;
+    float m_ssaoStrength;
+    float m_ssaoPower;
     bool m_bloom;
     int  m_bloomStrength;
     float m_bloomThreshold;
