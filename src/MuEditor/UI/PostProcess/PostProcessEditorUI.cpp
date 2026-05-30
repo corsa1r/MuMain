@@ -35,6 +35,8 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.vignette          = c.GetVignette();
     m_settings.vignetteStrength   = c.GetVignetteStrength();
     m_settings.vignetteRadius    = c.GetVignetteRadius();
+    m_settings.msaa              = c.GetMSAA();
+    m_settings.msaaSamples       = c.GetMSAASamples();
     m_settings.fxaa              = c.GetFXAA();
     m_settings.sharpen           = c.GetSharpen();
     m_settings.sharpenStrength   = c.GetSharpenStrength();
@@ -63,6 +65,8 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetVignette(m_settings.vignette);
     c.SetVignetteStrength(m_settings.vignetteStrength);
     c.SetVignetteRadius(m_settings.vignetteRadius);
+    c.SetMSAA(m_settings.msaa);
+    c.SetMSAASamples(m_settings.msaaSamples);
     c.SetFXAA(m_settings.fxaa);
     c.SetSharpen(m_settings.sharpen);
     c.SetSharpenStrength(m_settings.sharpenStrength);
@@ -135,6 +139,14 @@ void CPostProcessEditorUI::Render()
         changed |= ImGui::SliderFloat("Shadows##grade", &m_settings.gradeShadows, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::SliderFloat("Midtones##grade", &m_settings.gradeMidtones, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::SliderFloat("Highlights##grade", &m_settings.gradeHighlights, 0.0f, 2.0f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("MSAA", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##msaa", &m_settings.msaa);
+        changed |= ImGui::SliderInt("Samples##msaa", &m_settings.msaaSamples, 2, 8);
+        ImGui::TextDisabled("Smooths geometry edges only (not foliage cutouts).");
+        ImGui::TextDisabled("Heavier than FXAA; changing it rebuilds targets.");
     }
 
     if (ImGui::CollapsingHeader("FXAA", ImGuiTreeNodeFlags_DefaultOpen))

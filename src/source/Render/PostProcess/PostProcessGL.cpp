@@ -83,8 +83,24 @@ namespace PostProcess
         if (!ok)
             OutputDebugStringA("[PostProcess] failed to resolve required GL entry points\n");
 
+        // Renderbuffer / MSAA entry points — best-effort, NOT part of 'ok'. If
+        // any is missing MSAA is simply unavailable (MsaaSupported() == false);
+        // every other effect still works.
+        LoadProc(s_procs.GenRenderbuffers,                "glGenRenderbuffers");
+        LoadProc(s_procs.DeleteRenderbuffers,             "glDeleteRenderbuffers");
+        LoadProc(s_procs.BindRenderbuffer,                "glBindRenderbuffer");
+        LoadProc(s_procs.RenderbufferStorageMultisample,  "glRenderbufferStorageMultisample");
+        LoadProc(s_procs.FramebufferRenderbuffer,         "glFramebufferRenderbuffer");
+
         s_available = ok;
         return s_available;
+    }
+
+    bool MsaaSupported()
+    {
+        return s_procs.GenRenderbuffers && s_procs.DeleteRenderbuffers &&
+               s_procs.BindRenderbuffer && s_procs.RenderbufferStorageMultisample &&
+               s_procs.FramebufferRenderbuffer && s_procs.BlitFramebuffer;
     }
 
     GLuint CompileProgram(const char* vertexSrc, const char* fragmentSrc)

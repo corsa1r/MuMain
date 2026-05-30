@@ -45,6 +45,17 @@ namespace PostProcess
             GLuint s_pingFBO      = 0;
             GLuint s_pingColorTex = 0;
 
+            // ---- MSAA (multisample scene render target) ---------------------
+            // When s_msaaSamples > 0 the world renders into this multisample FBO
+            // (color + depth renderbuffers), which is then RESOLVED (blitted)
+            // down into s_sceneFBO/s_sceneColorTex before the post passes run.
+            // MSAA only anti-aliases polygon edges, not alpha-test cutouts.
+            GLuint s_msaaFBO     = 0;
+            GLuint s_msaaColorRB = 0;
+            GLuint s_msaaDepthRB = 0;
+            int    s_msaaSamples = 0;   // sample count the targets were built with (0 = off)
+            int    s_desiredMsaaSamples = 0;  // requested via ApplySettings (0 = off)
+
             // The framebuffer the scene is currently rendering into. Mirrors the
             // header's ActiveSceneFramebuffer(): set to s_sceneFBO between
             // BeginSceneCapture/EndSceneCaptureAndPresent, otherwise 0.
@@ -107,6 +118,46 @@ namespace PostProcess
                 if (s_sceneColorTex) { glDeleteTextures(1, &s_sceneColorTex);  s_sceneColorTex = 0; }
                 if (s_sceneDepthTex) { glDeleteTextures(1, &s_sceneDepthTex);  s_sceneDepthTex = 0; }
                 if (s_pingColorTex)  { glDeleteTextures(1, &s_pingColorTex);   s_pingColorTex = 0; }
+
+                if (s_msaaFBO)     { gl.DeleteFramebuffers(1, &s_msaaFBO);   s_msaaFBO = 0; }
+                if (s_msaaColorRB) { gl.DeleteRenderbuffers(1, &s_msaaColorRB); s_msaaColorRB = 0; }
+                if (s_msaaDepthRB) { gl.DeleteRenderbuffers(1, &s_msaaDepthRB); s_msaaDepthRB = 0; }
+                s_msaaSamples = 0;
+            }
+
+            // Build the multisample scene FBO at 'samples'. Color + depth use
+            // the SAME formats as the single-sample resolve targets (RGBA8 /
+            // DEPTH_COMPONENT24) so glBlitFramebuffer can resolve cleanly.
+            // Returns false (and leaves nothing dangling) on failure.
+            bool CreateMsaaTargets(int w, int h, int samples)
+            {
+                const GLProcs& gl = GL();
+
+                gl.GenRenderbuffers(1, &s_msaaColorRB);
+                gl.BindRenderbuffer(GL_RENDERBUFFER, s_msaaColorRB);
+                gl.RenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+
+                gl.GenRenderbuffers(1, &s_msaaDepthRB);
+                gl.BindRenderbuffer(GL_RENDERBUFFER, s_msaaDepthRB);
+                gl.RenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH_COMPONENT24, w, h);
+
+                gl.GenFramebuffers(1, &s_msaaFBO);
+                gl.BindFramebuffer(GL_FRAMEBUFFER, s_msaaFBO);
+                gl.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, s_msaaColorRB);
+                gl.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, s_msaaDepthRB);
+                const bool ok = gl.CheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+
+                gl.BindRenderbuffer(GL_RENDERBUFFER, 0);
+                gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+
+                if (!ok)
+                {
+                    OutputDebugStringA("[PostProcess] MSAA FBO incomplete — disabling MSAA\n");
+                    if (s_msaaFBO)     { gl.DeleteFramebuffers(1, &s_msaaFBO);   s_msaaFBO = 0; }
+                    if (s_msaaColorRB) { gl.DeleteRenderbuffers(1, &s_msaaColorRB); s_msaaColorRB = 0; }
+                    if (s_msaaDepthRB) { gl.DeleteRenderbuffers(1, &s_msaaDepthRB); s_msaaDepthRB = 0; }
+                }
+                return ok;
             }
 
             bool CreateTargets(int w, int h)
@@ -144,6 +195,21 @@ namespace PostProcess
                 }
 
                 gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+
+                // Optional multisample scene target. Non-fatal: if it can't be
+                // built, MSAA stays off (s_msaaSamples == 0) and the scene
+                // renders into the single-sample s_sceneFBO as usual.
+                s_msaaSamples = 0;
+                if (s_desiredMsaaSamples >= 2 && MsaaSupported())
+                {
+                    GLint maxSamples = 0;
+                    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+                    int samples = s_desiredMsaaSamples;
+                    if (maxSamples > 0 && samples > maxSamples) samples = maxSamples;
+                    if (samples >= 2 && CreateMsaaTargets(w, h, samples))
+                        s_msaaSamples = samples;
+                }
+
                 return true;
             }
         } // namespace
@@ -295,6 +361,27 @@ namespace PostProcess
                 s_filmGrain->SetActive(s.filmGrain);
                 s_filmGrain->SetStrength(s.filmGrainStrength);
             }
+
+            // MSAA: unlike the fullscreen effects, this changes how the scene is
+            // rasterized, so a change in sample count requires rebuilding the
+            // render targets (not just a uniform). Clamp request to {0 (off), or
+            // 2..8}. Rebuild only when the effective sample count actually moves.
+            int desired = 0;
+            if (s.msaa)
+            {
+                desired = s.msaaSamples;
+                if (desired < 2) desired = 2;
+                if (desired > 8) desired = 8;
+            }
+            if (desired != s_desiredMsaaSamples)
+            {
+                s_desiredMsaaSamples = desired;
+                // Rebuild targets in place if they already exist (startup apply
+                // and runtime panel changes both land here). Resize() alone
+                // wouldn't react because the window size hasn't changed.
+                if (s_sceneFBO != 0 && s_width > 0 && s_height > 0)
+                    CreateTargets(s_width, s_height);
+            }
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }
@@ -311,12 +398,19 @@ namespace PostProcess
                 return;
 
             const GLProcs& gl = GL();
-            gl.BindFramebuffer(GL_FRAMEBUFFER, s_sceneFBO);
+
+            // When MSAA is active the world renders into the multisample FBO
+            // (resolved to the single-sample scene texture in EndScene...).
+            // Otherwise it renders straight into the single-sample scene FBO.
+            const GLuint target = (s_msaaSamples > 0) ? s_msaaFBO : s_sceneFBO;
+            gl.BindFramebuffer(GL_FRAMEBUFFER, target);
             glViewport(0, 0, s_width, s_height);
+            if (s_msaaSamples > 0)
+                glEnable(GL_MULTISAMPLE);
 
             // Publish the scene framebuffer so capture-aware code (SoftShadow)
             // targets the RTV instead of the backbuffer. Reset in EndScene...().
-            s_activeSceneFBO = s_sceneFBO;
+            s_activeSceneFBO = target;
 
             // Clear the RTV ourselves. The game's SetWorldClearColor() ran just
             // before this and cleared the BACKBUFFER (FBO 0) — but the scene now
@@ -356,6 +450,19 @@ namespace PostProcess
             // The scene is complete; from here on the scene framebuffer is no
             // longer the active draw target for game code.
             s_activeSceneFBO = 0;
+
+            // MSAA resolve: multisample scene FBO -> single-sample scene texture
+            // (color + depth), so the post passes sample a normal 2D texture.
+            // Equal rectangles + NEAREST is the required form for a resolve.
+            if (s_msaaSamples > 0)
+            {
+                gl.BindFramebuffer(GL_READ_FRAMEBUFFER, s_msaaFBO);
+                gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, s_sceneFBO);
+                gl.BlitFramebuffer(0, 0, s_width, s_height,
+                                   0, 0, s_width, s_height,
+                                   GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+            }
 
             // Collect the passes that want to run this frame.
             std::vector<IPostProcessPass*> active;

@@ -77,6 +77,8 @@ void GameConfig::Load()
     m_vignette         = ReadBool (CfgSectionGraphics, CfgKeyVignette, CfgDefaultVignette);
     m_vignetteStrength = ReadFloat(CfgSectionGraphics, CfgKeyVignetteStrength, CfgDefaultVignetteStrength);
     m_vignetteRadius   = ReadFloat(CfgSectionGraphics, CfgKeyVignetteRadius, CfgDefaultVignetteRadius);
+    m_msaa             = ReadBool (CfgSectionGraphics, CfgKeyMSAA, CfgDefaultMSAA);
+    m_msaaSamples      = ReadInt  (CfgSectionGraphics, CfgKeyMSAASamples, CfgDefaultMSAASamples);
     m_fxaa             = ReadBool (CfgSectionGraphics, CfgKeyFXAA, CfgDefaultFXAA);
     m_sharpen          = ReadBool (CfgSectionGraphics, CfgKeySharpen, CfgDefaultSharpen);
     m_sharpenStrength  = ReadFloat(CfgSectionGraphics, CfgKeySharpenStrength, CfgDefaultSharpenStrength);
@@ -150,6 +152,8 @@ void GameConfig::PersistGraphics()
     WriteBool (CfgSectionGraphics, CfgKeyVignette, m_vignette);
     WriteFloat(CfgSectionGraphics, CfgKeyVignetteStrength, m_vignetteStrength);
     WriteFloat(CfgSectionGraphics, CfgKeyVignetteRadius, m_vignetteRadius);
+    WriteBool (CfgSectionGraphics, CfgKeyMSAA, m_msaa);
+    WriteInt  (CfgSectionGraphics, CfgKeyMSAASamples, m_msaaSamples);
     WriteBool (CfgSectionGraphics, CfgKeyFXAA, m_fxaa);
     WriteBool (CfgSectionGraphics, CfgKeySharpen, m_sharpen);
     WriteFloat(CfgSectionGraphics, CfgKeySharpenStrength, m_sharpenStrength);
@@ -388,6 +392,16 @@ void GameConfig::SetVignetteRadius(float v)
 {
     m_vignetteRadius = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyVignetteRadius, v);
+}
+void GameConfig::SetMSAA(bool enabled)
+{
+    m_msaa = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyMSAA, enabled);
+}
+void GameConfig::SetMSAASamples(int samples)
+{
+    m_msaaSamples = samples;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyMSAASamples, samples);
 }
 void GameConfig::SetFXAA(bool enabled)
 {

@@ -83,6 +83,8 @@ public:
     bool  GetVignette()          const { return m_vignette; }
     float GetVignetteStrength()  const { return m_vignetteStrength; }
     float GetVignetteRadius()    const { return m_vignetteRadius; }
+    bool  GetMSAA()              const { return m_msaa; }
+    int   GetMSAASamples()       const { return m_msaaSamples; }
     bool  GetFXAA()              const { return m_fxaa; }
     bool  GetSharpen()           const { return m_sharpen; }
     float GetSharpenStrength()   const { return m_sharpenStrength; }
@@ -105,6 +107,8 @@ public:
     void SetVignette(bool enabled);
     void SetVignetteStrength(float v);
     void SetVignetteRadius(float v);
+    void SetMSAA(bool enabled);
+    void SetMSAASamples(int samples);
     void SetFXAA(bool enabled);
     void SetSharpen(bool enabled);
     void SetSharpenStrength(float v);
@@ -159,6 +163,8 @@ private:
     bool  m_vignette;
     float m_vignetteStrength;
     float m_vignetteRadius;
+    bool  m_msaa;
+    int   m_msaaSamples;
     bool  m_fxaa;
     bool  m_sharpen;
     float m_sharpenStrength;

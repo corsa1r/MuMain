@@ -1534,6 +1534,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.vignette          = cfg.GetVignette();
         pps.vignetteStrength  = cfg.GetVignetteStrength();
         pps.vignetteRadius    = cfg.GetVignetteRadius();
+        pps.msaa              = cfg.GetMSAA();
+        pps.msaaSamples       = cfg.GetMSAASamples();
         pps.fxaa              = cfg.GetFXAA();
         pps.sharpen           = cfg.GetSharpen();
         pps.sharpenStrength   = cfg.GetSharpenStrength();

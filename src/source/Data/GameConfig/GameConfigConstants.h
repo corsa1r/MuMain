@@ -52,6 +52,8 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyVignette[]        = L"Vignette";
     inline constexpr wchar_t CfgKeyVignetteStrength[] = L"VignetteStrength";
     inline constexpr wchar_t CfgKeyVignetteRadius[]  = L"VignetteRadius";
+    inline constexpr wchar_t CfgKeyMSAA[]            = L"MSAA";
+    inline constexpr wchar_t CfgKeyMSAASamples[]     = L"MSAASamples";
     inline constexpr wchar_t CfgKeyFXAA[]            = L"FXAA";
     inline constexpr wchar_t CfgKeySharpen[]         = L"Sharpen";
     inline constexpr wchar_t CfgKeySharpenStrength[] = L"SharpenStrength";
@@ -106,6 +108,10 @@ namespace CfgDefaults
     inline constexpr bool  CfgDefaultVignette        = true;
     inline constexpr float CfgDefaultVignetteStrength = 0.35f;
     inline constexpr float CfgDefaultVignetteRadius   = 0.75f;
+
+    // MSAA off by default (heavier; only geometry edges). 4 samples when on.
+    inline constexpr bool  CfgDefaultMSAA           = false;
+    inline constexpr int   CfgDefaultMSAASamples    = 4;
 
     inline constexpr bool  CfgDefaultFXAA           = true;
 

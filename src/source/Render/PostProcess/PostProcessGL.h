@@ -35,6 +35,15 @@ namespace PostProcess
         PFNGLCHECKFRAMEBUFFERSTATUSPROC  CheckFramebufferStatus = nullptr;
         PFNGLBLITFRAMEBUFFERPROC         BlitFramebuffer        = nullptr;
 
+        // Renderbuffers (used by MSAA: multisample color/depth render targets).
+        // Loaded best-effort — if any is null MSAA is unavailable but the rest
+        // of the chain still works (see MsaaSupported()).
+        PFNGLGENRENDERBUFFERSPROC               GenRenderbuffers            = nullptr;
+        PFNGLDELETERENDERBUFFERSPROC            DeleteRenderbuffers         = nullptr;
+        PFNGLBINDRENDERBUFFERPROC               BindRenderbuffer            = nullptr;
+        PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC RenderbufferStorageMultisample = nullptr;
+        PFNGLFRAMEBUFFERRENDERBUFFERPROC        FramebufferRenderbuffer     = nullptr;
+
         // Shader / program objects
         PFNGLCREATESHADERPROC            CreateShader     = nullptr;
         PFNGLDELETESHADERPROC            DeleteShader     = nullptr;
@@ -68,6 +77,11 @@ namespace PostProcess
 
     // True once Load() has succeeded.
     bool Available();
+
+    // True if the renderbuffer-multisample entry points resolved, i.e. MSAA can
+    // be used. Independent of Available() so the chain can offer everything else
+    // even on a context that lacks multisample FBO support.
+    bool MsaaSupported();
 
     // ---- Helpers shared by the chain and every pass --------------------------
 

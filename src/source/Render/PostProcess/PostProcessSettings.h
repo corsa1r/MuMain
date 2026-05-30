@@ -40,6 +40,12 @@ namespace PostProcess
         float vignetteStrength = 0.35f;  // 0 = none .. 1 = strong
         float vignetteRadius   = 0.75f;  // where darkening begins (0..1 of corner)
 
+        // MSAA (multisample anti-aliasing of geometry edges). samples = 2/4/8.
+        // Heavier than FXAA and only smooths polygon edges (not alpha-test
+        // cutouts), so off by default; FXAA stays the cheap general option.
+        bool  msaa           = false;
+        int   msaaSamples    = 4;
+
         // FXAA (edge anti-aliasing)
         bool  fxaa            = true;
 
