@@ -125,6 +125,15 @@ public:
     void SetFilmGrain(bool enabled);
     void SetFilmGrainStrength(float v);
 
+    // [Graphics] Anisotropic — texture filtering quality (independent of the
+    // post-process chain). Level is the max-anisotropy (e.g. 16), clamped to
+    // the driver max at apply time. Takes effect on textures loaded after
+    // startup (effectively: restart / map reload to change).
+    bool GetAnisotropic()      const { return m_anisotropic; }
+    int  GetAnisotropicLevel() const { return m_anisotropicLevel; }
+    void SetAnisotropic(bool enabled);
+    void SetAnisotropicLevel(int level);
+
     // Helpers
     static std::wstring BinaryToHex(const BYTE* data, DWORD size);
     static std::vector<BYTE> HexToBinary(const std::wstring& hex);
@@ -157,6 +166,8 @@ private:
     int m_zoom;
 
     bool m_postProcess;
+    bool m_anisotropic;
+    int  m_anisotropicLevel;
     bool  m_ssao;
     float m_ssaoRadius;
     float m_ssaoStrength;

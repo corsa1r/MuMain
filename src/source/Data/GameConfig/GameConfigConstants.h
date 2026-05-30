@@ -36,6 +36,8 @@ namespace CfgKeys
 
     // Graphics — post-process chain
     inline constexpr wchar_t CfgKeyPostProcess[]     = L"PostProcess";
+    inline constexpr wchar_t CfgKeyAnisotropic[]      = L"Anisotropic";
+    inline constexpr wchar_t CfgKeyAnisotropicLevel[] = L"AnisotropicLevel";
     inline constexpr wchar_t CfgKeySSAO[]            = L"SSAO";
     inline constexpr wchar_t CfgKeySSAORadius[]      = L"SSAORadius";
     inline constexpr wchar_t CfgKeySSAOStrength[]    = L"SSAOStrength";
@@ -87,6 +89,12 @@ namespace CfgDefaults
     // Post-process chain off by default → guaranteed parity with the legacy
     // direct-to-backbuffer path until the user opts in.
     inline constexpr bool CfgDefaultPostProcess = false;
+
+    // Anisotropic filtering on by default — pure texture-clarity win at MU's
+    // oblique camera, independent of the post-process chain. 16x (clamped to
+    // the driver's GL_MAX_TEXTURE_MAX_ANISOTROPY at apply time).
+    inline constexpr bool CfgDefaultAnisotropic      = true;
+    inline constexpr int  CfgDefaultAnisotropicLevel = 16;
 
     // SSAO off by default (heaviest, most scene-dependent effect).
     inline constexpr bool  CfgDefaultSSAO         = false;

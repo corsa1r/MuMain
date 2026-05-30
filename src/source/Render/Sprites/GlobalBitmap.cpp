@@ -19,7 +19,55 @@
 #include <string>
 #include <vector>
 
+// Anisotropic texture filtering level, applied to textures as they are uploaded
+// in LoadJpeg/LoadTga below. 1 = off (legacy bilinear, no mipmaps sampled). Set
+// once from [Graphics] Anisotropic* by Winmain after GL init; declared extern in
+// ZzzOpenglUtil.h so Winmain can set it.
+float g_AnisotropyLevel = 1.0f;
 
+namespace
+{
+    // Promote the just-uploaded, currently-bound GL_TEXTURE_2D to mipmapped
+    // anisotropic sampling. MU's steep top-down camera views ground textures at
+    // a grazing angle where plain bilinear (the legacy path) blurs into mush
+    // with distance; trilinear mips + anisotropy keep them sharp. Only the MIN
+    // (minification) filter is changed — MAG is left as the caller set it, so
+    // head-on UI/text stays pixel-crisp. Must be called AFTER glTexImage2D while
+    // the texture is still bound. No-op (exact legacy behavior) when disabled or
+    // the driver lacks the extension. The max-anisotropy is queried once.
+    void ApplyAnisotropicFiltering()
+    {
+        if (g_AnisotropyLevel <= 1.0f)
+            return;
+
+        // Resolve glGenerateMipmap ourselves via wglGetProcAddress. This project
+        // deliberately never calls glewInit() (the whole renderer loads modern
+        // GL entry points at runtime — see SoftShadow / PostProcessGL), so the
+        // glew wrapper symbol (__glewGenerateMipmap) is null/unlinked and must
+        // NOT be used. glTexParameterf + the MAX_ANISOTROPY enum are core/EXT
+        // and need no function pointer. Resolved once; null => feature off.
+        typedef void (APIENTRY * PFN_glGenerateMipmap)(GLenum target);
+        static PFN_glGenerateMipmap pGenerateMipmap =
+            reinterpret_cast<PFN_glGenerateMipmap>(wglGetProcAddress("glGenerateMipmap"));
+
+        static GLfloat s_maxAniso = -1.0f;
+        if (s_maxAniso < 0.0f)
+        {
+            s_maxAniso = 0.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &s_maxAniso); // stays 0 if unsupported
+        }
+        if (s_maxAniso < 2.0f || pGenerateMipmap == nullptr)
+            return;
+
+        GLfloat level = g_AnisotropyLevel;
+        if (level > s_maxAniso)
+            level = s_maxAniso;
+
+        pGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, level);
+    }
+}
 
 CBitmapCache::CBitmapCache() = default;
 CBitmapCache::~CBitmapCache() { Release(); }
@@ -681,6 +729,10 @@ bool CGlobalBitmap::OpenJpegTurbo(GLuint uiBitmapIndex, const std::wstring& file
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, uiFilter);
 
+    // Mipmapped anisotropic upgrade (no-op when disabled). Texture is still
+    // bound and glTexImage2D has already run, which this requires.
+    ApplyAnisotropicFiltering();
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, uiWrapMode);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, uiWrapMode);
@@ -771,6 +823,10 @@ bool CGlobalBitmap::OpenTga(GLuint uiBitmapIndex, const std::wstring& filename, 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, uiFilter);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, uiFilter);
+
+    // Mipmapped anisotropic upgrade (no-op when disabled). Texture is still
+    // bound and glTexImage2D has already run, which this requires.
+    ApplyAnisotropicFiltering();
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, uiWrapMode);
 

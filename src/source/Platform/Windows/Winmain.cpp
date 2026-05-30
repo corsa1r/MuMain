@@ -1502,6 +1502,20 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         g_ErrorReport.Write(L"> SoftShadow init failed — falling back to legacy shadows.\r\n");
     }
 
+    // Anisotropic texture filtering — independent of the post-process chain
+    // (it is texture-setup state and works even with PostProcess=0). Set the
+    // global the texture loader (GlobalBitmap LoadJpeg/LoadTga) reads; textures
+    // uploaded after this point pick it up. World/terrain textures load on map
+    // entry (well after this), so they are covered. 1 = off (legacy bilinear).
+    {
+        GameConfig& acfg = GameConfig::GetInstance();
+        g_AnisotropyLevel = acfg.GetAnisotropic()
+            ? static_cast<float>(acfg.GetAnisotropicLevel())
+            : 1.0f;
+        g_ErrorReport.Write(L"> Anisotropic filtering: %s (level=%d).\r\n",
+            acfg.GetAnisotropic() ? L"ON" : L"OFF", acfg.GetAnisotropicLevel());
+    }
+
     // Off-screen scene RTV + modular post-process chain. Created here on the
     // current GL context, right after SoftShadow so it shares the same proven
     // FBO/shader entry-point loading convention. Gated by a config flag and

@@ -61,6 +61,8 @@ void GameConfig::Load()
     // previous bug: these were read in Winmain AFTER Load() had already deleted
     // [Graphics], so the flags were always the defaults.)
     m_postProcess      = ReadBool (CfgSectionGraphics, CfgKeyPostProcess, CfgDefaultPostProcess);
+    m_anisotropic      = ReadBool (CfgSectionGraphics, CfgKeyAnisotropic, CfgDefaultAnisotropic);
+    m_anisotropicLevel = ReadInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, CfgDefaultAnisotropicLevel);
     m_ssao             = ReadBool (CfgSectionGraphics, CfgKeySSAO, CfgDefaultSSAO);
     m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
     m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
@@ -140,6 +142,8 @@ void GameConfig::PersistGraphics()
     using namespace CfgKeys;
 
     WriteBool (CfgSectionGraphics, CfgKeyPostProcess, m_postProcess);
+    WriteBool (CfgSectionGraphics, CfgKeyAnisotropic, m_anisotropic);
+    WriteInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, m_anisotropicLevel);
     WriteBool (CfgSectionGraphics, CfgKeySSAO, m_ssao);
     WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
@@ -314,6 +318,16 @@ void GameConfig::SetPostProcess(bool enabled)
     // Load()/Save() rely on.
     m_postProcess = enabled;
     WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPostProcess, enabled);
+}
+void GameConfig::SetAnisotropic(bool enabled)
+{
+    m_anisotropic = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyAnisotropic, enabled);
+}
+void GameConfig::SetAnisotropicLevel(int level)
+{
+    m_anisotropicLevel = level;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyAnisotropicLevel, level);
 }
 
 void GameConfig::SetBloom(bool enabled)
