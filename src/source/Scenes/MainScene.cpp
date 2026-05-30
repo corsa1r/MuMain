@@ -8,6 +8,7 @@
 #include "Camera/CameraUtility.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/PostProcess/PostProcessChain.h"
 #include "Engine/Object/ZzzObject.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "Render/Terrain/ZzzLodTerrain.h"
@@ -657,6 +658,13 @@ bool RenderMainScene()
         }
     }
 
+    // ── Post-process capture (3D world ONLY) ─────────────────────────────
+    // Begin BEFORE SetupMainSceneViewport so the scene's glClear (inside
+    // ClearScene) and all of RenderGameWorld land in the off-screen RTV.
+    // No-op when the chain is disabled. Resolved further down, right before
+    // RenderMainSceneUI, so the in-game UI/text is never post-processed.
+    PostProcess::Chain::BeginSceneCapture();
+
     SetupMainSceneViewport(width, height, byWaterMap, cameraPos);
     RenderGameWorld(byWaterMap, width, height);
 
@@ -721,6 +729,16 @@ bool RenderMainScene()
             wasPressed = false;
     }
 #endif
+
+    // ── Resolve the captured 3D world through the post-process chain ──────
+    // RTV -> (bloom/tonemap/grade/FXAA/sharpen/vignette/grain) -> backbuffer.
+    // No-op when disabled. Done HERE — after the world + editor debug overlays,
+    // before any UI — so RenderMainSceneUI() below draws crisp, unprocessed
+    // HUD / tooltips / floating text straight onto the backbuffer.
+    {
+        const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
+        PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
+    }
 
     RenderMainSceneUI();
 

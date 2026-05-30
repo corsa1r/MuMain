@@ -1096,29 +1096,19 @@ void MainScene(HDC hDC)
 
     UpdateCoreSystems();
 
-    // Requirement #3 — begin off-screen scene capture. When the post-process
-    // chain is disabled (default) this is a no-op: SetWorldClearColor()'s clear
-    // and the whole RenderCurrentScene below go straight to the backbuffer,
-    // pixel-identical to the legacy path. When enabled, all of that is captured
-    // into the scene RTV instead. Must wrap the clear, hence it sits here.
-    PostProcess::Chain::BeginSceneCapture();
-
     SetWorldClearColor();
 
     bool Success = false;
 
     try
     {
+        // NOTE: the post-process capture/resolve lives INSIDE RenderMainScene
+        // (see RenderMainScene in MainScene.cpp), wrapping ONLY the 3D world —
+        // it begins before the scene clear and resolves just before the in-game
+        // UI is drawn. That keeps HUD / item tooltips / floating text CRISP and
+        // unaffected by bloom/vignette/FXAA, which is why it is not wrapped here
+        // around the whole RenderCurrentScene (that would process the UI too).
         Success = RenderCurrentScene(hDC);
-
-        // Resolve the captured scene through the post-process passes onto the
-        // backbuffer (no-op when disabled). Done BEFORE the HUD/ImGui overlays
-        // below so they render crisply on top of the post-processed 3D scene
-        // rather than being blurred/tinted by future effects.
-        {
-            const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
-            PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
-        }
 
         RenderDebugInfo();
         RenderFpsCounter();

@@ -4,11 +4,13 @@
 #include "PostProcessChain.h"
 #include "PostProcessGL.h"
 #include "IPostProcessPass.h"
-#include "PassthroughPass.h"
+#include "PostProcessSettings.h"
 #include "BloomPass.h"
+#include "ColorEffectPasses.h"
 
 #include <windows.h>
 #include <vector>
+#include <algorithm>
 #include <memory>
 
 namespace PostProcess
@@ -21,9 +23,15 @@ namespace PostProcess
             bool s_enabled   = false;  // config flag (default off => parity)
             bool s_available = false;  // GL objects + entry points are healthy
 
-            // Non-owning pointer to the bloom pass (owned by s_passes). Lets
-            // ToggleBloom() flip its state without a lookup.
-            BloomPass* s_bloomPass = nullptr;
+            // Non-owning pointers to each pass (owned by s_passes). Let
+            // ApplySettings()/ToggleBloom() reach a pass without a lookup.
+            BloomPass*      s_bloomPass  = nullptr;
+            ToneMapPass*    s_toneMap    = nullptr;
+            ColorGradePass* s_colorGrade = nullptr;
+            FxaaPass*       s_fxaa       = nullptr;
+            SharpenPass*    s_sharpen    = nullptr;
+            VignettePass*   s_vignette   = nullptr;
+            FilmGrainPass*  s_filmGrain  = nullptr;
 
             int  s_width  = 0;
             int  s_height = 0;
@@ -148,23 +156,31 @@ namespace PostProcess
                 return false;
             }
 
-            // The default pass is the identity copy — registering it here means
-            // an enabled-but-otherwise-empty chain still presents correctly.
+            // Register the effects in CANONICAL ORDER. The chain runs the active
+            // ones in sequence (ping-pong) and the last active one writes the
+            // backbuffer; if none are active the chain blits the scene straight
+            // through, so no always-on passthrough pass is needed. Order matters:
+            //   Bloom      — add glow (before tone map so highlights bloom)
+            //   ToneMap    — roll bright values (incl. bloom) off filmically
+            //   ColorGrade — mood (contrast/saturation/warmth) on the LDR image
+            //   FXAA       — anti-alias the graded result
+            //   Sharpen    — crisp up after AA
+            //   Vignette   — darken edges late
+            //   FilmGrain  — final dither to kill banding
             if (s_passes.empty())
             {
-                // Passthrough is the guaranteed fallback: when bloom is inactive
-                // it is the last active pass and copies the scene to the
-                // backbuffer (identity). When bloom is active, passthrough feeds
-                // it and bloom produces the final composite.
-                s_passes.emplace_back(std::make_unique<PassthroughPass>());
-
-                // Bloom — the real effect. Registered AFTER passthrough so it is
-                // the final pass (its composite writes the backbuffer). Active by
-                // default, so PostProcess=1 shows bloom immediately; F7 toggles
-                // it live for A/B comparison.
-                auto bloom = std::make_unique<BloomPass>();
-                s_bloomPass = bloom.get();
-                s_passes.emplace_back(std::move(bloom));
+                auto add = [](auto pass, auto*& outPtr)
+                {
+                    outPtr = pass.get();
+                    s_passes.emplace_back(std::move(pass));
+                };
+                add(std::make_unique<BloomPass>(),      s_bloomPass);
+                add(std::make_unique<ToneMapPass>(),    s_toneMap);
+                add(std::make_unique<ColorGradePass>(), s_colorGrade);
+                add(std::make_unique<FxaaPass>(),       s_fxaa);
+                add(std::make_unique<SharpenPass>(),    s_sharpen);
+                add(std::make_unique<VignettePass>(),   s_vignette);
+                add(std::make_unique<FilmGrainPass>(),  s_filmGrain);
             }
 
             Resize(width, height);
@@ -175,7 +191,9 @@ namespace PostProcess
         {
             DestroyTargets();
             s_passes.clear();
-            s_bloomPass = nullptr;     // was owned by s_passes, just cleared
+            // All were owned by s_passes, now cleared.
+            s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
+            s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
             s_available = false;
             s_width = s_height = 0;
         }
@@ -228,18 +246,55 @@ namespace PostProcess
             return newState;
         }
 
-        void ConfigureBloom(bool enabled, int strength)
+        void ApplySettings(const Settings& s)
         {
-            if (!s_bloomPass)
-                return;
-            s_bloomPass->SetActive(enabled);
-
-            // Map the integer config strength onto the pass intensity. 1 == the
-            // tuned baseline; higher values scale linearly. Clamp to a sane range
-            // so a stray config value can't blow the frame out (or go negative).
-            constexpr float kBaselineIntensity = 0.9f;
-            const int clamped = strength < 0 ? 0 : (strength > 16 ? 16 : strength);
-            s_bloomPass->SetIntensity(kBaselineIntensity * static_cast<float>(clamped));
+            if (s_bloomPass)
+            {
+                s_bloomPass->SetActive(s.bloom);
+                s_bloomPass->SetThreshold(s.bloomThreshold);
+                // Map the integer config strength onto the pass intensity: 1 ==
+                // the tuned baseline; higher values scale linearly. Clamp so a
+                // stray value can't blow the frame out (or go negative).
+                constexpr float kBaselineIntensity = 0.9f;
+                const int clamped = s.bloomStrength < 0 ? 0 : (s.bloomStrength > 16 ? 16 : s.bloomStrength);
+                s_bloomPass->SetIntensity(kBaselineIntensity * static_cast<float>(clamped));
+            }
+            if (s_toneMap)
+            {
+                s_toneMap->SetActive(s.toneMap);
+                s_toneMap->SetExposure(s.exposure);
+            }
+            if (s_colorGrade)
+            {
+                s_colorGrade->SetActive(s.colorGrade);
+                s_colorGrade->SetContrast(s.contrast);
+                s_colorGrade->SetSaturation(s.saturation);
+                s_colorGrade->SetBrightness(s.brightness);
+                s_colorGrade->SetTemperature(s.temperature);
+                s_colorGrade->SetShadows(s.gradeShadows);
+                s_colorGrade->SetMidtones(s.gradeMidtones);
+                s_colorGrade->SetHighlights(s.gradeHighlights);
+            }
+            if (s_fxaa)
+            {
+                s_fxaa->SetActive(s.fxaa);
+            }
+            if (s_sharpen)
+            {
+                s_sharpen->SetActive(s.sharpen);
+                s_sharpen->SetStrength(s.sharpenStrength);
+            }
+            if (s_vignette)
+            {
+                s_vignette->SetActive(s.vignette);
+                s_vignette->SetStrength(s.vignetteStrength);
+                s_vignette->SetRadius(s.vignetteRadius);
+            }
+            if (s_filmGrain)
+            {
+                s_filmGrain->SetActive(s.filmGrain);
+                s_filmGrain->SetStrength(s.filmGrainStrength);
+            }
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }
@@ -263,10 +318,21 @@ namespace PostProcess
             // targets the RTV instead of the backbuffer. Reset in EndScene...().
             s_activeSceneFBO = s_sceneFBO;
 
-            // NOTE: we deliberately do NOT clear here. The scene's own clear
-            // (SetWorldClearColor + glClear inside the scene render) now lands in
-            // the RTV, preserving the exact clear color/behaviour of the legacy
-            // path.
+            // Clear the RTV ourselves. The game's SetWorldClearColor() ran just
+            // before this and cleared the BACKBUFFER (FBO 0) — but the scene now
+            // renders into our RTV, which would otherwise keep uninitialized
+            // contents (garbage / solid color — the "everything is red" bug) and
+            // an uncleared depth buffer that makes all geometry z-fail. Reuse the
+            // clear color the game just set (still the current GL state) so the
+            // RTV background exactly matches the legacy path. Masks are forced
+            // open so the clear isn't skipped if a channel was left masked.
+            GLfloat clearCol[4] = {0, 0, 0, 1};
+            glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(GL_TRUE);
+            glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+            glClearDepth(1.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         }
 
         void EndSceneCaptureAndPresent(float deltaSeconds)

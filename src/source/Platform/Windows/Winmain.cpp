@@ -14,6 +14,7 @@
 #include "Render/Textures/ZzzTexture.h"
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessSettings.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "Scenes/SceneCore.h"
 #include "Render/Models/ZzzBMD.h"
@@ -1513,13 +1514,37 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         const bool enablePost = cfg.GetPostProcess();
         PostProcess::Chain::SetEnabled(enablePost);
 
-        // Apply [Graphics] Bloom / BloomStrength on top of the chain state.
-        const bool bloomOn       = cfg.GetBloom();
-        const int  bloomStrength = cfg.GetBloomStrength();
-        PostProcess::Chain::ConfigureBloom(bloomOn, bloomStrength);
+        // Pull every [Graphics] effect knob from config into the neutral
+        // settings struct and apply it to the passes. The chain/passes never
+        // touch the INI layer — they only see this struct.
+        PostProcess::Settings pps;
+        pps.bloom             = cfg.GetBloom();
+        pps.bloomStrength     = cfg.GetBloomStrength();
+        pps.bloomThreshold    = cfg.GetBloomThreshold();
+        pps.toneMap           = cfg.GetToneMap();
+        pps.exposure          = cfg.GetExposure();
+        pps.colorGrade        = cfg.GetColorGrade();
+        pps.contrast          = cfg.GetContrast();
+        pps.saturation        = cfg.GetSaturation();
+        pps.brightness        = cfg.GetBrightness();
+        pps.temperature       = cfg.GetTemperature();
+        pps.gradeShadows      = cfg.GetGradeShadows();
+        pps.gradeMidtones     = cfg.GetGradeMidtones();
+        pps.gradeHighlights   = cfg.GetGradeHighlights();
+        pps.vignette          = cfg.GetVignette();
+        pps.vignetteStrength  = cfg.GetVignetteStrength();
+        pps.vignetteRadius    = cfg.GetVignetteRadius();
+        pps.fxaa              = cfg.GetFXAA();
+        pps.sharpen           = cfg.GetSharpen();
+        pps.sharpenStrength   = cfg.GetSharpenStrength();
+        pps.filmGrain         = cfg.GetFilmGrain();
+        pps.filmGrainStrength = cfg.GetFilmGrainStrength();
+        PostProcess::Chain::ApplySettings(pps);
 
-        g_ErrorReport.Write(L"> PostProcess chain init success (enabled=%d, bloom=%d, strength=%d).\r\n",
-                            enablePost ? 1 : 0, bloomOn ? 1 : 0, bloomStrength);
+        g_ErrorReport.Write(
+            L"> PostProcess init (on=%d bloom=%d tonemap=%d grade=%d fxaa=%d sharpen=%d vignette=%d grain=%d).\r\n",
+            enablePost ? 1 : 0, pps.bloom, pps.toneMap, pps.colorGrade,
+            pps.fxaa, pps.sharpen, pps.vignette, pps.filmGrain);
     }
     else
     {

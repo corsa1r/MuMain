@@ -67,6 +67,50 @@ public:
     int  GetBloomStrength() const { return m_bloomStrength; }
     void SetBloomStrength(int strength);
 
+    // [Graphics] — remaining post-process effect getters. All read-only here;
+    // edited in config.ini. Each effect has an on/off plus its tunable value(s).
+    float GetBloomThreshold()    const { return m_bloomThreshold; }
+    bool  GetToneMap()           const { return m_toneMap; }
+    float GetExposure()          const { return m_exposure; }
+    bool  GetColorGrade()        const { return m_colorGrade; }
+    float GetContrast()          const { return m_contrast; }
+    float GetSaturation()        const { return m_saturation; }
+    float GetBrightness()        const { return m_brightness; }
+    float GetTemperature()       const { return m_temperature; }
+    float GetGradeShadows()      const { return m_gradeShadows; }
+    float GetGradeMidtones()     const { return m_gradeMidtones; }
+    float GetGradeHighlights()   const { return m_gradeHighlights; }
+    bool  GetVignette()          const { return m_vignette; }
+    float GetVignetteStrength()  const { return m_vignetteStrength; }
+    float GetVignetteRadius()    const { return m_vignetteRadius; }
+    bool  GetFXAA()              const { return m_fxaa; }
+    bool  GetSharpen()           const { return m_sharpen; }
+    float GetSharpenStrength()   const { return m_sharpenStrength; }
+    bool  GetFilmGrain()         const { return m_filmGrain; }
+    float GetFilmGrainStrength() const { return m_filmGrainStrength; }
+
+    // [Graphics] — setters used by the live editor panel's "Save to config.ini".
+    // Each updates the in-memory value and writes it through to config.ini.
+    void SetBloomThreshold(float v);
+    void SetToneMap(bool enabled);
+    void SetExposure(float v);
+    void SetColorGrade(bool enabled);
+    void SetContrast(float v);
+    void SetSaturation(float v);
+    void SetBrightness(float v);
+    void SetTemperature(float v);
+    void SetGradeShadows(float v);
+    void SetGradeMidtones(float v);
+    void SetGradeHighlights(float v);
+    void SetVignette(bool enabled);
+    void SetVignetteStrength(float v);
+    void SetVignetteRadius(float v);
+    void SetFXAA(bool enabled);
+    void SetSharpen(bool enabled);
+    void SetSharpenStrength(float v);
+    void SetFilmGrain(bool enabled);
+    void SetFilmGrainStrength(float v);
+
     // Helpers
     static std::wstring BinaryToHex(const BYTE* data, DWORD size);
     static std::vector<BYTE> HexToBinary(const std::wstring& hex);
@@ -101,12 +145,38 @@ private:
     bool m_postProcess;
     bool m_bloom;
     int  m_bloomStrength;
+    float m_bloomThreshold;
+    bool  m_toneMap;
+    float m_exposure;
+    bool  m_colorGrade;
+    float m_contrast;
+    float m_saturation;
+    float m_brightness;
+    float m_temperature;
+    float m_gradeShadows;
+    float m_gradeMidtones;
+    float m_gradeHighlights;
+    bool  m_vignette;
+    float m_vignetteStrength;
+    float m_vignetteRadius;
+    bool  m_fxaa;
+    bool  m_sharpen;
+    float m_sharpenStrength;
+    bool  m_filmGrain;
+    float m_filmGrainStrength;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);
 
     bool ReadBool(const wchar_t* section, const wchar_t* key, bool defaultValue);
     void WriteBool(const wchar_t* section, const wchar_t* key, bool value);
+
+    float ReadFloat(const wchar_t* section, const wchar_t* key, float defaultValue);
+    void  WriteFloat(const wchar_t* section, const wchar_t* key, float value);
+
+    // Write the whole [Graphics] post-process block. Used by both Load() (to
+    // seed config.ini with all tunables so they're discoverable) and Save().
+    void PersistGraphics();
 
     std::wstring ReadString(const wchar_t* section, const wchar_t* key, const std::wstring& defaultValue);
     void WriteString(const wchar_t* section, const wchar_t* key, const std::wstring& value);

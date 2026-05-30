@@ -12,6 +12,7 @@
 #include "../MuEditor/UI/ItemEditor/MuItemEditorUI.h"
 #include "../MuEditor/UI/SkillEditor/MuSkillEditorUI.h"
 #include "../MuEditor/UI/DevEditor/DevEditorUI.h"
+#include "../MuEditor/UI/PostProcess/PostProcessEditorUI.h"
 #include "../UI/Common/MuEditorUI.h"
 #include "../UI/Console/MuEditorConsoleUI.h"
 #include "Data/Translation/i18n.h"
@@ -489,6 +490,9 @@ void CMuEditorCore::Render()
         {
             g_DevEditorUI.Render(&m_bShowDevEditor);
         }
+
+        // Render Post-Process panel (owns its own visibility; no-op when hidden)
+        g_PostProcessEditorUI.Render();
 
         // Render console (if enabled)
         if (m_bShowConsole)

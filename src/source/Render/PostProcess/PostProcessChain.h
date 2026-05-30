@@ -37,6 +37,7 @@
 namespace PostProcess
 {
     class IPostProcessPass;
+    struct Settings;   // PostProcessSettings.h — plain config snapshot
 
     namespace Chain
     {
@@ -89,11 +90,11 @@ namespace PostProcess
         bool ToggleBloom();
         bool IsBloomActive();
 
-        // Apply config-driven bloom settings: 'enabled' is [Graphics] Bloom,
-        // 'strength' is [Graphics] BloomStrength (1 = baseline glow, scaled
-        // linearly, clamped). Call after Init(). Does not enable the chain
-        // itself — that is governed by SetEnabled()/[Graphics] PostProcess.
-        void ConfigureBloom(bool enabled, int strength);
+        // Apply the full config-driven effect settings (per-effect on/off +
+        // tunables) to the registered passes. Call after Init(). Does not enable
+        // the chain itself — that is governed by SetEnabled()/[Graphics]
+        // PostProcess. Safe to call again at runtime to re-apply changes.
+        void ApplySettings(const Settings& settings);
 
         unsigned int ActiveSceneFramebuffer();
     }

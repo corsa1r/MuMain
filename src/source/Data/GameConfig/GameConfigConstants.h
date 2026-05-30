@@ -34,10 +34,29 @@ namespace CfgKeys
     // Camera
     inline constexpr wchar_t CfgKeyZoom[] = L"Zoom";
 
-    // Graphics
-    inline constexpr wchar_t CfgKeyPostProcess[]   = L"PostProcess";
-    inline constexpr wchar_t CfgKeyBloom[]         = L"Bloom";
-    inline constexpr wchar_t CfgKeyBloomStrength[] = L"BloomStrength";
+    // Graphics — post-process chain
+    inline constexpr wchar_t CfgKeyPostProcess[]     = L"PostProcess";
+    inline constexpr wchar_t CfgKeyBloom[]           = L"Bloom";
+    inline constexpr wchar_t CfgKeyBloomStrength[]   = L"BloomStrength";
+    inline constexpr wchar_t CfgKeyBloomThreshold[]  = L"BloomThreshold";
+    inline constexpr wchar_t CfgKeyToneMap[]         = L"ToneMap";
+    inline constexpr wchar_t CfgKeyExposure[]        = L"Exposure";
+    inline constexpr wchar_t CfgKeyColorGrade[]      = L"ColorGrade";
+    inline constexpr wchar_t CfgKeyContrast[]        = L"Contrast";
+    inline constexpr wchar_t CfgKeySaturation[]      = L"Saturation";
+    inline constexpr wchar_t CfgKeyBrightness[]      = L"Brightness";
+    inline constexpr wchar_t CfgKeyTemperature[]     = L"Temperature";
+    inline constexpr wchar_t CfgKeyGradeShadows[]    = L"GradeShadows";
+    inline constexpr wchar_t CfgKeyGradeMidtones[]   = L"GradeMidtones";
+    inline constexpr wchar_t CfgKeyGradeHighlights[] = L"GradeHighlights";
+    inline constexpr wchar_t CfgKeyVignette[]        = L"Vignette";
+    inline constexpr wchar_t CfgKeyVignetteStrength[] = L"VignetteStrength";
+    inline constexpr wchar_t CfgKeyVignetteRadius[]  = L"VignetteRadius";
+    inline constexpr wchar_t CfgKeyFXAA[]            = L"FXAA";
+    inline constexpr wchar_t CfgKeySharpen[]         = L"Sharpen";
+    inline constexpr wchar_t CfgKeySharpenStrength[] = L"SharpenStrength";
+    inline constexpr wchar_t CfgKeyFilmGrain[]       = L"FilmGrain";
+    inline constexpr wchar_t CfgKeyFilmGrainStrength[] = L"FilmGrainStrength";
 }
 
 namespace CfgDefaults
@@ -65,6 +84,34 @@ namespace CfgDefaults
 
     // Bloom on by default once the chain is enabled; strength is an integer
     // multiplier where 1 == the tuned baseline glow, 2 == twice as strong, etc.
-    inline constexpr bool CfgDefaultBloom         = true;
-    inline constexpr int  CfgDefaultBloomStrength = 1;
+    inline constexpr bool  CfgDefaultBloom          = true;
+    inline constexpr int   CfgDefaultBloomStrength  = 1;
+    inline constexpr float CfgDefaultBloomThreshold = 0.75f;
+
+    // Remaining post-process effects: all ON by default with subtle values, so
+    // PostProcess=1 yields a tasteful enhanced look. Each is independently
+    // toggleable / tunable in config.ini.
+    inline constexpr bool  CfgDefaultToneMap        = true;
+    inline constexpr float CfgDefaultExposure       = 1.0f;
+
+    inline constexpr bool  CfgDefaultColorGrade     = true;
+    inline constexpr float CfgDefaultContrast       = 1.05f;
+    inline constexpr float CfgDefaultSaturation     = 1.10f;
+    inline constexpr float CfgDefaultBrightness     = 1.0f;
+    inline constexpr float CfgDefaultTemperature    = 0.10f;
+    inline constexpr float CfgDefaultGradeShadows    = 1.0f;
+    inline constexpr float CfgDefaultGradeMidtones   = 1.0f;
+    inline constexpr float CfgDefaultGradeHighlights = 1.0f;
+
+    inline constexpr bool  CfgDefaultVignette        = true;
+    inline constexpr float CfgDefaultVignetteStrength = 0.35f;
+    inline constexpr float CfgDefaultVignetteRadius   = 0.75f;
+
+    inline constexpr bool  CfgDefaultFXAA           = true;
+
+    inline constexpr bool  CfgDefaultSharpen        = true;
+    inline constexpr float CfgDefaultSharpenStrength = 0.30f;
+
+    inline constexpr bool  CfgDefaultFilmGrain      = true;
+    inline constexpr float CfgDefaultFilmGrainStrength = 0.05f;
 }
