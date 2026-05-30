@@ -9,6 +9,7 @@
 #include "../MuEditor/Config/MuEditorConfig.h"
 #include "Data/Translation/i18n.h"
 #include "../MuEditor/UI/Console/MuEditorConsoleUI.h"
+#include "../MuEditor/UI/DevEditor/DevEditorUI.h"
 
 // UI Layout constants
 constexpr float TOOLBAR_HEIGHT = 40.0f;
@@ -150,6 +151,17 @@ void CMuEditorUI::RenderToolbarFull(bool& editorEnabled, bool& showItemEditor, b
             showDevEditor = !showDevEditor;
         }
 
+        // One-click shortcut into the most-common authoring flow: open the
+        // DevEditor, jump to the Terrain Painter tab, and engage Place
+        // mode. Skips the "open menu → pick tab → click radio" sequence
+        // the user runs every time they sit down to edit the current map.
+        ImGui::SameLine();
+        if (ImGui::Button("Edit This Map"))
+        {
+            showDevEditor = true;
+            g_DevEditorUI.RequestEditCurrentMap();
+        }
+
         // Console toggle
         ImGui::SameLine();
         if (ImGui::Checkbox("Console", &showConsole))
@@ -219,6 +231,13 @@ void CMuEditorUI::RenderToolbarFull(bool& editorEnabled, bool& showItemEditor, b
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.3f, 0.3f, 1.0f));
         if (ImGui::Button("Close Editor"))
         {
+            // Drop offline-authoring + any active brush *before* the
+            // editor goes idle. Otherwise the player is left stranded:
+            // brushes still gate movement, and IsOfflineAuthoring would
+            // keep NPCs / monsters from spawning and the server's
+            // position corrections muted until they reopened the editor
+            // and manually flipped things off.
+            g_DevEditorUI.OnEditorClosed();
             editorEnabled = false;
         }
         ImGui::PopStyleColor(2);

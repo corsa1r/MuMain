@@ -29,6 +29,14 @@ namespace MuEditor::CustomMap
     // Load custom maps from a non-classic world (or warp first).
     bool LoadCustomMap(int mapId);
 
+    // Returns the slot ID of the most recent successful LoadCustomMap
+    // call, or -1 if no custom map is currently loaded (including after
+    // LoadClassicMap, which clears the tracker). Lets the editor's
+    // "Edit This Map" shortcut detect which slot the engine is currently
+    // running — gMapManager.WorldActive collapses to WD_0LORENCIA for
+    // every custom map, so it can't be used for this.
+    int  GetActiveCustomSlot();
+
     // Same as LoadCustomMap but reads from the classic asset tree
     // Data\World<n>\EncTerrain<n>.{att,obj}. `worldFolderIndex` is the
     // 1-based folder number — e.g. 2 for Dungeon, 3 for Devias.

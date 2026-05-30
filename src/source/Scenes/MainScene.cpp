@@ -46,6 +46,7 @@ extern "C" bool DevEditor_IsDebugVisualizationEnabled();
 extern "C" bool DevEditor_ShouldRenderTerrain();
 extern "C" void DevEditor_RenderTileAttributeOverlay();
 extern "C" void DevEditor_RenderDeleteHoverHighlight();
+extern "C" void DevEditor_RenderPlaceHoverHighlight();
 extern "C" bool DevEditor_ShouldRenderStaticObjects();
 extern "C" bool DevEditor_ShouldRenderEffects();
 extern "C" bool DevEditor_ShouldRenderDroppedItems();
@@ -456,6 +457,11 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     // OBJECT the Delete tool will hit if clicked right now. No-op when
     // not in delete mode.
     DevEditor_RenderDeleteHoverHighlight();
+
+    // Place-tool hover highlight — cyan wireframe box around the object
+    // under the cursor in Place mode's Hover state. No-op outside Place,
+    // or once the user has selected (ghost preview takes over visually).
+    DevEditor_RenderPlaceHoverHighlight();
 #endif
 
     if (renderEffects)
