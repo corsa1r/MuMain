@@ -102,6 +102,13 @@ namespace PostProcess
                 WB(p, L"FXAA", s.fxaa);
                 WB(p, L"Sharpen", s.sharpen); WF(p, L"SharpenStrength", s.sharpenStrength);
                 WB(p, L"FilmGrain", s.filmGrain); WF(p, L"FilmGrainStrength", s.filmGrainStrength);
+                WB(p, L"GodRays", s.godRays);
+                WF(p, L"GodRaysLightX", s.godRaysLightX); WF(p, L"GodRaysLightY", s.godRaysLightY);
+                WF(p, L"GodRaysSunZ", s.godRaysSunZ);
+                WF(p, L"GodRaysDensity", s.godRaysDensity); WF(p, L"GodRaysWeight", s.godRaysWeight);
+                WF(p, L"GodRaysDecay", s.godRaysDecay); WF(p, L"GodRaysThreshold", s.godRaysThreshold);
+                WF(p, L"GodRaysIntensity", s.godRaysIntensity); WI(p, L"GodRaysSamples", s.godRaysSamples);
+                WF(p, L"GodRaysColorR", s.godRaysR); WF(p, L"GodRaysColorG", s.godRaysG); WF(p, L"GodRaysColorB", s.godRaysB);
                 WB(p, L"LUT", s.lut); WS(p, L"LUTFile", s.lutFile);
             }
             void ReadAll(const std::wstring& p, Settings& s)
@@ -127,6 +134,13 @@ namespace PostProcess
                 s.fxaa = RB(p, L"FXAA", d.fxaa);
                 s.sharpen = RB(p, L"Sharpen", d.sharpen); s.sharpenStrength = RF(p, L"SharpenStrength", d.sharpenStrength);
                 s.filmGrain = RB(p, L"FilmGrain", d.filmGrain); s.filmGrainStrength = RF(p, L"FilmGrainStrength", d.filmGrainStrength);
+                s.godRays = RB(p, L"GodRays", d.godRays);
+                s.godRaysLightX = RF(p, L"GodRaysLightX", d.godRaysLightX); s.godRaysLightY = RF(p, L"GodRaysLightY", d.godRaysLightY);
+                s.godRaysSunZ = RF(p, L"GodRaysSunZ", d.godRaysSunZ);
+                s.godRaysDensity = RF(p, L"GodRaysDensity", d.godRaysDensity); s.godRaysWeight = RF(p, L"GodRaysWeight", d.godRaysWeight);
+                s.godRaysDecay = RF(p, L"GodRaysDecay", d.godRaysDecay); s.godRaysThreshold = RF(p, L"GodRaysThreshold", d.godRaysThreshold);
+                s.godRaysIntensity = RF(p, L"GodRaysIntensity", d.godRaysIntensity); s.godRaysSamples = RI(p, L"GodRaysSamples", d.godRaysSamples);
+                s.godRaysR = RF(p, L"GodRaysColorR", d.godRaysR); s.godRaysG = RF(p, L"GodRaysColorG", d.godRaysG); s.godRaysB = RF(p, L"GodRaysColorB", d.godRaysB);
                 s.lut = RB(p, L"LUT", d.lut); s.lutFile = RS(p, L"LUTFile", d.lutFile);
             }
         } // namespace

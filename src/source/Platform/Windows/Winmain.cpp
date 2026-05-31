@@ -1568,6 +1568,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.sharpenStrength   = cfg.GetSharpenStrength();
         pps.filmGrain         = cfg.GetFilmGrain();
         pps.filmGrainStrength = cfg.GetFilmGrainStrength();
+        pps.godRays           = cfg.GetGodRays();
+        pps.godRaysLightX     = cfg.GetGodRaysLightX();
+        pps.godRaysLightY     = cfg.GetGodRaysLightY();
+        pps.godRaysSunZ       = cfg.GetGodRaysSunZ();
+        pps.godRaysDensity    = cfg.GetGodRaysDensity();
+        pps.godRaysWeight     = cfg.GetGodRaysWeight();
+        pps.godRaysDecay      = cfg.GetGodRaysDecay();
+        pps.godRaysThreshold  = cfg.GetGodRaysThreshold();
+        pps.godRaysIntensity  = cfg.GetGodRaysIntensity();
+        pps.godRaysSamples    = cfg.GetGodRaysSamples();
+        pps.godRaysR          = cfg.GetGodRaysColorR();
+        pps.godRaysG          = cfg.GetGodRaysColorG();
+        pps.godRaysB          = cfg.GetGodRaysColorB();
         pps.lut               = cfg.GetLut();
         {
             // Config stores the LUT filename as wide; Settings/LutPass use narrow

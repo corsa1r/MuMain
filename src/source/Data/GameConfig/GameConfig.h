@@ -124,6 +124,34 @@ public:
     bool  GetFilmGrain()         const { return m_filmGrain; }
     float GetFilmGrainStrength() const { return m_filmGrainStrength; }
 
+    // [Graphics] God Rays — screen-space volumetric light shafts.
+    bool  GetGodRays()          const { return m_godRays; }
+    void  SetGodRays(bool v);
+    float GetGodRaysLightX()    const { return m_godRaysLightX; }
+    void  SetGodRaysLightX(float v);
+    float GetGodRaysLightY()    const { return m_godRaysLightY; }
+    void  SetGodRaysLightY(float v);
+    float GetGodRaysSunZ()      const { return m_godRaysSunZ; }
+    void  SetGodRaysSunZ(float v);
+    float GetGodRaysDensity()   const { return m_godRaysDensity; }
+    void  SetGodRaysDensity(float v);
+    float GetGodRaysWeight()    const { return m_godRaysWeight; }
+    void  SetGodRaysWeight(float v);
+    float GetGodRaysDecay()     const { return m_godRaysDecay; }
+    void  SetGodRaysDecay(float v);
+    float GetGodRaysThreshold() const { return m_godRaysThreshold; }
+    void  SetGodRaysThreshold(float v);
+    float GetGodRaysIntensity() const { return m_godRaysIntensity; }
+    void  SetGodRaysIntensity(float v);
+    int   GetGodRaysSamples()   const { return m_godRaysSamples; }
+    void  SetGodRaysSamples(int v);
+    float GetGodRaysColorR()    const { return m_godRaysColorR; }
+    void  SetGodRaysColorR(float v);
+    float GetGodRaysColorG()    const { return m_godRaysColorG; }
+    void  SetGodRaysColorG(float v);
+    float GetGodRaysColorB()    const { return m_godRaysColorB; }
+    void  SetGodRaysColorB(float v);
+
     // [Graphics] LUT — .cube color grade. File is a bare name under
     // Data/PostProcess/. Empty/missing => no grade.
     bool         GetLut()     const { return m_lut; }
@@ -234,6 +262,19 @@ private:
     float m_sharpenStrength;
     bool  m_filmGrain;
     float m_filmGrainStrength;
+    bool  m_godRays;
+    float m_godRaysLightX;
+    float m_godRaysLightY;
+    float m_godRaysSunZ;
+    float m_godRaysDensity;
+    float m_godRaysWeight;
+    float m_godRaysDecay;
+    float m_godRaysThreshold;
+    float m_godRaysIntensity;
+    int   m_godRaysSamples;
+    float m_godRaysColorR;
+    float m_godRaysColorG;
+    float m_godRaysColorB;
     bool         m_lut;
     std::wstring m_lutFile;
 

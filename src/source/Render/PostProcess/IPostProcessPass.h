@@ -50,6 +50,14 @@ namespace PostProcess
         // height fog keys off world Z — MU's up-axis). Identity if unavailable.
         float  invView[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
         bool   hasInvView  = false;
+
+        // Screen-space sun DIRECTION (normalized) matched to the engine's fixed
+        // character-shadow shear, so god-ray shadows fall the same way as the
+        // legacy object shadows. Computed by the chain from the view matrix.
+        // Invalid → a pass should fall back to its own manual control.
+        float  sunDirX     = 0.0f;
+        float  sunDirY     = 0.0f;
+        bool   sunDirValid = false;
     };
 
     class IPostProcessPass

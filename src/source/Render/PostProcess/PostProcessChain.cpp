@@ -8,6 +8,8 @@
 #include "BloomPass.h"
 #include "SsaoPass.h"
 #include "FogPass.h"
+#include "GodRaysPass.h"
+#include "Render/SunDirection.h"
 #include "LutPass.h"
 #include "ColorEffectPasses.h"
 
@@ -15,6 +17,7 @@
 #include <vector>
 #include <algorithm>
 #include <memory>
+#include <cmath>
 
 namespace PostProcess
 {
@@ -30,6 +33,7 @@ namespace PostProcess
             // ApplySettings()/ToggleBloom() reach a pass without a lookup.
             SsaoPass*       s_ssao       = nullptr;
             FogPass*        s_fog        = nullptr;
+            GodRaysPass*    s_godRays    = nullptr;
             BloomPass*      s_bloomPass  = nullptr;
             ToneMapPass*    s_toneMap    = nullptr;
             ColorGradePass* s_colorGrade = nullptr;
@@ -282,6 +286,9 @@ namespace PostProcess
                 // Fog after SSAO (AO darkens real geometry first), before bloom
                 // (bright sources still bloom through the haze).
                 add(std::make_unique<FogPass>(),        s_fog);
+                // God rays before bloom so the shafts themselves bloom, and
+                // before tone map so they roll off filmically with the scene.
+                add(std::make_unique<GodRaysPass>(),    s_godRays);
                 add(std::make_unique<BloomPass>(),      s_bloomPass);
                 add(std::make_unique<ToneMapPass>(),    s_toneMap);
                 add(std::make_unique<ColorGradePass>(), s_colorGrade);
@@ -305,6 +312,7 @@ namespace PostProcess
             // All were owned by s_passes, now cleared.
             s_ssao = nullptr;
             s_fog = nullptr;
+            s_godRays = nullptr;
             s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
             s_lut = nullptr;
             s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
@@ -377,6 +385,33 @@ namespace PostProcess
                 s_fog->SetStart(s.fogStart);
                 s_fog->SetHeightStrength(s.fogHeightStrength);
                 s_fog->SetHeightTop(s.fogHeightTop);
+            }
+            if (s_godRays)
+            {
+                s_godRays->SetActive(s.godRays);
+                // godRaysLightX is the sun AZIMUTH in degrees -> world horizontal
+                // direction (cos, sin). godRaysLightY is unused (legacy field).
+                const float sunRad = s.godRaysLightX * 0.01745329252f;
+                s_godRays->SetLightPos(std::cos(sunRad), std::sin(sunRad));
+                s_godRays->SetSunZ(s.godRaysSunZ);
+            }
+            // Publish the god-ray sun as the SHARED world sun so the legacy
+            // character/object shadow shear (BMD::RenderBodyShadow) follows the
+            // same direction — shadows and shafts stay consistent. Done outside
+            // the s_godRays guard so it applies even if the pass isn't registered.
+            {
+                const float sunRadG = s.godRaysLightX * 0.01745329252f;
+                BloodlustMU::g_SunDirection = { std::cos(sunRadG), std::sin(sunRadG), s.godRaysSunZ };
+            }
+            if (s_godRays)
+            {
+                s_godRays->SetDensity(s.godRaysDensity);
+                s_godRays->SetWeight(s.godRaysWeight);
+                s_godRays->SetDecay(s.godRaysDecay);
+                s_godRays->SetThreshold(s.godRaysThreshold);
+                s_godRays->SetIntensity(s.godRaysIntensity);
+                s_godRays->SetSamples(s.godRaysSamples);
+                s_godRays->SetColor(s.godRaysR, s.godRaysG, s.godRaysB);
             }
             if (s_bloomPass)
             {
@@ -543,10 +578,25 @@ namespace PostProcess
             // layout so the shader uploads it with transpose=GL_FALSE.
             float ppInvView[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
             bool  ppHasInvView = false;
+            float ppSunDirX = 0.0f, ppSunDirY = 0.0f;
+            bool  ppSunDirValid = false;
             {
                 GLfloat mv[16] = {0};
                 glGetFloatv(GL_MODELVIEW_MATRIX, mv);
                 ppHasInvView = InvertMatrix4(mv, ppInvView); // leaves identity on failure
+
+                // Sun screen-direction matched to the engine's FIXED character
+                // shadow shear. BMD::RenderBodyShadow / CalcShadowPosition shift
+                // ONLY world X (result[0] += height*(relX+2000)/(height-4000) ≈
+                // -0.5*height), leaving Y untouched — so character shadows fall
+                // along world -X and the sun sits along world +X. God-ray shadows
+                // fall opposite the march dir, so the march must head toward the
+                // screen projection of world (+1,0,0) = normalize(mv*(1,0,0)).xy.
+                // (mv is column-major: (mv*d).x = mv[0]*dx, .y = mv[1]*dx for d=X.)
+                const float sdx = mv[0];
+                const float sdy = mv[1];
+                const float sl  = std::sqrt(sdx * sdx + sdy * sdy);
+                if (sl > 1e-5f) { ppSunDirX = sdx / sl; ppSunDirY = sdy / sl; ppSunDirValid = true; }
             }
 
             // Force a clean, known state for the full-screen passes.
@@ -635,6 +685,9 @@ namespace PostProcess
                 ctx.tanHalfFovY    = ppTanY;
                 ctx.hasInvView     = ppHasInvView;
                 for (int k = 0; k < 16; ++k) ctx.invView[k] = ppInvView[k];
+                ctx.sunDirX        = ppSunDirX;
+                ctx.sunDirY        = ppSunDirY;
+                ctx.sunDirValid    = ppSunDirValid;
 
                 active[i]->Execute(ctx);
                 readTex = nextRead;

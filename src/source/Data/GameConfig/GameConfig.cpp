@@ -99,6 +99,19 @@ void GameConfig::Load()
     m_sharpenStrength  = ReadFloat(CfgSectionGraphics, CfgKeySharpenStrength, CfgDefaultSharpenStrength);
     m_filmGrain        = ReadBool (CfgSectionGraphics, CfgKeyFilmGrain, CfgDefaultFilmGrain);
     m_filmGrainStrength = ReadFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, CfgDefaultFilmGrainStrength);
+    m_godRays          = ReadBool (CfgSectionGraphics, CfgKeyGodRays, CfgDefaultGodRays);
+    m_godRaysLightX    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysLightX, CfgDefaultGodRaysLightX);
+    m_godRaysLightY    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysLightY, CfgDefaultGodRaysLightY);
+    m_godRaysSunZ      = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysSunZ, CfgDefaultGodRaysSunZ);
+    m_godRaysDensity   = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysDensity, CfgDefaultGodRaysDensity);
+    m_godRaysWeight    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysWeight, CfgDefaultGodRaysWeight);
+    m_godRaysDecay     = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysDecay, CfgDefaultGodRaysDecay);
+    m_godRaysThreshold = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysThreshold, CfgDefaultGodRaysThreshold);
+    m_godRaysIntensity = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysIntensity, CfgDefaultGodRaysIntensity);
+    m_godRaysSamples   = ReadInt  (CfgSectionGraphics, CfgKeyGodRaysSamples, CfgDefaultGodRaysSamples);
+    m_godRaysColorR    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorR, CfgDefaultGodRaysColorR);
+    m_godRaysColorG    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorG, CfgDefaultGodRaysColorG);
+    m_godRaysColorB    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, CfgDefaultGodRaysColorB);
     m_lut              = ReadBool  (CfgSectionGraphics, CfgKeyLut, CfgDefaultLut);
     m_lutFile          = ReadString(CfgSectionGraphics, CfgKeyLutFile, CfgDefaultLutFile);
 
@@ -191,6 +204,19 @@ void GameConfig::PersistGraphics()
     WriteFloat(CfgSectionGraphics, CfgKeySharpenStrength, m_sharpenStrength);
     WriteBool (CfgSectionGraphics, CfgKeyFilmGrain, m_filmGrain);
     WriteFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, m_filmGrainStrength);
+    WriteBool (CfgSectionGraphics, CfgKeyGodRays, m_godRays);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysLightX, m_godRaysLightX);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysLightY, m_godRaysLightY);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysSunZ, m_godRaysSunZ);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysDensity, m_godRaysDensity);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysWeight, m_godRaysWeight);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysDecay, m_godRaysDecay);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysThreshold, m_godRaysThreshold);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysIntensity, m_godRaysIntensity);
+    WriteInt  (CfgSectionGraphics, CfgKeyGodRaysSamples, m_godRaysSamples);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorR, m_godRaysColorR);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorG, m_godRaysColorG);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, m_godRaysColorB);
     WriteBool  (CfgSectionGraphics, CfgKeyLut, m_lut);
     WriteString(CfgSectionGraphics, CfgKeyLutFile, m_lutFile);
 }
@@ -536,6 +562,71 @@ void GameConfig::SetFilmGrainStrength(float v)
 {
     m_filmGrainStrength = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFilmGrainStrength, v);
+}
+void GameConfig::SetGodRays(bool v)
+{
+    m_godRays = v;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRays, v);
+}
+void GameConfig::SetGodRaysLightX(float v)
+{
+    m_godRaysLightX = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysLightX, v);
+}
+void GameConfig::SetGodRaysLightY(float v)
+{
+    m_godRaysLightY = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysLightY, v);
+}
+void GameConfig::SetGodRaysSunZ(float v)
+{
+    m_godRaysSunZ = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysSunZ, v);
+}
+void GameConfig::SetGodRaysDensity(float v)
+{
+    m_godRaysDensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysDensity, v);
+}
+void GameConfig::SetGodRaysWeight(float v)
+{
+    m_godRaysWeight = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysWeight, v);
+}
+void GameConfig::SetGodRaysDecay(float v)
+{
+    m_godRaysDecay = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysDecay, v);
+}
+void GameConfig::SetGodRaysThreshold(float v)
+{
+    m_godRaysThreshold = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysThreshold, v);
+}
+void GameConfig::SetGodRaysIntensity(float v)
+{
+    m_godRaysIntensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysIntensity, v);
+}
+void GameConfig::SetGodRaysSamples(int v)
+{
+    m_godRaysSamples = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysSamples, v);
+}
+void GameConfig::SetGodRaysColorR(float v)
+{
+    m_godRaysColorR = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorR, v);
+}
+void GameConfig::SetGodRaysColorG(float v)
+{
+    m_godRaysColorG = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorG, v);
+}
+void GameConfig::SetGodRaysColorB(float v)
+{
+    m_godRaysColorB = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorB, v);
 }
 void GameConfig::SetLut(bool enabled)
 {

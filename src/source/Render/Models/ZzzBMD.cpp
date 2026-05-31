@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/SunDirection.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Engine/Object/ZzzInfomation.h" 
 #include "ZzzBMD.h"
@@ -2230,8 +2231,12 @@ __forceinline void CalcShadowPosition(vec3_t* position, const vec3_t origin, con
     // The result is the relative coordinate of the vertex to the origin.
     VectorSubtract(result, origin, result)
 
-    // scale the shadow in the x direction
-    result[0] += result[2] * (result[0] + sx) / (result[2] - sy);
+    // Directional shadow shear from the shared sun: sx, sy are the per-height
+    // shear in world X and Y (see BloodlustMU::GetShadowShear). result[2] is the
+    // vertex height above the origin. Replaces the legacy fixed-X perspective skew
+    // so shadows follow the sun azimuth and line up with the god rays.
+    result[0] += result[2] * sx;
+    result[1] += result[2] * sy;
 
     // Add the origin again, to get the absolute coordinate of the vertex again
     VectorAdd(result, origin, result);
@@ -2381,8 +2386,11 @@ void BMD::RenderBodyShadow(const int blendMesh, const int hiddenMesh, const int 
         endMesh = endMeshNumber;
     }
 
-    const float sx = gMapManager.InBattleCastle() ? 2500.f : 2000.f;
-    const float sy = 4000.f;
+    // Shadow shear now comes from the shared world sun (which also drives the
+    // god rays), so characters/objects and the volumetric shafts agree. The
+    // default sun reproduces the legacy look (shearX ≈ -0.5, shearY = 0).
+    float sx, sy;
+    BloodlustMU::GetShadowShear(sx, sy);
 
     auto drawShadowGeometry = [&]()
     {

@@ -74,6 +74,19 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeySharpenStrength[] = L"SharpenStrength";
     inline constexpr wchar_t CfgKeyFilmGrain[]       = L"FilmGrain";
     inline constexpr wchar_t CfgKeyFilmGrainStrength[] = L"FilmGrainStrength";
+    inline constexpr wchar_t CfgKeyGodRays[]          = L"GodRays";
+    inline constexpr wchar_t CfgKeyGodRaysLightX[]    = L"GodRaysLightX";
+    inline constexpr wchar_t CfgKeyGodRaysLightY[]    = L"GodRaysLightY";
+    inline constexpr wchar_t CfgKeyGodRaysSunZ[]      = L"GodRaysSunZ";
+    inline constexpr wchar_t CfgKeyGodRaysDensity[]   = L"GodRaysDensity";
+    inline constexpr wchar_t CfgKeyGodRaysWeight[]    = L"GodRaysWeight";
+    inline constexpr wchar_t CfgKeyGodRaysDecay[]     = L"GodRaysDecay";
+    inline constexpr wchar_t CfgKeyGodRaysThreshold[] = L"GodRaysThreshold";
+    inline constexpr wchar_t CfgKeyGodRaysIntensity[] = L"GodRaysIntensity";
+    inline constexpr wchar_t CfgKeyGodRaysSamples[]   = L"GodRaysSamples";
+    inline constexpr wchar_t CfgKeyGodRaysColorR[]    = L"GodRaysColorR";
+    inline constexpr wchar_t CfgKeyGodRaysColorG[]    = L"GodRaysColorG";
+    inline constexpr wchar_t CfgKeyGodRaysColorB[]    = L"GodRaysColorB";
     inline constexpr wchar_t CfgKeyLut[]             = L"LUT";
     inline constexpr wchar_t CfgKeyLutFile[]         = L"LUTFile";
 }
@@ -164,6 +177,22 @@ namespace CfgDefaults
 
     inline constexpr bool  CfgDefaultFilmGrain      = true;
     inline constexpr float CfgDefaultFilmGrainStrength = 0.05f;
+
+    // God rays off by default (opt-in, most dramatic outdoors). Light position
+    // is screen-space UV; warm-white tint. Tuned GPU Gems defaults.
+    inline constexpr bool  CfgDefaultGodRays          = false;
+    inline constexpr float CfgDefaultGodRaysLightX    = 0.0f;   // sun AZIMUTH degrees (0 = world +X = legacy)
+    inline constexpr float CfgDefaultGodRaysLightY    = 0.0f;   // unused (legacy)
+    inline constexpr float CfgDefaultGodRaysSunZ      = 2.0f;   // sun world dir Z (up; default → legacy shadow look)
+    inline constexpr float CfgDefaultGodRaysDensity   = 0.9f;
+    inline constexpr float CfgDefaultGodRaysWeight    = 0.5f;
+    inline constexpr float CfgDefaultGodRaysDecay     = 0.95f;
+    inline constexpr float CfgDefaultGodRaysThreshold = 100.0f; // occluder height (world units above ground)
+    inline constexpr float CfgDefaultGodRaysIntensity = 0.6f;
+    inline constexpr int   CfgDefaultGodRaysSamples   = 64;
+    inline constexpr float CfgDefaultGodRaysColorR    = 1.0f;
+    inline constexpr float CfgDefaultGodRaysColorG    = 0.9f;
+    inline constexpr float CfgDefaultGodRaysColorB    = 0.7f;
 
     // LUT (.cube color grade) off by default; "look.cube" ships in
     // Data/PostProcess/ so selecting it in the editor Just Works.

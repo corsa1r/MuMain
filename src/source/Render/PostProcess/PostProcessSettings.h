@@ -81,5 +81,21 @@ namespace PostProcess
         // Film grain / dither (breaks 8-bit banding in dark gradients)
         bool  filmGrain       = true;
         float filmGrainStrength = 0.05f; // additive noise amplitude
+
+        // God rays (screen-space volumetric light shafts). Off by default —
+        // opt-in, most dramatic on outdoor maps. Light position is in screen UV.
+        bool  godRays          = false;
+        float godRaysLightX    = 0.0f;   // sun AZIMUTH in degrees (0..360); 0 = world +X (legacy shadow dir)
+        float godRaysLightY    = 0.0f;   // unused (legacy field; azimuth now lives in godRaysLightX)
+        float godRaysSunZ      = 2.0f;   // sun height/elevation; higher = sun more overhead = shorter shadows
+        float godRaysDensity   = 0.9f;   // shaft reach toward the light
+        float godRaysWeight    = 0.5f;   // per-sample contribution
+        float godRaysDecay     = 0.95f;  // per-step falloff along the shaft
+        float godRaysThreshold = 100.0f; // occluder height: world-Z above local ground that blocks light
+        float godRaysIntensity = 0.6f;   // final additive scale
+        int   godRaysSamples   = 64;     // radial march steps (quality vs cost)
+        float godRaysR         = 1.0f;   // ray tint (warm white)
+        float godRaysG         = 0.9f;
+        float godRaysB         = 0.7f;
     };
 }

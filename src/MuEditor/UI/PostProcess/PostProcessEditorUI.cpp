@@ -60,6 +60,19 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.sharpenStrength   = c.GetSharpenStrength();
     m_settings.filmGrain         = c.GetFilmGrain();
     m_settings.filmGrainStrength  = c.GetFilmGrainStrength();
+    m_settings.godRays           = c.GetGodRays();
+    m_settings.godRaysLightX     = c.GetGodRaysLightX();
+    m_settings.godRaysLightY     = c.GetGodRaysLightY();
+    m_settings.godRaysSunZ       = c.GetGodRaysSunZ();
+    m_settings.godRaysDensity    = c.GetGodRaysDensity();
+    m_settings.godRaysWeight     = c.GetGodRaysWeight();
+    m_settings.godRaysDecay      = c.GetGodRaysDecay();
+    m_settings.godRaysThreshold  = c.GetGodRaysThreshold();
+    m_settings.godRaysIntensity  = c.GetGodRaysIntensity();
+    m_settings.godRaysSamples    = c.GetGodRaysSamples();
+    m_settings.godRaysR          = c.GetGodRaysColorR();
+    m_settings.godRaysG          = c.GetGodRaysColorG();
+    m_settings.godRaysB          = c.GetGodRaysColorB();
     m_settings.lut               = c.GetLut();
     {
         const std::wstring wf = c.GetLutFile();   // narrow (ASCII filename)
@@ -107,6 +120,19 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetSharpenStrength(m_settings.sharpenStrength);
     c.SetFilmGrain(m_settings.filmGrain);
     c.SetFilmGrainStrength(m_settings.filmGrainStrength);
+    c.SetGodRays(m_settings.godRays);
+    c.SetGodRaysLightX(m_settings.godRaysLightX);
+    c.SetGodRaysLightY(m_settings.godRaysLightY);
+    c.SetGodRaysSunZ(m_settings.godRaysSunZ);
+    c.SetGodRaysDensity(m_settings.godRaysDensity);
+    c.SetGodRaysWeight(m_settings.godRaysWeight);
+    c.SetGodRaysDecay(m_settings.godRaysDecay);
+    c.SetGodRaysThreshold(m_settings.godRaysThreshold);
+    c.SetGodRaysIntensity(m_settings.godRaysIntensity);
+    c.SetGodRaysSamples(m_settings.godRaysSamples);
+    c.SetGodRaysColorR(m_settings.godRaysR);
+    c.SetGodRaysColorG(m_settings.godRaysG);
+    c.SetGodRaysColorB(m_settings.godRaysB);
     c.SetLut(m_settings.lut);
     {
         const std::string& f = m_settings.lutFile;   // widen (ASCII filename)
@@ -221,6 +247,29 @@ void CPostProcessEditorUI::Render()
         changed |= ImGui::SliderFloat("Height Str##fog", &m_settings.fogHeightStrength, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::SliderFloat("Height Top##fog", &m_settings.fogHeightTop, 0.0f, 1000.0f, "%.0f");
         ImGui::TextDisabled("Depth haze; Start=where it begins, Height=low mist.");
+    }
+
+    if (ImGui::CollapsingHeader("God Rays", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##god", &m_settings.godRays);
+        changed |= ImGui::SliderFloat("Sun Angle##god", &m_settings.godRaysLightX, 0.0f, 360.0f, "%.0f deg");
+        changed |= ImGui::SliderFloat("Sun Height Z##god", &m_settings.godRaysSunZ, 0.2f, 4.0f, "%.2f");
+        float gcol[3] = { m_settings.godRaysR, m_settings.godRaysG, m_settings.godRaysB };
+        if (ImGui::ColorEdit3("Tint##god", gcol))
+        {
+            m_settings.godRaysR = gcol[0]; m_settings.godRaysG = gcol[1]; m_settings.godRaysB = gcol[2];
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Intensity##god", &m_settings.godRaysIntensity, 0.0f, 3.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Shadow Len##god", &m_settings.godRaysDensity, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Shadow Dark##god", &m_settings.godRaysWeight, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Decay##god", &m_settings.godRaysDecay, 0.8f, 1.0f, "%.3f");
+        changed |= ImGui::SliderFloat("Occluder Hgt##god", &m_settings.godRaysThreshold, 0.0f, 400.0f, "%.0f");
+        changed |= ImGui::SliderInt("Samples##god", &m_settings.godRaysSamples, 16, 128);
+        ImGui::TextDisabled("Sun Angle = azimuth (0-360 deg), Sun Height Z = elevation.");
+        ImGui::TextDisabled("Drives BOTH the god rays AND the character shadows (they");
+        ImGui::TextDisabled("follow the sun). Shadow Len/Decay = ray length/fade;");
+        ImGui::TextDisabled("Shadow Dark = darken; Intensity = beam; Occluder Hgt = min ht.");
     }
 
     if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
