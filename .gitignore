@@ -43,3 +43,4 @@ build-mingw/
 docs/reviews/
 
 *.bat
+tools

@@ -24,6 +24,9 @@
 // once from [Graphics] Anisotropic* by Winmain after GL init; declared extern in
 // ZzzOpenglUtil.h so Winmain can set it.
 float g_AnisotropyLevel = 1.0f;
+// Mip LOD bias for mipmapped textures (see ZzzOpenglUtil.h). 0 = neutral,
+// negative = sharper. Set from config by Winmain.
+float g_TextureLodBias = 0.0f;
 
 namespace
 {
@@ -66,6 +69,10 @@ namespace
         pGenerateMipmap(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, level);
+        // Sharpen mipmapped textures by biasing toward higher-detail mips
+        // (negative = sharper). GL_TEXTURE_LOD_BIAS is core since GL 1.4.
+        if (g_TextureLodBias != 0.0f)
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, g_TextureLodBias);
     }
 }
 

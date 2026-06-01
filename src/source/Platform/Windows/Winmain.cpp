@@ -11,6 +11,7 @@
 #include "UI/Legacy/UIWindows.h"
 #include "UI/Legacy/UIManager.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
+#include "Render/Terrain/ZzzLodTerrain.h"   // g_TerrainTilingScale
 #include "Render/Textures/ZzzTexture.h"
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/PostProcess/PostProcessChain.h"
@@ -1513,6 +1514,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         g_AnisotropyLevel = acfg.GetAnisotropic()
             ? static_cast<float>(acfg.GetAnisotropicLevel())
             : 1.0f;
+        g_TextureLodBias = acfg.GetTextureLodBias();
+        g_TerrainTilingScale = acfg.GetTerrainTiling();
         g_ErrorReport.Write(L"> Anisotropic filtering: %s (level=%d).\r\n",
             acfg.GetAnisotropic() ? L"ON" : L"OFF", acfg.GetAnisotropicLevel());
     }

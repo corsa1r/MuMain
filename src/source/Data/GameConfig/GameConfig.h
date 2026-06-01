@@ -191,6 +191,10 @@ public:
     int  GetAnisotropicLevel() const { return m_anisotropicLevel; }
     void SetAnisotropic(bool enabled);
     void SetAnisotropicLevel(int level);
+    float GetTextureLodBias() const { return m_textureLodBias; }
+    void  SetTextureLodBias(float v);
+    float GetTerrainTiling() const { return m_terrainTiling; }
+    void  SetTerrainTiling(float v);
 
     // Helpers
     static std::wstring BinaryToHex(const BYTE* data, DWORD size);
@@ -227,6 +231,8 @@ private:
     bool m_ppGlobalOverride;
     bool m_anisotropic;
     int  m_anisotropicLevel;
+    float m_textureLodBias;
+    float m_terrainTiling;
     bool  m_ssao;
     float m_ssaoRadius;
     float m_ssaoStrength;

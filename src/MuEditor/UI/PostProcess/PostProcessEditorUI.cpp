@@ -314,7 +314,7 @@ void CPostProcessEditorUI::Render()
     if (ImGui::CollapsingHeader("Sharpen", ImGuiTreeNodeFlags_DefaultOpen))
     {
         changed |= ImGui::Checkbox("Enabled##sharp", &m_settings.sharpen);
-        changed |= ImGui::SliderFloat("Strength##sharp", &m_settings.sharpenStrength, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Strength##sharp", &m_settings.sharpenStrength, 0.0f, 2.0f, "%.2f");
     }
 
     if (ImGui::CollapsingHeader("Vignette", ImGuiTreeNodeFlags_DefaultOpen))

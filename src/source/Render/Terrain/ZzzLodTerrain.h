@@ -101,6 +101,10 @@ void RenderSun();
 
 extern float SelectXF;
 extern float SelectYF;
+// Terrain texture tiling density multiplier. 1.0 = legacy. Raise to repeat the
+// ground texture more often (e.g. 4.0 cancels a 4x texture upscale so the extra
+// resolution adds density instead of stretching). Set from [Graphics] TerrainTiling.
+extern float g_TerrainTilingScale;
 extern int   CurrentLayer;
 
 extern const float g_fMinHeight;

@@ -64,6 +64,8 @@ void GameConfig::Load()
     m_ppGlobalOverride = ReadBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, CfgDefaultPPGlobalOverride);
     m_anisotropic      = ReadBool (CfgSectionGraphics, CfgKeyAnisotropic, CfgDefaultAnisotropic);
     m_anisotropicLevel = ReadInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, CfgDefaultAnisotropicLevel);
+    m_textureLodBias   = ReadFloat(CfgSectionGraphics, CfgKeyTextureLodBias, CfgDefaultTextureLodBias);
+    m_terrainTiling    = ReadFloat(CfgSectionGraphics, CfgKeyTerrainTiling, CfgDefaultTerrainTiling);
     m_ssao             = ReadBool (CfgSectionGraphics, CfgKeySSAO, CfgDefaultSSAO);
     m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
     m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
@@ -169,6 +171,8 @@ void GameConfig::PersistGraphics()
     WriteBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, m_ppGlobalOverride);
     WriteBool (CfgSectionGraphics, CfgKeyAnisotropic, m_anisotropic);
     WriteInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, m_anisotropicLevel);
+    WriteFloat(CfgSectionGraphics, CfgKeyTextureLodBias, m_textureLodBias);
+    WriteFloat(CfgSectionGraphics, CfgKeyTerrainTiling, m_terrainTiling);
     WriteBool (CfgSectionGraphics, CfgKeySSAO, m_ssao);
     WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
@@ -376,6 +380,16 @@ void GameConfig::SetAnisotropic(bool enabled)
 {
     m_anisotropic = enabled;
     WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyAnisotropic, enabled);
+}
+void GameConfig::SetTextureLodBias(float v)
+{
+    m_textureLodBias = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyTextureLodBias, v);
+}
+void GameConfig::SetTerrainTiling(float v)
+{
+    m_terrainTiling = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyTerrainTiling, v);
 }
 void GameConfig::SetAnisotropicLevel(int level)
 {

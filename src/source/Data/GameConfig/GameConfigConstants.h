@@ -39,6 +39,8 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyPPGlobalOverride[] = L"GlobalOverride";
     inline constexpr wchar_t CfgKeyAnisotropic[]      = L"Anisotropic";
     inline constexpr wchar_t CfgKeyAnisotropicLevel[] = L"AnisotropicLevel";
+    inline constexpr wchar_t CfgKeyTextureLodBias[]   = L"TextureLodBias";
+    inline constexpr wchar_t CfgKeyTerrainTiling[]    = L"TerrainTiling";
     inline constexpr wchar_t CfgKeySSAO[]            = L"SSAO";
     inline constexpr wchar_t CfgKeySSAORadius[]      = L"SSAORadius";
     inline constexpr wchar_t CfgKeySSAOStrength[]    = L"SSAOStrength";
@@ -124,6 +126,13 @@ namespace CfgDefaults
     // the driver's GL_MAX_TEXTURE_MAX_ANISOTROPY at apply time).
     inline constexpr bool CfgDefaultAnisotropic      = true;
     inline constexpr int  CfgDefaultAnisotropicLevel = 16;
+    // Mip LOD bias for mipmapped textures: negative = sharper. -0.5 is a mild
+    // crispness boost for the low-res world/character art with little aliasing.
+    inline constexpr float CfgDefaultTextureLodBias  = -0.5f;
+    // Terrain texture tiling density. 1.0 = legacy. Set to match the terrain
+    // texture upscale factor (e.g. 4.0 for x4 tiles) so the added resolution
+    // increases ground detail density instead of stretching the pattern.
+    inline constexpr float CfgDefaultTerrainTiling   = 1.0f;
 
     // SSAO off by default (heaviest, most scene-dependent effect).
     inline constexpr bool  CfgDefaultSSAO         = false;

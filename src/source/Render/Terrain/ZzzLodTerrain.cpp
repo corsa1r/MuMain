@@ -85,6 +85,8 @@ WORD            TerrainWall[TERRAIN_SIZE * TERRAIN_SIZE];
 float           SelectXF;
 float           SelectYF;
 float           WaterMove;
+// Terrain tiling density multiplier (see ZzzLodTerrain.h). 1.0 = legacy untouched.
+float           g_TerrainTilingScale = 1.0f;
 int             CurrentLayer;
 
 float           g_fSpecialHeight = 1200.f;
@@ -1526,17 +1528,15 @@ void FaceTexture(int Texture, float xf, float yf, bool Water, bool Scale)
     vec3_t Light, Pos;
     Vector(0.30f, 0.40f, 0.20f, Light);
     BITMAP_t* b = &Bitmaps[BITMAP_MAPTILE + Texture];
-    float Width, Height;
-    if (Scale)
-    {
-        Width = 16.f / b->Width;
-        Height = 16.f / b->Height;
-    }
-    else
-    {
-        Width = 64.f / b->Width;
-        Height = 64.f / b->Height;
-    }
+    // Tile UV span per terrain cell = ref / texturePixels, so a 256px tile spans
+    // 4 cells (64/256). When tiles are AI-upscaled (e.g. 256->1024) b->Width grows
+    // and the span shrinks, stretching the texture across 4x more cells (the
+    // "tiling got bigger" look). g_TerrainTilingScale multiplies the span back so
+    // the upscaled texture repeats at the ORIGINAL density — packing the extra
+    // texels into the same ground = ~4x crisper. Default 1.0 = legacy untouched.
+    const float ref = Scale ? 16.f : 64.f;
+    float Width  = (ref / b->Width)  * g_TerrainTilingScale;
+    float Height = (ref / b->Height) * g_TerrainTilingScale;
     float suf = xf * Width;
     float svf = yf * Height;
     if (!Water)
@@ -1660,7 +1660,13 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
             BITMAP_t* pBitmap = Bitmaps.FindTexture(Texture);
             if (pBitmap)
             {
-                float Height = pBitmap->Height * 2.f;
+                // Grass billboard WORLD height derives from the texture's pixel
+                // height (*2). When the grass texture is AI-upscaled (e.g. 64->256)
+                // that makes the blades render 4x taller. Divide by the same
+                // upscale factor (g_TerrainTilingScale) so the geometry height
+                // stays the original regardless of texture resolution. Default
+                // 1.0 = legacy untouched.
+                float Height = pBitmap->Height * 2.f / g_TerrainTilingScale;
                 BindTexture(Texture);
 
                 if (gMapManager.IsPKField() || IsDoppelGanger2())
