@@ -1591,6 +1591,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
             const std::wstring wf = cfg.GetLutFile();
             pps.lutFile.assign(wf.begin(), wf.end());
         }
+        pps.perPixelLighting  = cfg.GetPerPixelLighting();
+        pps.normalMapStrength = cfg.GetNormalMapStrength();
+        pps.specularStrength  = cfg.GetSpecularStrength();
+        pps.specularPower     = cfg.GetSpecularPower();
         PostProcess::Chain::ApplySettings(pps);
 
         // Seed the per-map preset system with this global look + the override

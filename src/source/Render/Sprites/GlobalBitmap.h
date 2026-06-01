@@ -26,6 +26,7 @@ struct BITMAP_t
     float Height;
     char Components;
     GLuint TextureNumber;
+    GLuint NormalTextureNumber = 0;   // 0 = none; sibling <name>_n.* normal map (per-pixel lighting)
     std::uint8_t Ref;
     bool IsSkin;
     bool IsHair;

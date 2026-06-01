@@ -97,5 +97,13 @@ namespace PostProcess
         float godRaysR         = 1.0f;   // ray tint (warm white)
         float godRaysG         = 0.9f;
         float godRaysB         = 0.7f;
+
+        // Per-pixel model lighting + normal mapping (geometry shading, NOT a
+        // screen-space pass). Distributed by Chain::ApplySettings to the
+        // ModelLighting module. Off by default => legacy per-vertex CPU lighting.
+        bool  perPixelLighting  = false;
+        float normalMapStrength = 1.0f;  // tangent-normal perturbation (0 = flat)
+        float specularStrength  = 0.30f; // Blinn-Phong glint (0 = off)
+        float specularPower     = 24.0f; // highlight tightness (higher = sharper)
     };
 }

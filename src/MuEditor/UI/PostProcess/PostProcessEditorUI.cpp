@@ -78,6 +78,10 @@ void CPostProcessEditorUI::LoadFromConfig()
         const std::wstring wf = c.GetLutFile();   // narrow (ASCII filename)
         m_settings.lutFile.assign(wf.begin(), wf.end());
     }
+    m_settings.perPixelLighting  = c.GetPerPixelLighting();
+    m_settings.normalMapStrength = c.GetNormalMapStrength();
+    m_settings.specularStrength  = c.GetSpecularStrength();
+    m_settings.specularPower     = c.GetSpecularPower();
     m_loaded = true;
 }
 
@@ -138,6 +142,10 @@ void CPostProcessEditorUI::SaveToConfig()
         const std::string& f = m_settings.lutFile;   // widen (ASCII filename)
         c.SetLutFile(std::wstring(f.begin(), f.end()));
     }
+    c.SetPerPixelLighting(m_settings.perPixelLighting);
+    c.SetNormalMapStrength(m_settings.normalMapStrength);
+    c.SetSpecularStrength(m_settings.specularStrength);
+    c.SetSpecularPower(m_settings.specularPower);
 }
 
 void CPostProcessEditorUI::ApplyLive()
@@ -223,6 +231,17 @@ void CPostProcessEditorUI::Render()
         ImGui::TextDisabled("'Save to config.ini' (below) sets the GLOBAL/fallback look.");
     }
     ImGui::Separator();
+
+    if (ImGui::CollapsingHeader("Per-Pixel Lighting (models)", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##ppl", &m_settings.perPixelLighting);
+        changed |= ImGui::SliderFloat("Normal Strength##ppl", &m_settings.normalMapStrength, 0.0f, 3.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Specular Strength##ppl", &m_settings.specularStrength, 0.0f, 1.5f, "%.2f");
+        changed |= ImGui::SliderFloat("Specular Power##ppl", &m_settings.specularPower, 1.0f, 128.0f, "%.0f");
+        ImGui::TextDisabled("Per-pixel relief + glint on characters/monsters/objects.");
+        ImGui::TextDisabled("Needs generated *_n normal maps (tools/upscale/gen_normals.ps1).");
+        ImGui::TextDisabled("Also gated by the PostProcess master toggle above.");
+    }
 
     if (ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
     {

@@ -110,6 +110,10 @@ namespace PostProcess
                 WF(p, L"GodRaysIntensity", s.godRaysIntensity); WI(p, L"GodRaysSamples", s.godRaysSamples);
                 WF(p, L"GodRaysColorR", s.godRaysR); WF(p, L"GodRaysColorG", s.godRaysG); WF(p, L"GodRaysColorB", s.godRaysB);
                 WB(p, L"LUT", s.lut); WS(p, L"LUTFile", s.lutFile);
+                WB(p, L"PerPixelLighting", s.perPixelLighting);
+                WF(p, L"NormalMapStrength", s.normalMapStrength);
+                WF(p, L"SpecularStrength", s.specularStrength);
+                WF(p, L"SpecularPower", s.specularPower);
             }
             void ReadAll(const std::wstring& p, Settings& s)
             {
@@ -142,6 +146,10 @@ namespace PostProcess
                 s.godRaysIntensity = RF(p, L"GodRaysIntensity", d.godRaysIntensity); s.godRaysSamples = RI(p, L"GodRaysSamples", d.godRaysSamples);
                 s.godRaysR = RF(p, L"GodRaysColorR", d.godRaysR); s.godRaysG = RF(p, L"GodRaysColorG", d.godRaysG); s.godRaysB = RF(p, L"GodRaysColorB", d.godRaysB);
                 s.lut = RB(p, L"LUT", d.lut); s.lutFile = RS(p, L"LUTFile", d.lutFile);
+                s.perPixelLighting  = RB(p, L"PerPixelLighting", d.perPixelLighting);
+                s.normalMapStrength = RF(p, L"NormalMapStrength", d.normalMapStrength);
+                s.specularStrength  = RF(p, L"SpecularStrength", d.specularStrength);
+                s.specularPower     = RF(p, L"SpecularPower", d.specularPower);
             }
         } // namespace
 

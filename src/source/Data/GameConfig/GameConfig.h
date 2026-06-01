@@ -159,6 +159,17 @@ public:
     void SetLut(bool enabled);
     void SetLutFile(const std::wstring& file);
 
+    // [Graphics] Per-pixel model lighting + normal mapping. Read-only here;
+    // tuned in config.ini. Off => legacy per-vertex CPU lighting (pixel-parity).
+    bool  GetPerPixelLighting()  const { return m_perPixelLighting; }
+    float GetNormalMapStrength() const { return m_normalMapStrength; }
+    float GetSpecularStrength()  const { return m_specularStrength; }
+    float GetSpecularPower()     const { return m_specularPower; }
+    void  SetPerPixelLighting(bool enabled);
+    void  SetNormalMapStrength(float v);
+    void  SetSpecularStrength(float v);
+    void  SetSpecularPower(float v);
+
     // [Graphics] — setters used by the live editor panel's "Save to config.ini".
     // Each updates the in-memory value and writes it through to config.ini.
     void SetBloomThreshold(float v);
@@ -283,6 +294,10 @@ private:
     float m_godRaysColorB;
     bool         m_lut;
     std::wstring m_lutFile;
+    bool  m_perPixelLighting;
+    float m_normalMapStrength;
+    float m_specularStrength;
+    float m_specularPower;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);

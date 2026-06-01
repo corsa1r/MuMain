@@ -116,6 +116,10 @@ void GameConfig::Load()
     m_godRaysColorB    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, CfgDefaultGodRaysColorB);
     m_lut              = ReadBool  (CfgSectionGraphics, CfgKeyLut, CfgDefaultLut);
     m_lutFile          = ReadString(CfgSectionGraphics, CfgKeyLutFile, CfgDefaultLutFile);
+    m_perPixelLighting  = ReadBool (CfgSectionGraphics, CfgKeyPerPixelLighting, CfgDefaultPerPixelLighting);
+    m_normalMapStrength = ReadFloat(CfgSectionGraphics, CfgKeyNormalMapStrength, CfgDefaultNormalMapStrength);
+    m_specularStrength  = ReadFloat(CfgSectionGraphics, CfgKeySpecularStrength, CfgDefaultSpecularStrength);
+    m_specularPower     = ReadFloat(CfgSectionGraphics, CfgKeySpecularPower, CfgDefaultSpecularPower);
 
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
@@ -223,6 +227,10 @@ void GameConfig::PersistGraphics()
     WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, m_godRaysColorB);
     WriteBool  (CfgSectionGraphics, CfgKeyLut, m_lut);
     WriteString(CfgSectionGraphics, CfgKeyLutFile, m_lutFile);
+    WriteBool  (CfgSectionGraphics, CfgKeyPerPixelLighting, m_perPixelLighting);
+    WriteFloat (CfgSectionGraphics, CfgKeyNormalMapStrength, m_normalMapStrength);
+    WriteFloat (CfgSectionGraphics, CfgKeySpecularStrength, m_specularStrength);
+    WriteFloat (CfgSectionGraphics, CfgKeySpecularPower, m_specularPower);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -651,6 +659,26 @@ void GameConfig::SetLutFile(const std::wstring& file)
 {
     m_lutFile = file;
     WriteString(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyLutFile, file);
+}
+void GameConfig::SetPerPixelLighting(bool enabled)
+{
+    m_perPixelLighting = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPerPixelLighting, enabled);
+}
+void GameConfig::SetNormalMapStrength(float v)
+{
+    m_normalMapStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyNormalMapStrength, v);
+}
+void GameConfig::SetSpecularStrength(float v)
+{
+    m_specularStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySpecularStrength, v);
+}
+void GameConfig::SetSpecularPower(float v)
+{
+    m_specularPower = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySpecularPower, v);
 }
 
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)

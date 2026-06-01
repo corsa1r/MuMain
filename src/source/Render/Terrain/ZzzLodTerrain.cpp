@@ -9,6 +9,8 @@
 #include <iterator>
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
+#include "Render/Models/ModelShader.h"
+#include "Render/Sprites/GlobalBitmap.h"
 #include "ZzzLodTerrain.h"
 #include "Engine/Pathing/ZzzPath.h"
 #include "Render/Textures/ZzzTexture.h"
@@ -1245,10 +1247,15 @@ inline void Interpolation(int mx, int my)
     }
 }
 
+// The base RenderFace pass emits a surface normal per corner (TerrainNormal)
+// alongside the existing color/uv. Harmless to the legacy fixed-function path
+// (terrain has GL lighting off, so gl_Normal is ignored); consumed by the
+// additive terrain shader (ModelLighting::BeginTerrain) when active.
 inline void Vertex0()
 {
     glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex1]);
+    glNormal3fv(TerrainNormal[TerrainIndex1]);
     glVertex3fv(TerrainVertex[0]);
 }
 
@@ -1256,6 +1263,7 @@ inline void Vertex1()
 {
     glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex2]);
+    glNormal3fv(TerrainNormal[TerrainIndex2]);
     glVertex3fv(TerrainVertex[1]);
 }
 
@@ -1263,6 +1271,7 @@ inline void Vertex2()
 {
     glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex3]);
+    glNormal3fv(TerrainNormal[TerrainIndex3]);
     glVertex3fv(TerrainVertex[2]);
 }
 
@@ -1270,6 +1279,7 @@ inline void Vertex3()
 {
     glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex4]);
+    glNormal3fv(TerrainNormal[TerrainIndex4]);
     glVertex3fv(TerrainVertex[3]);
 }
 
@@ -1313,6 +1323,7 @@ inline void VertexAlpha0()
     glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex1][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex1]);
+    glNormal3fv(TerrainNormal[TerrainIndex1]);
     glVertex3fv(TerrainVertex[0]);
 }
 
@@ -1321,6 +1332,7 @@ inline void VertexAlpha1()
     glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex2][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex2]);
+    glNormal3fv(TerrainNormal[TerrainIndex2]);
     glVertex3fv(TerrainVertex[1]);
 }
 
@@ -1329,6 +1341,7 @@ inline void VertexAlpha2()
     glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex3][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex3]);
+    glNormal3fv(TerrainNormal[TerrainIndex3]);
     glVertex3fv(TerrainVertex[2]);
 }
 
@@ -1337,6 +1350,7 @@ inline void VertexAlpha3()
     glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex4][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex4]);
+    glNormal3fv(TerrainNormal[TerrainIndex4]);
     glVertex3fv(TerrainVertex[3]);
 }
 
@@ -1472,12 +1486,27 @@ void RenderFace(int Texture, int mx, int my)
         DisableAlphaBlend();
     BindTexture(BITMAP_MAPTILE + Texture);
 
+    // Additive per-pixel relief on the base ground layer: only when the feature
+    // is active AND this tile has a sibling normal map. Tiles without one fall
+    // through to the unchanged fixed-function draw (exact legacy look). Blend/
+    // alpha/water passes are intentionally left legacy (different semantics).
+    GLuint terrainNrm = 0;
+    const bool terrainShader = ModelLighting::Active();
+    if (terrainShader)
+    {
+        BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
+        if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
+    }
+    const bool wrap = terrainShader && terrainNrm != 0;
+
+    if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);
     Vertex0();
     Vertex1();
     Vertex2();
     Vertex3();
     glEnd();
+    if (wrap) ModelLighting::EndTerrain();
 }
 
 void RenderFace_After(int Texture, int mx, int my)
@@ -1503,12 +1532,27 @@ void RenderFaceAlpha(int Texture, int mx, int my)
 {
     EnableAlphaTest();
     BindTexture(BITMAP_MAPTILE + Texture);
+
+    // Layer-2 overlay: same additive relief as the base pass. The shader carries
+    // the per-vertex blend alpha through (outA = texColor.a * vColor.a), matching
+    // the legacy GL_MODULATE cutout. Only when this tile has a normal map.
+    GLuint terrainNrm = 0;
+    const bool terrainShader = ModelLighting::Active();
+    if (terrainShader)
+    {
+        BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
+        if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
+    }
+    const bool wrap = terrainShader && terrainNrm != 0;
+
+    if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);
     VertexAlpha0();
     VertexAlpha1();
     VertexAlpha2();
     VertexAlpha3();
     glEnd();
+    if (wrap) ModelLighting::EndTerrain();
 }
 
 void RenderFaceBlend(int Texture, int mx, int my)

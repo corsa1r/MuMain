@@ -91,6 +91,13 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyGodRaysColorB[]    = L"GodRaysColorB";
     inline constexpr wchar_t CfgKeyLut[]             = L"LUT";
     inline constexpr wchar_t CfgKeyLutFile[]         = L"LUTFile";
+
+    // Graphics — per-pixel model lighting + normal mapping (geometry, not a
+    // screen-space post pass).
+    inline constexpr wchar_t CfgKeyPerPixelLighting[] = L"PerPixelLighting";
+    inline constexpr wchar_t CfgKeyNormalMapStrength[] = L"NormalMapStrength";
+    inline constexpr wchar_t CfgKeySpecularStrength[]  = L"SpecularStrength";
+    inline constexpr wchar_t CfgKeySpecularPower[]     = L"SpecularPower";
 }
 
 namespace CfgDefaults
@@ -207,4 +214,14 @@ namespace CfgDefaults
     // Data/PostProcess/ so selecting it in the editor Just Works.
     inline constexpr bool     CfgDefaultLut       = false;
     inline constexpr wchar_t  CfgDefaultLutFile[] = L"look.cube";
+
+    // Per-pixel model lighting + normal mapping. Off by default → guaranteed
+    // parity with the legacy per-vertex CPU lighting until the user opts in.
+    // NormalMapStrength scales the tangent-space normal perturbation (0 = flat,
+    // 1 = full). Specular: Blinn-Phong glint strength + exponent (higher power
+    // = tighter highlight). Tuned conservatively so it never looks plasticky.
+    inline constexpr bool  CfgDefaultPerPixelLighting = false;
+    inline constexpr float CfgDefaultNormalMapStrength = 1.0f;
+    inline constexpr float CfgDefaultSpecularStrength  = 0.30f;
+    inline constexpr float CfgDefaultSpecularPower     = 24.0f;
 }

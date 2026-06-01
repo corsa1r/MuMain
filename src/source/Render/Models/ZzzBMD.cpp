@@ -14,6 +14,7 @@
 #include "Engine/AI/ZzzAI.h"
 #include "SMD.h"
 #include "Render/Effects/ZzzEffect.h"
+#include "ModelShader.h"
 
 #include "UI/Legacy/UIMng.h"
 #include "Camera/CameraMove.h"
@@ -38,6 +39,7 @@ vec3_t LightTransform[MAX_MESH][MAX_VERTICES];
 vec3_t RenderArrayVertices[MAX_VERTICES * 3];
 vec4_t RenderArrayColors[MAX_VERTICES * 3];
 vec2_t RenderArrayTexCoords[MAX_VERTICES * 3];
+vec3_t RenderArrayNormals[MAX_VERTICES * 3];   // per-pixel ModelLighting path
 
 bool  StopMotion = false;
 float ParentMatrix[3][4];
@@ -1277,6 +1279,12 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
         || finalRenderFlags == RENDER_CHROME4
         || finalRenderFlags == RENDER_OIL;
 
+    // Per-pixel lighting: only the common opaque/alpha-tested lit-texture path.
+    // Chrome/oil/blend/bright keep the legacy CPU-vertex-color path untouched.
+    const bool useShader = (finalRenderFlags == RENDER_TEXTURE) && enableLight
+        && ModelLighting::Active();
+    if (useShader) enableColor = false;   // shader uses uniform BodyLight, not gl_Color
+
     glEnableClientState(GL_VERTEX_ARRAY);
     if (enableColor) glEnableClientState(GL_COLOR_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -1284,6 +1292,7 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
     auto vertices = RenderArrayVertices;
     auto colors = RenderArrayColors;
     auto texCoords = RenderArrayTexCoords;
+    auto normals = RenderArrayNormals;
 
     int target_vertex_index = -1;
     for (int j = 0; j < m->NumTriangles; j++)
@@ -1303,6 +1312,8 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
             texCoords[target_vertex_index][1] = texco.TexCoordV;
 
             int normalIndex = triangle->NormalIndex[k];
+            if (useShader)
+                VectorCopy(NormalTransform[meshIndex][normalIndex], normals[target_vertex_index]);
             switch (finalRenderFlags)
             {
                 case RENDER_TEXTURE:
@@ -1367,7 +1378,21 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
     if (enableColor) glColorPointer(4, GL_FLOAT, 0, colors);
     glTexCoordPointer(2, GL_FLOAT, 0, texCoords);
 
-    glDrawArrays(GL_TRIANGLES, 0, m->NumTriangles * 3);
+    if (useShader)
+    {
+        // Normal map binding is added in a later phase; pass false for now so
+        // the shader runs the diffuse+specular branch (no relief yet).
+        glEnableClientState(GL_NORMAL_ARRAY);
+        glNormalPointer(GL_FLOAT, 0, normals);
+        ModelLighting::Begin(BodyLight, texture->NormalTextureNumber, alpha);
+        glDrawArrays(GL_TRIANGLES, 0, m->NumTriangles * 3);
+        ModelLighting::End();
+        glDisableClientState(GL_NORMAL_ARRAY);
+    }
+    else
+    {
+        glDrawArrays(GL_TRIANGLES, 0, m->NumTriangles * 3);
+    }
 
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     if (enableColor) glDisableClientState(GL_COLOR_ARRAY);

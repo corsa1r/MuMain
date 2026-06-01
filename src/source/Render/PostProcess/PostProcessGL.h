@@ -62,6 +62,8 @@ namespace PostProcess
         PFNGLUNIFORM1IPROC               Uniform1i        = nullptr;
         PFNGLUNIFORM1FPROC               Uniform1f        = nullptr;
         PFNGLUNIFORM2FPROC               Uniform2f        = nullptr;
+        PFNGLUNIFORM3FPROC               Uniform3f        = nullptr;
+        PFNGLUNIFORM3FVPROC              Uniform3fv       = nullptr;
         PFNGLUNIFORM4FPROC               Uniform4f        = nullptr;
         PFNGLUNIFORMMATRIX4FVPROC        UniformMatrix4fv = nullptr; // for fog inverse-view
 

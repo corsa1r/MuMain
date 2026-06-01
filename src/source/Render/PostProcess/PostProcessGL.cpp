@@ -76,6 +76,8 @@ namespace PostProcess
         ok &= LoadProc(s_procs.Uniform1i,              "glUniform1i");
         ok &= LoadProc(s_procs.Uniform1f,              "glUniform1f");
         ok &= LoadProc(s_procs.Uniform2f,              "glUniform2f");
+        ok &= LoadProc(s_procs.Uniform3f,              "glUniform3f");
+        ok &= LoadProc(s_procs.Uniform3fv,             "glUniform3fv");
         ok &= LoadProc(s_procs.Uniform4f,              "glUniform4f");
 
         ok &= LoadProc(s_procs.ActiveTexture,          "glActiveTexture");

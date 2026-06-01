@@ -10,6 +10,7 @@
 #include "FogPass.h"
 #include "GodRaysPass.h"
 #include "Render/SunDirection.h"
+#include "Render/Models/ModelShader.h"
 #include "LutPass.h"
 #include "ColorEffectPasses.h"
 
@@ -486,6 +487,17 @@ namespace PostProcess
                 if (s_sceneFBO != 0 && s_width > 0 && s_height > 0)
                     CreateTargets(s_width, s_height);
             }
+
+            // Per-pixel model lighting is geometry shading, not a post pass, but
+            // this is the single funnel every settings source flows through
+            // (startup config, editor live-apply, per-map preset on map entry),
+            // so distribute its params here too. Gated by s_enabled (the post
+            // chain master) so the master toggle turns it off along with the
+            // passes — matches user expectation. s_enabled is always set (startup
+            // Winmain, editor ApplyLive) before this runs, so the gate is correct.
+            const float sunColor[3] = { s.godRaysR, s.godRaysG, s.godRaysB };
+            ModelLighting::SetParams(s.perPixelLighting && s_enabled, s.normalMapStrength,
+                                     s.specularStrength, s.specularPower, sunColor);
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }
