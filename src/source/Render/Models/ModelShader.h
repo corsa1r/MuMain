@@ -53,12 +53,12 @@ namespace ModelLighting
     // Restore fixed-function (glUseProgram(0)) and active texture unit 0.
     void End();
 
-    // Terrain variant: ADDITIVE relief. Keeps the tile's existing baked per-vertex
-    // light (gl_Color) and texture exactly, and only adds normal-map relief +
-    // sun-colored specular on top. normalTex = the tile's sibling normal map id
-    // (0 => parity branch, renders identical to legacy). Uses the shared runtime
-    // params (enabled/strength/spec/sunColor) and sun direction. Wrap a tile
-    // quad's glBegin/glEnd with BeginTerrain/EndTerrain.
+    // Terrain variant: SUN RE-LIGHT. Uses the tile's lightmap (gl_Color) as
+    // albedo and re-lights it per-pixel with the shared sun (half-lambert off the
+    // perturbed normal) + sun tint + specular, so flat ground tracks sun
+    // elevation and bumps add relief. normalTex = the tile's sibling normal map
+    // id. Uses the shared runtime params (enabled/strength/spec/sunColor) and sun
+    // direction. Wrap a tile quad's glBegin/glEnd with BeginTerrain/EndTerrain.
     void BeginTerrain(unsigned int normalTex);
     void EndTerrain();
 }

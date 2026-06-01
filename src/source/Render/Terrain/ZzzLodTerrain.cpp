@@ -1743,20 +1743,35 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
 #ifdef ASG_ADD_MAP_KARUTAN
                 }
 #endif	// ASG_ADD_MAP_KARUTAN
+                // Grass billboards inherit the same sun lighting as the ground
+                // beneath (brightness + tint), so they don't stay flat-lit while
+                // the ground reacts to the sun. We emit the terrain (up) normal so
+                // grass tracks sun elevation like the tile under it; relief isn't
+                // meaningful on thin billboards (grassNrm is usually 0 -> the
+                // shader's no-normal-map branch re-lights flat by the sun).
+                const bool grassShader = ModelLighting::Active();
+                if (grassShader) ModelLighting::BeginTerrain(pBitmap->NormalTextureNumber);
+
                 glBegin(GL_QUADS);
                 glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex1]);
+                glNormal3fv(TerrainNormal[TerrainIndex1]);
                 glVertex3fv(TerrainVertex[0]);
                 glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex2]);
+                glNormal3fv(TerrainNormal[TerrainIndex2]);
                 glVertex3fv(TerrainVertex[1]);
                 glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex3]);
+                glNormal3fv(TerrainNormal[TerrainIndex3]);
                 glVertex3fv(TerrainVertex[2]);
                 glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex4]);
+                glNormal3fv(TerrainNormal[TerrainIndex4]);
                 glVertex3fv(TerrainVertex[3]);
                 glEnd();
+
+                if (grassShader) ModelLighting::EndTerrain();
 
                 if (gMapManager.IsPKField() || IsDoppelGanger2())
                     DisableAlphaBlend();

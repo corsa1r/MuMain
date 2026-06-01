@@ -123,9 +123,10 @@ namespace ModelLighting
             "    gl_FragColor = vec4(color, texColor.a * uAlpha);\n"
             "}\n";
 
-        // --- Terrain: ADDITIVE relief. Keeps base = tile * gl_Color (the baked
-        // per-vertex light) EXACTLY, and only adds the bump's lighting delta +
-        // sun-colored specular. Parity-exact when no normal map. ---------------
+        // --- Terrain: SUN RE-LIGHT. base = tile * gl_Color uses the map's
+        // lightmap (PrimaryTerrainLight) as albedo, then re-lights per-pixel with
+        // the shared sun (half-lambert off the perturbed normal) + sun tint +
+        // specular. Flat ground tracks sun elevation; bumps add relief. ---------
         const char* kTerrainVertexSrc =
             "#version 120\n"
             "varying vec3 vNormalEye;\n"
@@ -171,11 +172,18 @@ namespace ModelLighting
             "}\n"
             "void main(){\n"
             "    vec4 texColor = texture2D(uDiffuse, vUv);\n"
-            "    vec3 base = texColor.rgb * vColor.rgb;\n"   // EXACT legacy GL_MODULATE look
+            "    vec3 base = texColor.rgb * vColor.rgb;\n"   // lightmap albedo
             // alpha = texture alpha * layer blend weight (a==1 on the base pass).
             "    float outA = texColor.a * vColor.a;\n"
+            // No normal map (e.g. grass billboards): still re-light by the sun
+            // using the macro normal so brightness/tint match the ground beneath,
+            // just without bump relief.
             "    if (uHasNormalMap == 0){\n"
-            "        gl_FragColor = vec4(base, outA);\n"   // parity branch
+            "        vec3 Nm = normalize(vNormalEye);\n"
+            "        float ndl0 = max(dot(Nm, normalize(vLightEye)), 0.0);\n"
+            "        float lum0 = 0.4 + 0.6 * ndl0;\n"
+            "        vec3 tint0 = mix(vec3(1.0), uSunColor, ndl0);\n"
+            "        gl_FragColor = vec4(base * lum0 * tint0, outA);\n"
             "        return;\n"
             "    }\n"
             "    vec3 Nmacro = normalize(vNormalEye);\n"
@@ -184,15 +192,19 @@ namespace ModelLighting
             "    mat3 TBN = cotangentFrame(Nmacro, vEyePos, vUv);\n"
             "    vec3 Nb = normalize(TBN * nTex);\n"
             "    vec3 L = normalize(vLightEye);\n"
-            // Brightness-neutral relief: only the DELTA the bump adds vs the macro
-            // surface, so the map's baked lighting is preserved on average.
-            "    float detail = max(dot(Nb, L), 0.0) - max(dot(Nmacro, L), 0.0);\n"
-            "    vec3 lit = base * (1.0 + detail);\n"
+            "    float ndl = max(dot(Nb, L), 0.0);\n"
+            // Sun RE-LIGHT: flat ground brightens as the sun climbs overhead
+            // (dot(up,sun) -> 1) and darkens at grazing angles, with bumps adding
+            // micro relief via the perturbed normal. Ambient floor (0.4) keeps
+            // low-sun ground from going pitch black; caps at 1.0 so the baked
+            // lightmap (carried in base) is never blown out. Tinted by the sun.
+            "    float lum = 0.4 + 0.6 * ndl;\n"
+            "    vec3 lightTint = mix(vec3(1.0), uSunColor, ndl);\n"
+            "    vec3 lit = base * lum * lightTint;\n"
             "    vec3 V = normalize(-vEyePos);\n"
             "    vec3 H = normalize(L + V);\n"
             // Ground specular kept subtler than models (x0.5) so it doesn't read wet.
-            "    float spec = pow(max(dot(Nb, H), 0.0), uSpecPower) * uSpecStrength * 0.5;\n"
-            "    spec *= max(dot(Nb, L), 0.0);\n"
+            "    float spec = pow(max(dot(Nb, H), 0.0), uSpecPower) * uSpecStrength * 0.5 * ndl;\n"
             "    vec3 color = lit + uSunColor * spec;\n"
             "    gl_FragColor = vec4(color, outA);\n"
             "}\n";
