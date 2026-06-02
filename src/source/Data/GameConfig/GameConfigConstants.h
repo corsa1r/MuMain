@@ -98,6 +98,11 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyNormalMapStrength[] = L"NormalMapStrength";
     inline constexpr wchar_t CfgKeySpecularStrength[]  = L"SpecularStrength";
     inline constexpr wchar_t CfgKeySpecularPower[]     = L"SpecularPower";
+    inline constexpr wchar_t CfgKeyDynamicLights[]         = L"DynamicLights";
+    inline constexpr wchar_t CfgKeyDynamicLightIntensity[] = L"DynamicLightIntensity";
+    inline constexpr wchar_t CfgKeyDynamicLightFlicker[]   = L"DynamicLightFlicker";
+    inline constexpr wchar_t CfgKeyPlayerLight[]           = L"PlayerLight";
+    inline constexpr wchar_t CfgKeyPlayerLightRadius[]     = L"PlayerLightRadius";
 }
 
 namespace CfgDefaults
@@ -224,4 +229,13 @@ namespace CfgDefaults
     inline constexpr float CfgDefaultNormalMapStrength = 1.0f;
     inline constexpr float CfgDefaultSpecularStrength  = 0.30f;
     inline constexpr float CfgDefaultSpecularPower     = 24.0f;
+
+    // Dynamic point lights (torches/lanterns/skills via AddTerrainLight) lit
+    // per-pixel. Off by default; needs PerPixelLighting on. Intensity scales
+    // the contribution.
+    inline constexpr bool  CfgDefaultDynamicLights         = true;
+    inline constexpr float CfgDefaultDynamicLightIntensity = 4.0f;
+    inline constexpr float CfgDefaultDynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw
+    inline constexpr bool  CfgDefaultPlayerLight           = true;
+    inline constexpr float CfgDefaultPlayerLightRadius     = 700.0f;
 }

@@ -950,6 +950,17 @@ void SetTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
 
 void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    // Dynamic point lights: redirect dynamic-buffer light sources (torches,
+    // lanterns, candles, lava, skills, auras) into the per-pixel light list
+    // instead of the coarse terrain-vertex glow. Editor light-painting (which
+    // targets the raw TerrainLight buffer) is left untouched.
+    if (Buffer == PrimaryTerrainLight && ModelLighting::DynamicLightsActive())
+    {
+        const float z = RequestTerrainHeight(xf, yf) + 130.f;   // toward the flame height
+        ModelLighting::AddLight(xf, yf, z, Light[0], Light[1], Light[2], (float)Range * TERRAIN_SCALE * 1.75f);
+        return;
+    }
+
     auto rf = (float)Range;
 
     xf = (xf / TERRAIN_SCALE);
@@ -984,6 +995,13 @@ void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
 
 void AddTerrainLightClip(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    if (Buffer == PrimaryTerrainLight && ModelLighting::DynamicLightsActive())
+    {
+        const float z = RequestTerrainHeight(xf, yf) + 130.f;   // toward the flame height
+        ModelLighting::AddLight(xf, yf, z, Light[0], Light[1], Light[2], (float)Range * TERRAIN_SCALE * 1.75f);
+        return;
+    }
+
     auto rf = (float)Range;
 
     xf = (xf / TERRAIN_SCALE);
@@ -2856,6 +2874,17 @@ extern int EnableEvent;
 
 void InitTerrainLight()
 {
+    // Dynamic point lights: finalize the previous frame's collected lights
+    // (pick nearest to the player for this frame's draws), then reset the
+    // collector. Sources re-register via AddTerrainLight during this frame.
+    {
+        float camRef[3] = { 0.f, 0.f, 0.f };
+        if (Hero) { camRef[0] = Hero->Object.Position[0]; camRef[1] = Hero->Object.Position[1]; camRef[2] = Hero->Object.Position[2]; }
+        ModelLighting::SelectActiveLights(camRef);
+        ModelLighting::ClearLights();
+        if (Hero) ModelLighting::AddPlayerLight(camRef[0], camRef[1], camRef[2] + 80.f);
+    }
+
     int xi, yi;
     yi = FrustrumBoundMinY;
     for (; yi <= FrustrumBoundMaxY + 3; yi += 1)

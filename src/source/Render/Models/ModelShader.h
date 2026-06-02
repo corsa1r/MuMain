@@ -61,4 +61,22 @@ namespace ModelLighting
     // direction. Wrap a tile quad's glBegin/glEnd with BeginTerrain/EndTerrain.
     void BeginTerrain(unsigned int normalTex);
     void EndTerrain();
+
+    // --- Dynamic point lights -------------------------------------------------
+    // Fed from the engine's existing AddTerrainLight sources (torches, lanterns,
+    // candles, bonfires, lava, skills, auras). They accumulate per-pixel on top
+    // of the sun in the same shaders, using the same (normal-mapped) normal.
+    //
+    // SetDynamicLights: feature on/off + global intensity (from config/editor).
+    // ClearLights:      reset the per-frame collector (call at frame start).
+    // AddLight:         register one light this frame (world pos, color, radius).
+    // SelectActiveLights: pick the nearest N to camPos for this frame's draws
+    //                   (call once per frame, before ClearLights).
+    void SetDynamicLights(bool enabled, float intensity, float flicker);
+    void SetPlayerLight(bool enabled, float radius);   // always-on hero light
+    bool DynamicLightsActive();   // feature on AND program valid
+    void ClearLights();
+    void AddLight(float x, float y, float z, float r, float g, float b, float radius);
+    void AddPlayerLight(float x, float y, float z);     // register the hero light this frame
+    void SelectActiveLights(const float camPos[3]);
 }

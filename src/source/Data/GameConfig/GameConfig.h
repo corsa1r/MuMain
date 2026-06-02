@@ -170,6 +170,18 @@ public:
     void  SetSpecularStrength(float v);
     void  SetSpecularPower(float v);
 
+    // [Graphics] Dynamic point lights (per-pixel torches/lanterns/skills).
+    bool  GetDynamicLights()        const { return m_dynamicLights; }
+    float GetDynamicLightIntensity() const { return m_dynamicLightIntensity; }
+    float GetDynamicLightFlicker()  const { return m_dynamicLightFlicker; }
+    bool  GetPlayerLight()          const { return m_playerLight; }
+    float GetPlayerLightRadius()    const { return m_playerLightRadius; }
+    void  SetDynamicLights(bool enabled);
+    void  SetDynamicLightIntensity(float v);
+    void  SetDynamicLightFlicker(float v);
+    void  SetPlayerLight(bool enabled);
+    void  SetPlayerLightRadius(float v);
+
     // [Graphics] — setters used by the live editor panel's "Save to config.ini".
     // Each updates the in-memory value and writes it through to config.ini.
     void SetBloomThreshold(float v);
@@ -298,6 +310,11 @@ private:
     float m_normalMapStrength;
     float m_specularStrength;
     float m_specularPower;
+    bool  m_dynamicLights;
+    float m_dynamicLightIntensity;
+    float m_dynamicLightFlicker;
+    bool  m_playerLight;
+    float m_playerLightRadius;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);

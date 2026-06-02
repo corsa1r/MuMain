@@ -114,6 +114,11 @@ namespace PostProcess
                 WF(p, L"NormalMapStrength", s.normalMapStrength);
                 WF(p, L"SpecularStrength", s.specularStrength);
                 WF(p, L"SpecularPower", s.specularPower);
+                WB(p, L"DynamicLights", s.dynamicLights);
+                WF(p, L"DynamicLightIntensity", s.dynamicLightIntensity);
+                WF(p, L"DynamicLightFlicker", s.dynamicLightFlicker);
+                WB(p, L"PlayerLight", s.playerLight);
+                WF(p, L"PlayerLightRadius", s.playerLightRadius);
             }
             void ReadAll(const std::wstring& p, Settings& s)
             {
@@ -150,6 +155,11 @@ namespace PostProcess
                 s.normalMapStrength = RF(p, L"NormalMapStrength", d.normalMapStrength);
                 s.specularStrength  = RF(p, L"SpecularStrength", d.specularStrength);
                 s.specularPower     = RF(p, L"SpecularPower", d.specularPower);
+                s.dynamicLights         = RB(p, L"DynamicLights", d.dynamicLights);
+                s.dynamicLightIntensity = RF(p, L"DynamicLightIntensity", d.dynamicLightIntensity);
+                s.dynamicLightFlicker   = RF(p, L"DynamicLightFlicker", d.dynamicLightFlicker);
+                s.playerLight       = RB(p, L"PlayerLight", d.playerLight);
+                s.playerLightRadius = RF(p, L"PlayerLightRadius", d.playerLightRadius);
             }
         } // namespace
 

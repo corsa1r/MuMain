@@ -82,6 +82,11 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.normalMapStrength = c.GetNormalMapStrength();
     m_settings.specularStrength  = c.GetSpecularStrength();
     m_settings.specularPower     = c.GetSpecularPower();
+    m_settings.dynamicLights         = c.GetDynamicLights();
+    m_settings.dynamicLightIntensity = c.GetDynamicLightIntensity();
+    m_settings.dynamicLightFlicker   = c.GetDynamicLightFlicker();
+    m_settings.playerLight       = c.GetPlayerLight();
+    m_settings.playerLightRadius = c.GetPlayerLightRadius();
     m_loaded = true;
 }
 
@@ -146,6 +151,11 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetNormalMapStrength(m_settings.normalMapStrength);
     c.SetSpecularStrength(m_settings.specularStrength);
     c.SetSpecularPower(m_settings.specularPower);
+    c.SetDynamicLights(m_settings.dynamicLights);
+    c.SetDynamicLightIntensity(m_settings.dynamicLightIntensity);
+    c.SetDynamicLightFlicker(m_settings.dynamicLightFlicker);
+    c.SetPlayerLight(m_settings.playerLight);
+    c.SetPlayerLightRadius(m_settings.playerLightRadius);
 }
 
 void CPostProcessEditorUI::ApplyLive()
@@ -241,6 +251,15 @@ void CPostProcessEditorUI::Render()
         ImGui::TextDisabled("Per-pixel relief + glint on characters/monsters/objects.");
         ImGui::TextDisabled("Needs generated *_n normal maps (tools/upscale/gen_normals.ps1).");
         ImGui::TextDisabled("Also gated by the PostProcess master toggle above.");
+
+        changed |= ImGui::Checkbox("Dynamic Lights##ppl", &m_settings.dynamicLights);
+        changed |= ImGui::SliderFloat("Light Intensity##ppl", &m_settings.dynamicLightIntensity, 0.0f, 4.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Flicker##ppl", &m_settings.dynamicLightFlicker, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::Checkbox("Player Light##ppl", &m_settings.playerLight);
+        changed |= ImGui::SliderFloat("Player Radius##ppl", &m_settings.playerLightRadius, 100.0f, 1500.0f, "%.0f");
+        ImGui::TextDisabled("Torches/lanterns/lava/skills cast real per-pixel light.");
+        ImGui::TextDisabled("Flicker: 0 = steady, 1 = raw. Requires Per-Pixel Lighting.");
+        ImGui::TextDisabled("Player Light: always-on glow following your character.");
     }
 
     if (ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))

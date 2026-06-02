@@ -498,6 +498,8 @@ namespace PostProcess
             const float sunColor[3] = { s.godRaysR, s.godRaysG, s.godRaysB };
             ModelLighting::SetParams(s.perPixelLighting && s_enabled, s.normalMapStrength,
                                      s.specularStrength, s.specularPower, sunColor);
+            ModelLighting::SetDynamicLights(s.dynamicLights, s.dynamicLightIntensity, s.dynamicLightFlicker);
+            ModelLighting::SetPlayerLight(s.playerLight, s.playerLightRadius);
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }

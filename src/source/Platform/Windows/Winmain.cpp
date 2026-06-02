@@ -1595,6 +1595,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.normalMapStrength = cfg.GetNormalMapStrength();
         pps.specularStrength  = cfg.GetSpecularStrength();
         pps.specularPower     = cfg.GetSpecularPower();
+        pps.dynamicLights         = cfg.GetDynamicLights();
+        pps.dynamicLightIntensity = cfg.GetDynamicLightIntensity();
+        pps.dynamicLightFlicker   = cfg.GetDynamicLightFlicker();
+        pps.playerLight       = cfg.GetPlayerLight();
+        pps.playerLightRadius = cfg.GetPlayerLightRadius();
         PostProcess::Chain::ApplySettings(pps);
 
         // Seed the per-map preset system with this global look + the override

@@ -47,6 +47,33 @@ namespace ModelLighting
         float s_specPower      = 24.0f;
         float s_sunColor[3]    = { 1.0f, 1.0f, 1.0f };
 
+        // --- Dynamic point lights (fed from the engine's AddTerrainLight sources) ---
+        enum { MAX_LIGHTS = 24, MAX_COLLECT = 96 };
+        struct PointLight { float pos[3]; float color[3]; float radius; };
+
+        bool  s_dynLights       = false;   // feature on/off (live)
+        float s_dynIntensity    = 1.0f;    // global scale
+        float s_dynFlicker      = 0.5f;    // 0 = steady (smoothed), 1 = raw flicker
+        bool  s_playerLight     = true;    // always-on light following the hero
+        float s_playerRadius    = 700.0f;  // world units
+
+        PointLight s_collect[MAX_COLLECT];     // lights registered during the frame
+        int        s_collectCount = 0;
+        PointLight s_active[MAX_LIGHTS];        // selected (nearest) set used for drawing
+        int        s_activeCount  = 0;
+        PointLight s_prevActive[MAX_LIGHTS];    // last frame's (smoothed) set, for temporal smoothing
+        int        s_prevActiveCount = 0;
+        float      s_activeEye[MAX_LIGHTS][3];     // active positions in eye space (per-frame)
+        float      s_activeColScaled[MAX_LIGHTS][3]; // color * intensity
+        float      s_activeRadInv[MAX_LIGHTS];     // 1 / radius
+        bool       s_eyeDirty     = true;       // recompute eye-space lights this frame
+
+        // Light uniform locations: [0]=model program, [1]=terrain program.
+        GLint u_numLights[2]   = { -1, -1 };
+        GLint u_lightPos[2]    = { -1, -1 };   // vec3 array (eye space)
+        GLint u_lightColor[2]  = { -1, -1 };   // vec3 array (already * intensity)
+        GLint u_lightRadInv[2] = { -1, -1 };   // 1/radius array
+
         const char* kVertexSrc =
             "#version 120\n"
             "varying vec3 vNormalEye;\n"
@@ -82,6 +109,22 @@ namespace ModelLighting
             "uniform float uSpecPower;\n"
             "uniform float uAlpha;\n"
             "uniform vec3  uSunColor;\n"
+            // Dynamic point lights (eye space). Accumulate diffuse falloff.
+            "uniform int   uNumLights;\n"
+            "uniform vec3  uLightPos[24];\n"
+            "uniform vec3  uLightColor[24];\n"
+            "uniform float uLightRadInv[24];\n"
+            "vec3 pointLights(vec3 N, vec3 P){\n"
+            "    vec3 acc = vec3(0.0);\n"
+            "    for(int i=0;i<24;i++){\n"
+            "        if(i>=uNumLights) break;\n"
+            "        vec3 d = uLightPos[i] - P;\n"
+            "        float dist = length(d);\n"
+            "        float a = max(1.0 - dist*uLightRadInv[i], 0.0); a*=a;\n"
+            "        acc += uLightColor[i] * (max(dot(N, d/max(dist,0.0001)),0.0) * a);\n"
+            "    }\n"
+            "    return acc;\n"
+            "}\n"
             // Schueler cotangent frame: derive TBN from screen-space derivatives,
             // so no per-vertex tangents are needed.
             "mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv){\n"
@@ -120,6 +163,9 @@ namespace ModelLighting
             "    spec *= max(ndl, 0.0);\n"   // no glint on back-facing surfaces
             // Specular reflects the light source -> tint it by the sun color.
             "    vec3 color = diffuse + uSunColor * spec;\n"
+            // Dynamic point lights add on top, illuminating the albedo with the
+            // same (normal-mapped) normal as the sun.
+            "    color += texColor.rgb * pointLights(N, vEyePos);\n"
             "    gl_FragColor = vec4(color, texColor.a * uAlpha);\n"
             "}\n";
 
@@ -158,6 +204,21 @@ namespace ModelLighting
             "uniform float uSpecStrength;\n"
             "uniform float uSpecPower;\n"
             "uniform vec3  uSunColor;\n"
+            "uniform int   uNumLights;\n"
+            "uniform vec3  uLightPos[24];\n"
+            "uniform vec3  uLightColor[24];\n"
+            "uniform float uLightRadInv[24];\n"
+            "vec3 pointLights(vec3 N, vec3 P){\n"
+            "    vec3 acc = vec3(0.0);\n"
+            "    for(int i=0;i<24;i++){\n"
+            "        if(i>=uNumLights) break;\n"
+            "        vec3 d = uLightPos[i] - P;\n"
+            "        float dist = length(d);\n"
+            "        float a = max(1.0 - dist*uLightRadInv[i], 0.0); a*=a;\n"
+            "        acc += uLightColor[i] * (max(dot(N, d/max(dist,0.0001)),0.0) * a);\n"
+            "    }\n"
+            "    return acc;\n"
+            "}\n"
             "mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv){\n"
             "    vec3 dp1 = dFdx(p);\n"
             "    vec3 dp2 = dFdy(p);\n"
@@ -183,7 +244,8 @@ namespace ModelLighting
             "        float ndl0 = max(dot(Nm, normalize(vLightEye)), 0.0);\n"
             "        float lum0 = 0.4 + 0.6 * ndl0;\n"
             "        vec3 tint0 = mix(vec3(1.0), uSunColor, ndl0);\n"
-            "        gl_FragColor = vec4(base * lum0 * tint0, outA);\n"
+            "        vec3 c0 = base * lum0 * tint0 + texColor.rgb * pointLights(Nm, vEyePos);\n"
+            "        gl_FragColor = vec4(c0, outA);\n"
             "        return;\n"
             "    }\n"
             "    vec3 Nmacro = normalize(vNormalEye);\n"
@@ -206,8 +268,46 @@ namespace ModelLighting
             // Ground specular kept subtler than models (x0.5) so it doesn't read wet.
             "    float spec = pow(max(dot(Nb, H), 0.0), uSpecPower) * uSpecStrength * 0.5 * ndl;\n"
             "    vec3 color = lit + uSunColor * spec;\n"
+            "    color += texColor.rgb * pointLights(Nb, vEyePos);\n"
             "    gl_FragColor = vec4(color, outA);\n"
             "}\n";
+
+        // Transform the active point lights into eye space once per frame (using
+        // the camera modelview active during the first lit draw) and pre-scale
+        // color by intensity / radius. Cheap; one glGetFloatv per frame.
+        void EnsureEyeLights()
+        {
+            if (!s_eyeDirty) return;
+            s_eyeDirty = false;
+            float m[16];
+            glGetFloatv(GL_MODELVIEW_MATRIX, m);
+            for (int i = 0; i < s_activeCount; i++)
+            {
+                const float* p = s_active[i].pos;
+                s_activeEye[i][0] = m[0]*p[0] + m[4]*p[1] + m[8]*p[2]  + m[12];
+                s_activeEye[i][1] = m[1]*p[0] + m[5]*p[1] + m[9]*p[2]  + m[13];
+                s_activeEye[i][2] = m[2]*p[0] + m[6]*p[1] + m[10]*p[2] + m[14];
+                for (int c = 0; c < 3; c++) s_activeColScaled[i][c] = s_active[i].color[c] * s_dynIntensity;
+                float r = s_active[i].radius; if (r < 1.0f) r = 1.0f;
+                s_activeRadInv[i] = 1.0f / r;
+            }
+        }
+
+        // Push the active lights to one program (slot 0 = model, 1 = terrain).
+        // When the feature is off, uNumLights = 0 -> the shader loop is skipped.
+        void UploadLights(int slot)
+        {
+            const PostProcess::GLProcs& gl = PostProcess::GL();
+            const int n = (s_dynLights ? s_activeCount : 0);
+            if (u_numLights[slot] >= 0) gl.Uniform1i(u_numLights[slot], n);
+            if (n > 0)
+            {
+                EnsureEyeLights();
+                if (u_lightPos[slot]    >= 0) gl.Uniform3fv(u_lightPos[slot],    n, &s_activeEye[0][0]);
+                if (u_lightColor[slot]  >= 0) gl.Uniform3fv(u_lightColor[slot],  n, &s_activeColScaled[0][0]);
+                if (u_lightRadInv[slot] >= 0 && gl.Uniform1fv) gl.Uniform1fv(u_lightRadInv[slot], n, s_activeRadInv);
+            }
+        }
     }
 
     void Init()
@@ -246,6 +346,10 @@ namespace ModelLighting
         u_specPower      = gl.GetUniformLocation(s_prog, "uSpecPower");
         u_alpha          = gl.GetUniformLocation(s_prog, "uAlpha");
         u_sunColor       = gl.GetUniformLocation(s_prog, "uSunColor");
+        u_numLights[0]   = gl.GetUniformLocation(s_prog, "uNumLights");
+        u_lightPos[0]    = gl.GetUniformLocation(s_prog, "uLightPos");
+        u_lightColor[0]  = gl.GetUniformLocation(s_prog, "uLightColor");
+        u_lightRadInv[0] = gl.GetUniformLocation(s_prog, "uLightRadInv");
 
         // Terrain additive-relief program (shares the runtime params + sun).
         s_terrainProg = PostProcess::CompileProgram(kTerrainVertexSrc, kTerrainFragmentSrc);
@@ -259,6 +363,10 @@ namespace ModelLighting
             t_specStrength   = gl.GetUniformLocation(s_terrainProg, "uSpecStrength");
             t_specPower      = gl.GetUniformLocation(s_terrainProg, "uSpecPower");
             t_sunColor       = gl.GetUniformLocation(s_terrainProg, "uSunColor");
+            u_numLights[1]   = gl.GetUniformLocation(s_terrainProg, "uNumLights");
+            u_lightPos[1]    = gl.GetUniformLocation(s_terrainProg, "uLightPos");
+            u_lightColor[1]  = gl.GetUniformLocation(s_terrainProg, "uLightColor");
+            u_lightRadInv[1] = gl.GetUniformLocation(s_terrainProg, "uLightRadInv");
         }
 
         // Valid only if BOTH programs compiled (they share the same GLSL feature
@@ -328,6 +436,7 @@ namespace ModelLighting
         gl.Uniform1f(u_specPower, s_specPower);
         gl.Uniform1f(u_alpha, alpha);
         gl.Uniform3fv(u_sunColor, 1, s_sunColor);
+        UploadLights(0);
     }
 
     void End()
@@ -362,7 +471,133 @@ namespace ModelLighting
         gl.Uniform1f(t_specStrength, s_specStrength);
         gl.Uniform1f(t_specPower, s_specPower);
         gl.Uniform3fv(t_sunColor, 1, s_sunColor);
+        UploadLights(1);
     }
 
     void EndTerrain() { End(); }   // same restore (program 0 + unit 0)
+
+    // --- Dynamic point-light registry (fed by ZzzLodTerrain's AddTerrainLight) -
+    void SetDynamicLights(bool enabled, float intensity, float flicker)
+    {
+        s_dynLights = enabled;
+        s_dynIntensity = intensity;
+        s_dynFlicker = flicker;
+    }
+
+    bool DynamicLightsActive()
+    {
+        if (!s_inited) Init();
+        // Requires the per-pixel shaders to actually be running (they're what
+        // render the point lights). When per-pixel lighting is off, fall back so
+        // AddTerrainLight keeps its legacy terrain-vertex glow.
+        return s_dynLights && s_runtimeEnabled && s_programValid;
+    }
+
+    void ClearLights()
+    {
+        s_collectCount = 0;
+    }
+
+    void AddLight(float x, float y, float z, float r, float g, float b, float radius)
+    {
+        if (!s_dynLights) return;
+        // Merge into a co-located existing light (e.g. a skill that spams many
+        // AddTerrainLight calls at one spot) so clustered sources collapse to one
+        // slot and don't evict distant torches. Keep the brightest + largest.
+        for (int i = 0; i < s_collectCount; i++)
+        {
+            float dx = s_collect[i].pos[0] - x;
+            float dy = s_collect[i].pos[1] - y;
+            float dz = s_collect[i].pos[2] - z;
+            if (dx*dx + dy*dy + dz*dz < 60.f * 60.f)
+            {
+                if (r > s_collect[i].color[0]) s_collect[i].color[0] = r;
+                if (g > s_collect[i].color[1]) s_collect[i].color[1] = g;
+                if (b > s_collect[i].color[2]) s_collect[i].color[2] = b;
+                if (radius > s_collect[i].radius) s_collect[i].radius = radius;
+                return;
+            }
+        }
+        if (s_collectCount >= MAX_COLLECT) return;
+        PointLight& L = s_collect[s_collectCount++];
+        L.pos[0] = x; L.pos[1] = y; L.pos[2] = z;
+        L.color[0] = r; L.color[1] = g; L.color[2] = b;
+        L.radius = radius;
+    }
+
+    void SetPlayerLight(bool enabled, float radius)
+    {
+        s_playerLight = enabled;
+        s_playerRadius = radius;
+    }
+
+    // Register the always-on hero light (warm, ~constant). Pre-divides by the
+    // global intensity so its net brightness stays ~absolute regardless of the
+    // torch intensity scale.
+    void AddPlayerLight(float x, float y, float z)
+    {
+        if (!s_dynLights || !s_playerLight) return;
+        const float inv = (s_dynIntensity > 0.01f) ? (1.0f / s_dynIntensity) : 1.0f;
+        AddLight(x, y, z, 1.0f * inv, 0.95f * inv, 0.85f * inv, s_playerRadius);
+    }
+
+    // Pick the nearest MAX_LIGHTS to camPos from the collected set (called once
+    // per frame, before ClearLights resets the collector). Sets s_eyeDirty.
+    void SelectActiveLights(const float camPos[3])
+    {
+        if (s_collectCount <= MAX_LIGHTS)
+        {
+            s_activeCount = s_collectCount;
+            for (int i = 0; i < s_activeCount; i++) s_active[i] = s_collect[i];
+        }
+        else
+        {
+            bool used[MAX_COLLECT] = { false };
+            s_activeCount = MAX_LIGHTS;
+            for (int k = 0; k < MAX_LIGHTS; k++)
+            {
+                int best = -1; float bestD = 1e30f;
+                for (int i = 0; i < s_collectCount; i++)
+                {
+                    if (used[i]) continue;
+                    float dx = s_collect[i].pos[0] - camPos[0];
+                    float dy = s_collect[i].pos[1] - camPos[1];
+                    float dz = s_collect[i].pos[2] - camPos[2];
+                    float d = dx*dx + dy*dy + dz*dz;
+                    if (d < bestD) { bestD = d; best = i; }
+                }
+                if (best < 0) { s_activeCount = k; break; }
+                used[best] = true; s_active[k] = s_collect[best];
+            }
+        }
+
+        // Temporal flicker smoothing: ease each light's color toward its value
+        // from last frame (matched by position), so the source rand() flicker is
+        // damped. response a: flicker=1 -> raw (a=1), flicker=0 -> very steady.
+        const float a = 0.06f + 0.94f * (s_dynFlicker < 0.f ? 0.f : (s_dynFlicker > 1.f ? 1.f : s_dynFlicker));
+        if (a < 0.999f)
+        {
+            for (int i = 0; i < s_activeCount; i++)
+            {
+                int best = -1; float bestD = 60.f * 60.f;   // match radius (world units)
+                for (int j = 0; j < s_prevActiveCount; j++)
+                {
+                    float dx = s_active[i].pos[0] - s_prevActive[j].pos[0];
+                    float dy = s_active[i].pos[1] - s_prevActive[j].pos[1];
+                    float dz = s_active[i].pos[2] - s_prevActive[j].pos[2];
+                    float d = dx*dx + dy*dy + dz*dz;
+                    if (d < bestD) { bestD = d; best = j; }
+                }
+                if (best >= 0)
+                    for (int c = 0; c < 3; c++)
+                        s_active[i].color[c] = s_prevActive[best].color[c]
+                            + (s_active[i].color[c] - s_prevActive[best].color[c]) * a;
+            }
+        }
+        // Save the (smoothed) set for next frame's matching.
+        s_prevActiveCount = s_activeCount;
+        for (int i = 0; i < s_activeCount; i++) s_prevActive[i] = s_active[i];
+
+        s_eyeDirty = true;
+    }
 }

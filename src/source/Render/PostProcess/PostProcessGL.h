@@ -61,6 +61,7 @@ namespace PostProcess
         PFNGLGETUNIFORMLOCATIONPROC      GetUniformLocation = nullptr;
         PFNGLUNIFORM1IPROC               Uniform1i        = nullptr;
         PFNGLUNIFORM1FPROC               Uniform1f        = nullptr;
+        PFNGLUNIFORM1FVPROC              Uniform1fv       = nullptr;
         PFNGLUNIFORM2FPROC               Uniform2f        = nullptr;
         PFNGLUNIFORM3FPROC               Uniform3f        = nullptr;
         PFNGLUNIFORM3FVPROC              Uniform3fv       = nullptr;

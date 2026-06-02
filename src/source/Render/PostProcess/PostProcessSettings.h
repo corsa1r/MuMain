@@ -105,5 +105,13 @@ namespace PostProcess
         float normalMapStrength = 1.0f;  // tangent-normal perturbation (0 = flat)
         float specularStrength  = 0.30f; // Blinn-Phong glint (0 = off)
         float specularPower     = 24.0f; // highlight tightness (higher = sharper)
+
+        // Dynamic point lights (per-pixel torches/lanterns/skills). Needs
+        // perPixelLighting on. intensity scales their contribution.
+        bool  dynamicLights         = true;
+        float dynamicLightIntensity = 4.0f;
+        float dynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw rand() flicker
+        bool  playerLight           = true;  // always-on hero light
+        float playerLightRadius     = 700.0f;
     };
 }

@@ -120,6 +120,11 @@ void GameConfig::Load()
     m_normalMapStrength = ReadFloat(CfgSectionGraphics, CfgKeyNormalMapStrength, CfgDefaultNormalMapStrength);
     m_specularStrength  = ReadFloat(CfgSectionGraphics, CfgKeySpecularStrength, CfgDefaultSpecularStrength);
     m_specularPower     = ReadFloat(CfgSectionGraphics, CfgKeySpecularPower, CfgDefaultSpecularPower);
+    m_dynamicLights        = ReadBool (CfgSectionGraphics, CfgKeyDynamicLights, CfgDefaultDynamicLights);
+    m_dynamicLightIntensity = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightIntensity, CfgDefaultDynamicLightIntensity);
+    m_dynamicLightFlicker  = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightFlicker, CfgDefaultDynamicLightFlicker);
+    m_playerLight          = ReadBool (CfgSectionGraphics, CfgKeyPlayerLight, CfgDefaultPlayerLight);
+    m_playerLightRadius    = ReadFloat(CfgSectionGraphics, CfgKeyPlayerLightRadius, CfgDefaultPlayerLightRadius);
 
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
@@ -231,6 +236,11 @@ void GameConfig::PersistGraphics()
     WriteFloat (CfgSectionGraphics, CfgKeyNormalMapStrength, m_normalMapStrength);
     WriteFloat (CfgSectionGraphics, CfgKeySpecularStrength, m_specularStrength);
     WriteFloat (CfgSectionGraphics, CfgKeySpecularPower, m_specularPower);
+    WriteBool  (CfgSectionGraphics, CfgKeyDynamicLights, m_dynamicLights);
+    WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightIntensity, m_dynamicLightIntensity);
+    WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightFlicker, m_dynamicLightFlicker);
+    WriteBool  (CfgSectionGraphics, CfgKeyPlayerLight, m_playerLight);
+    WriteFloat (CfgSectionGraphics, CfgKeyPlayerLightRadius, m_playerLightRadius);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -679,6 +689,31 @@ void GameConfig::SetSpecularPower(float v)
 {
     m_specularPower = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySpecularPower, v);
+}
+void GameConfig::SetDynamicLights(bool enabled)
+{
+    m_dynamicLights = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLights, enabled);
+}
+void GameConfig::SetDynamicLightIntensity(float v)
+{
+    m_dynamicLightIntensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightIntensity, v);
+}
+void GameConfig::SetDynamicLightFlicker(float v)
+{
+    m_dynamicLightFlicker = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightFlicker, v);
+}
+void GameConfig::SetPlayerLight(bool enabled)
+{
+    m_playerLight = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPlayerLight, enabled);
+}
+void GameConfig::SetPlayerLightRadius(float v)
+{
+    m_playerLightRadius = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPlayerLightRadius, v);
 }
 
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)
