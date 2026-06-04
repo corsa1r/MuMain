@@ -57,13 +57,14 @@ namespace PostProcess
         void Destroy();
         bool Create(int halfW, int halfH);
 
-        // March stage: depth -> light fraction.
+        // March stage: ray-march the view ray, sampling the SUN SHADOW MAP for
+        // in-scatter (true volumetric crepuscular rays). See .cpp for the shader.
         GLuint m_occProg = 0;
-        GLint  m_occLocDepth = -1, m_occLocLight = -1, m_occLocThresh = -1,
-               m_occLocInvView = -1, m_occLocProj = -1, m_occLocHasInv = -1,
-               m_occLocDensity = -1, m_occLocDecay = -1, m_occLocSamples = -1,
-               m_occLocSunDir = -1, m_occLocHasSunDir = -1, m_occLocSlope = -1,
-               m_occLocSunWorld = -1;
+        GLint  m_occLocDepth = -1, m_occLocInvView = -1, m_occLocProj = -1,
+               m_occLocHasInv = -1, m_occLocSamples = -1,
+               m_occLocShadowMap = -1, m_occLocShadowMat = -1, m_occLocHasShadow = -1,
+               m_occLocMarchLen = -1, m_occLocShadowBias = -1,
+               m_occLocSunDirW = -1, m_occLocPhase = -1;
 
         // Soften stage: box blur of the half-res mask.
         GLuint m_blurProg = 0;

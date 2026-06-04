@@ -3,9 +3,12 @@
 #include "stdafx.h"
 #include "GodRaysPass.h"
 #include "PostProcessGL.h"
+#include "Render/Shadow/SunShadow.h"
+#include "Render/SunDirection.h"
 
 #include <windows.h>
 #include <algorithm>
+#include <cmath>
 
 namespace PostProcess
 {
@@ -22,35 +25,34 @@ void main()
 }
 )";
 
-        // --- Stage 1: directional depth-march -> per-pixel LIT FRACTION --------
-        // For each pixel we march toward the sun and, at each step, reconstruct the
-        // sample's WORLD position. A sample shadows the pixel only if it is a real
-        // raised object (rises > uThreshold above the pixel) AND tall enough to
-        // reach it at the sun's elevation: a column of height h casts a shadow
-        // h/uSlope long, so it covers the pixel when h >= uSlope * horizontalDist.
-        // This makes shadow length proportional to object height (short objects ->
-        // short shadows = a high "top-angle" sun, not a horizon smear) and matches
-        // the engine's own shear (≈ 0.5*height, i.e. slope ≈ 2). World-space test,
-        // so it is stable under camera motion and needs no global ground estimate.
+        // --- Stage 1: VOLUMETRIC in-scatter via the SUN SHADOW MAP -------------
+        // For each pixel we reconstruct its world position (ray end) and march the
+        // VIEW RAY from the camera toward it in world space. At each step we project
+        // the sample into the sun shadow map and test sun visibility (lit vs in a
+        // caster's shadow volume). The average visibility along the ray is the
+        // in-scattered light: looking through a sunlit gap accumulates bright fog
+        // (a shaft); looking through a building's shadow stays dark. Because it
+        // samples the SAME depth map the world shadows use, the shafts line up with
+        // the real shadows and respect OFF-screen occluders (unlike a screen-space
+        // march). A forward-scatter phase makes shafts read brightest toward the sun.
         const char* kMarchFS = R"(
 #version 120
 uniform sampler2D uDepth;
-uniform vec4  uSunWorld;     // sun WORLD direction (xyz); projected to screen via uInvView
-uniform float uThreshold;   // occluder min height (world units above the pixel)
-uniform mat4  uInvView;
-uniform vec4  uProj;        // near, far, tanHalfFovX, tanHalfFovY
-uniform float uHasInv;      // 1 if depth reconstruction is usable
-uniform float uDensity;     // march reach toward the sun (screen units) = max shadow length
-uniform float uDecay;       // along-march weight falloff
-uniform int   uSamples;     // march steps
-uniform vec2  uSunDir;      // auto sun screen direction (matched to character shadows)
-uniform float uHasSunDir;   // 1 if uSunDir is valid
-uniform float uSlope;       // sun elevation: shadow SCREEN-length per world-height unit (smaller = steeper/shorter)
+uniform sampler2D uShadowMap;  // sun depth map
+uniform mat4  uShadowMat;      // world -> light clip [0,1]
+uniform mat4  uInvView;        // view -> world
+uniform vec4  uProj;           // near, far, tanHalfFovX, tanHalfFovY
+uniform float uHasInv;         // 1 if depth reconstruction is usable
+uniform float uHasShadow;      // 1 if the sun shadow map is valid
+uniform int   uSamples;        // march steps
+uniform float uMarchLen;       // max march distance (world units) = shaft reach
+uniform float uShadowBias;     // light-clip-space depth bias
+uniform vec3  uSunDirW;        // world direction TOWARD the sun (normalized)
+uniform float uPhase;          // forward-scatter strength (0 = none .. 1 = full)
 varying vec2 vUV;
 
-vec3 worldPosAt(vec2 uv)
+vec3 worldPosAt(vec2 uv, float dd)
 {
-    float dd = texture2D(uDepth, uv).r;
     float n = uProj.x, f = uProj.y;
     float ndc = dd * 2.0 - 1.0;
     float linZ = (2.0 * n * f) / (f + n - ndc * (f - n));
@@ -61,55 +63,60 @@ vec3 worldPosAt(vec2 uv)
     return (uInvView * vec4(vp, 1.0)).xyz;
 }
 
+// 1 = this world point sees the sun, 0 = inside a caster's shadow. Outside the
+// shadow-map footprint there is no occluder data -> treat as lit (no false shaft).
+float sunVis(vec3 wp)
+{
+    vec4 sc = uShadowMat * vec4(wp, 1.0);   // ortho -> w == 1
+    if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
+    float d = texture2D(uShadowMap, sc.xy).r;
+    return (sc.z - uShadowBias > d) ? 0.0 : 1.0;
+}
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
 const int kMaxSamples = 128;
 void main()
 {
-    if (uHasInv < 0.5) { gl_FragColor = vec4(1.0); return; }   // no recon -> fully lit
+    if (uHasInv < 0.5 || uHasShadow < 0.5) { gl_FragColor = vec4(0.0); return; }
 
     float dP = texture2D(uDepth, vUV).r;
-    if (dP >= 0.9999) { gl_FragColor = vec4(1.0); return; }     // sky -> fully lit
-    vec3 wpP = worldPosAt(vUV);
+    vec3 camPos = (uInvView * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec3 wpEnd  = worldPosAt(vUV, dP);
+    vec3 ray    = wpEnd - camPos;
+    float rayLen = length(ray);
+    vec3  rdir  = (rayLen > 1e-4) ? ray / rayLen : vec3(0.0, 0.0, 1.0);
+    // Cap the march: beyond the shadow-map footprint every sample reads lit, so
+    // marching farther only adds flat haze. Sky pixels get the full cap.
+    float marchLen = min(rayLen, uMarchLen);
 
-    int n = uSamples;
-    if (n < 1) n = 1;
-    if (n > kMaxSamples) n = kMaxSamples;
+    int n = uSamples; if (n < 1) n = 1; if (n > kMaxSamples) n = kMaxSamples;
+    float stepLen = marchLen / float(n);
+    float j = hash(vUV);   // per-pixel dither to break stepping bands
 
-    // March toward the sun: project the shared world sun's HORIZONTAL direction to
-    // screen via the inverse-view basis (uInvView columns are the camera axes in
-    // world). Shadows fall opposite — the SAME world direction the character-shadow
-    // shear uses, so the two line up by construction. Z (elevation) doesn't change
-    // the on-screen direction, only the character-shadow length.
-    vec3 sh = vec3(uSunWorld.x, uSunWorld.y, 0.0);
-    vec2 viewSun = vec2(dot(uInvView[0].xyz, sh), dot(uInvView[1].xyz, sh));
-    vec2 dir = (length(viewSun) > 1e-4) ? normalize(viewSun) : vec2(0.0, 1.0);
-    float Ld = length(dir);
-    vec2 stepv = (Ld > 1e-4 ? dir / Ld : vec2(0.0, 1.0)) * (max(uDensity, 0.05) * 0.4 / float(n));
-
-    float lit = 0.0, total = 0.0, w = 1.0;
-    vec2 tc = vUV;
+    float inscatter = 0.0;
     for (int i = 0; i < kMaxSamples; ++i)
     {
         if (i >= n) break;
-        tc += stepv;
-        float ddi   = texture2D(uDepth, tc).r;
-        float isSky = step(0.9999, ddi);                  // sky never occludes
-        float hAbove = worldPosAt(tc).z - wpP.z;          // sample height above the pixel (world up = Z)
-        // Shadowed if a real object (rises > uThreshold above the pixel) lies
-        // toward the sun within the march reach. Decay fades the shadow with
-        // distance; Shadow Len (uDensity) sets how far the march reaches.
-        float occ = (1.0 - isSky) * step(uThreshold, hAbove);
-        lit   += (1.0 - occ) * w;
-        total += w;
-        w     *= uDecay;
+        vec3 sp = camPos + rdir * (stepLen * (float(i) + j));
+        inscatter += sunVis(sp);
     }
-    float frac = (total > 0.0) ? lit / total : 1.0;
+    // Two outputs from the march:
+    //  .r = additive in-scatter: LIT DISTANCE along the ray (sum of lit steps *
+    //       step length) * thickness, NOT averaged — a long sunlit ray is bright,
+    //       a short/shadowed one dim. This is the bright shaft (beam) term.
+    //  .g = shadow fraction: the AVERAGE occlusion along the ray (distance-
+    //       independent), used by the composite to DARKEN shadowed bands. The two
+    //       together read as crisp crepuscular rays (bright beams + dark bands).
+    float litSteps   = inscatter;                       // sum of sunVis over n steps
+    float shadowFrac = 1.0 - litSteps / float(n);       // 0 (lit) .. 1 (fully shadowed)
 
-    // Fade shadows toward the screen border so occluders scrolling in/out at the
-    // edges don't pop as you walk (no off-screen depth to sample).
-    float edge = min(min(vUV.x, 1.0 - vUV.x), min(vUV.y, 1.0 - vUV.y));
-    frac = mix(1.0, frac, smoothstep(0.0, 0.07, edge));
+    float shaft = clamp(litSteps * stepLen * 0.0007, 0.0, 1.5);
+    // Forward-scatter phase, FLOORED so shafts persist looking away from the sun.
+    float cosA  = dot(rdir, uSunDirW);
+    shaft *= mix(0.5, 1.0, 0.5 + 0.5 * cosA);
 
-    gl_FragColor = vec4(vec3(frac), 1.0);
+    gl_FragColor = vec4(shaft, shadowFrac, 0.0, 1.0);
 }
 )";
 
@@ -134,22 +141,25 @@ void main()
 }
 )";
 
-        // --- Stage 3: composite -> scene with shadow-rays + lit beams ----------
+        // --- Stage 3: ADDITIVE composite -> scene + in-scattered shafts --------
         const char* kCompFS = R"(
 #version 120
 uniform sampler2D uScene;
-uniform sampler2D uRays;     // lit-fraction mask (grayscale): 1 = lit, 0 = shadowed
-uniform vec4 uColor;         // rgb = tint, a = intensity (beam brightening)
-uniform float uShadowDark;   // shadow-ray darkening (0..1) — contrast without washing
+uniform sampler2D uRays;     // .r = in-scatter (bright shafts), .g = shadow fraction
+uniform vec4 uColor;         // rgb = ray tint, a = intensity
+uniform float uShadowDark;   // shadow-band darkening amount (0..5)
 varying vec2 vUV;
 void main()
 {
     vec3 s = texture2D(uScene, vUV).rgb;
-    float shaft  = texture2D(uRays, vUV).r;
-    float shadow = 1.0 - shaft;
-    // Shadows darken the scene (multiplicative) AND lit areas brighten (additive),
-    // so shadow-rays read at low intensity instead of needing a full-frame wash.
-    vec3 outc = s * (1.0 - uShadowDark * shadow) + uColor.rgb * (uColor.a * shaft);
+    vec2 g = texture2D(uRays, vUV).rg;
+    float shaft  = g.r;
+    float shadow = g.g;
+    // Crepuscular composite: DARKEN shadowed bands (multiplicative) AND ADD
+    // sun-tinted in-scattered light (additive). The contrast between the two is
+    // what makes the beams read; the 2.5 gain keeps Intensity in a usable range.
+    vec3 outc = s * (1.0 - clamp(uShadowDark * shadow, 0.0, 1.0))
+                  + uColor.rgb * (uColor.a * shaft * 2.5);
     gl_FragColor = vec4(outc, 1.0);
 }
 )";
@@ -202,18 +212,18 @@ void main()
         {
             m_occProg = CompileProgram(kVS, kMarchFS);
             if (!m_occProg) return false;
-            m_occLocDepth   = GL().GetUniformLocation(m_occProg, "uDepth");
-            m_occLocSunWorld = GL().GetUniformLocation(m_occProg, "uSunWorld");
-            m_occLocThresh  = GL().GetUniformLocation(m_occProg, "uThreshold");
-            m_occLocInvView = GL().GetUniformLocation(m_occProg, "uInvView");
-            m_occLocProj    = GL().GetUniformLocation(m_occProg, "uProj");
-            m_occLocHasInv  = GL().GetUniformLocation(m_occProg, "uHasInv");
-            m_occLocDensity = GL().GetUniformLocation(m_occProg, "uDensity");
-            m_occLocDecay   = GL().GetUniformLocation(m_occProg, "uDecay");
-            m_occLocSamples = GL().GetUniformLocation(m_occProg, "uSamples");
-            m_occLocSunDir    = GL().GetUniformLocation(m_occProg, "uSunDir");
-            m_occLocHasSunDir = GL().GetUniformLocation(m_occProg, "uHasSunDir");
-            m_occLocSlope     = GL().GetUniformLocation(m_occProg, "uSlope");
+            m_occLocDepth      = GL().GetUniformLocation(m_occProg, "uDepth");
+            m_occLocShadowMap  = GL().GetUniformLocation(m_occProg, "uShadowMap");
+            m_occLocShadowMat  = GL().GetUniformLocation(m_occProg, "uShadowMat");
+            m_occLocInvView    = GL().GetUniformLocation(m_occProg, "uInvView");
+            m_occLocProj       = GL().GetUniformLocation(m_occProg, "uProj");
+            m_occLocHasInv     = GL().GetUniformLocation(m_occProg, "uHasInv");
+            m_occLocHasShadow  = GL().GetUniformLocation(m_occProg, "uHasShadow");
+            m_occLocSamples    = GL().GetUniformLocation(m_occProg, "uSamples");
+            m_occLocMarchLen   = GL().GetUniformLocation(m_occProg, "uMarchLen");
+            m_occLocShadowBias = GL().GetUniformLocation(m_occProg, "uShadowBias");
+            m_occLocSunDirW    = GL().GetUniformLocation(m_occProg, "uSunDirW");
+            m_occLocPhase      = GL().GetUniformLocation(m_occProg, "uPhase");
         }
         if (!m_blurProg)
         {
@@ -256,23 +266,30 @@ void main()
         gl.ActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, ctx.sourceDepthTex);
         gl.Uniform1i(m_occLocDepth, 0);
-        gl.Uniform4f(m_occLocSunWorld, m_lightX, m_lightY, m_sunZ, 0.0f);
-        // m_threshold is the occluder height (world units). Auto-migrate configs
-        // saved while it was the old 0..1 cutoff: anything <= 1.5 -> default 100.
-        const float occH = (m_threshold <= 1.5f) ? 100.0f : m_threshold;
-        gl.Uniform1f(m_occLocThresh, occH);
+        // Sun shadow map on unit 1 — the SAME depth map the world shadows sample,
+        // so the shafts line up with the real shadows and see off-screen occluders.
+        const bool shadowReady = SunShadow::MapReady();
+        gl.ActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowReady ? (GLuint)SunShadow::DepthTexture() : 0u);
+        gl.ActiveTexture(GL_TEXTURE0);
+        gl.Uniform1i(m_occLocShadowMap, 1);
+        if (m_occLocShadowMat >= 0)
+            gl.UniformMatrix4fv(m_occLocShadowMat, 1, GL_FALSE, SunShadow::Matrix());
         gl.UniformMatrix4fv(m_occLocInvView, 1, GL_FALSE, ctx.invView);
         gl.Uniform4f(m_occLocProj, ctx.nearZ, ctx.farZ, ctx.tanHalfFovX, ctx.tanHalfFovY);
         gl.Uniform1f(m_occLocHasInv, (ctx.hasInvView && ctx.nearZ > 0.0f) ? 1.0f : 0.0f);
-        gl.Uniform1f(m_occLocDensity, m_density);
-        gl.Uniform1f(m_occLocDecay, m_decay);
+        gl.Uniform1f(m_occLocHasShadow, shadowReady ? 1.0f : 0.0f);
         gl.Uniform1i(m_occLocSamples, m_samples);
-        gl.Uniform2f(m_occLocSunDir, ctx.sunDirX, ctx.sunDirY);
-        gl.Uniform1f(m_occLocHasSunDir, ctx.sunDirValid ? 1.0f : 0.0f);
-        // 'Sun Height' (m_lightY, 0..1) drives the sun ELEVATION: higher = steeper
-        // sun = shorter shadows. Maps to shadow SCREEN-length per world-height unit:
-        // Y=0 -> 0.0020 (long/horizon), Y=1 -> 0.0002 (short/steep). Tuned for MU's scale.
-        gl.Uniform1f(m_occLocSlope, 0.0020f - 0.0018f * m_lightY);
+        // Density -> shaft reach: how far (world units) the view ray is marched.
+        gl.Uniform1f(m_occLocMarchLen, std::max(m_density, 0.05f) * 5000.0f);
+        gl.Uniform1f(m_occLocShadowBias, 0.0008f);
+        // World direction toward the sun (the shared sun that built the shadow map).
+        float sd[3] = { BloodlustMU::g_SunDirection.x,
+                        BloodlustMU::g_SunDirection.y,
+                        BloodlustMU::g_SunDirection.z };
+        const float sl = std::sqrt(sd[0]*sd[0] + sd[1]*sd[1] + sd[2]*sd[2]);
+        if (sl > 1e-4f) { sd[0]/=sl; sd[1]/=sl; sd[2]/=sl; }
+        gl.Uniform3fv(m_occLocSunDirW, 1, sd);
         DrawFullscreenQuad();
 
         // --- 2) Soften the mask (half-res box blur) ---------------------------
@@ -299,7 +316,7 @@ void main()
         gl.Uniform1i(m_compLocRays, 1);
 
         gl.Uniform4f(m_compLocColor, m_r, m_g, m_b, m_intensity);
-        gl.Uniform1f(m_compLocShadowDark, m_weight);   // 'Weight' repurposed as shadow darkness
+        gl.Uniform1f(m_compLocShadowDark, m_weight);   // 'Shadow Dark' slider (0..5)
         DrawFullscreenQuad();
 
         // Leave texture units tidy for the next pass / legacy draws.

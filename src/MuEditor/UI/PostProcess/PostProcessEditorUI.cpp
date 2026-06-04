@@ -333,7 +333,7 @@ void CPostProcessEditorUI::Render()
         }
         changed |= ImGui::SliderFloat("Intensity##god", &m_settings.godRaysIntensity, 0.0f, 3.0f, "%.2f");
         changed |= ImGui::SliderFloat("Shadow Len##god", &m_settings.godRaysDensity, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::SliderFloat("Shadow Dark##god", &m_settings.godRaysWeight, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Shadow Dark##god", &m_settings.godRaysWeight, 0.0f, 5.0f, "%.2f");
         changed |= ImGui::SliderFloat("Decay##god", &m_settings.godRaysDecay, 0.8f, 1.0f, "%.3f");
         changed |= ImGui::SliderFloat("Occluder Hgt##god", &m_settings.godRaysThreshold, 0.0f, 400.0f, "%.0f");
         changed |= ImGui::SliderInt("Samples##god", &m_settings.godRaysSamples, 16, 128);
