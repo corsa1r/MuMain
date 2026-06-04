@@ -349,24 +349,10 @@ void MoveMainScene()
 
     UpdateGameEntities();
 
-    // Per-map post-process preset auto-apply (the gameplay path). Watch the
-    // SERVER map number — NOT gMapManager.WorldActive, which custom maps pin to
-    // WD_0LORENCIA(0) for renderer compatibility, so it never changes between
-    // custom maps and every custom map would read as id 0. CurrentServerMapNumber()
-    // is the true per-map id (set for every map at the top of CMapManager::LoadWorld),
-    // so it flips on every warp, classic or custom. On a change, push that map's
-    // preset (or the global base) to the chain — this is what makes presets switch
-    // on teleport. (The editor's Override toggle calls ApplyForWorld directly.)
-    {
-        static int s_lastWorldForPP = -1000;
-        const int curWorld =
-            BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
-        if (curWorld != s_lastWorldForPP)
-        {
-            s_lastWorldForPP = curWorld;
-            PostProcess::Presets::ApplyForWorld(curWorld);
-        }
-    }
+    // NOTE: the per-map post-process preset auto-apply moved to
+    // SceneManager::UpdateActiveScene so it runs for EVERY scene (gameplay,
+    // login, character-select), letting presets be saved/applied on the login
+    // and character screens too — not just gameplay.
 
     g_ConsoleDebug->UpdateMainScene();
 }

@@ -203,6 +203,12 @@ namespace SunShadow
         // ---- Render collected caster verts into the depth map ---------------
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &s_savedFbo);
         glGetIntegerv(GL_VIEWPORT, s_savedVp);
+        // Save ALL the fixed-function render state this frame-end pass touches so
+        // it is fully state-neutral. The menu cursor (SceneManager RenderCursor)
+        // is drawn AFTER this and is alpha-tested + blended — leaking our
+        // GL_ALPHA_TEST/GL_BLEND/etc. disables rendered it as a white square.
+        // (FBO binding + matrices aren't on the attrib stack, restored manually.)
+        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_POLYGON_BIT);
 
         gl.BindFramebuffer(GL_FRAMEBUFFER, s_fbo);
         glViewport(0, 0, s_builtRes, s_builtRes);
@@ -259,17 +265,20 @@ namespace SunShadow
             glDisable(GL_TEXTURE_2D);
         }
 
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glEnable(GL_TEXTURE_2D);
-        glEnable(GL_CULL_FACE);
-        glDepthFunc(GL_LEQUAL);
-
         glMatrixMode(GL_PROJECTION); glPopMatrix();
         glMatrixMode(GL_MODELVIEW);  glPopMatrix();
 
         gl.BindFramebuffer(GL_FRAMEBUFFER, (GLuint)s_savedFbo);
         glViewport(s_savedVp[0], s_savedVp[1], s_savedVp[2], s_savedVp[3]);
+        glPopAttrib();   // restore enables/blend/alpha-test/depth/polygon-offset
+        // glPushAttrib restores NEITHER the bound shader program NOR the active
+        // texture-unit selector. On the menu scenes the cursor (and ImGui) are
+        // drawn right after this frame-end pass; a leaked program or non-zero
+        // active unit makes the fixed-function cursor quad render as a white
+        // square. Force the fixed-function texturing path back to clean.
+        if (gl.UseProgram)    gl.UseProgram(0);
+        if (gl.ActiveTexture) gl.ActiveTexture(GL_TEXTURE0);
+        glEnable(GL_TEXTURE_2D);
 
         s_ready = true;
         s_verts.clear();        // fresh collection next frame
@@ -317,6 +326,10 @@ namespace SunShadow
         }
         if (!s_dbgProg) return;
         GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+        // State-neutral: the menu cursor (drawn after, via SceneManager
+        // RenderCursor) is alpha-tested + blended, so restore every enable we
+        // flip. (Program binding isn't on the attrib stack -> UseProgram(0) below.)
+        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, 420, 420);
         glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
@@ -329,5 +342,6 @@ namespace SunShadow
         gl.UseProgram(0);
         glBindTexture(GL_TEXTURE_2D, 0);
         glViewport(vp[0], vp[1], vp[2], vp[3]);
+        glPopAttrib();   // restore depth/blend/cull/texture enables
     }
 }

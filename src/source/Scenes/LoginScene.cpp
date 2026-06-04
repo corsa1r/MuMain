@@ -27,6 +27,8 @@
 #include "SceneCommon.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "UI/NewUI/NewUISystem.h"
+#include "Render/PostProcess/PostProcessChain.h"
+#include "Render/Shadow/SunShadow.h"
 
 // External declarations
 extern int DeleteGuildIndex;
@@ -397,6 +399,13 @@ bool NewRenderLogInScene(HDC hDC)
 #endif
     g_Camera.ViewNear = 100.f;  // Push near plane out to preserve z-buffer precision
 
+    // Post-process capture (3D world ONLY) + sun shadow target — same as the
+    // character/gameplay scenes so the login backdrop gets the SAME post FX and
+    // shadows. BeginSceneCapture binds the off-screen RTV BEFORE BeginOpengl
+    // (which sets the partial login viewport, rendering into the RTV); resolved
+    // just before the UI sprites/text. No-op when the chain is disabled.
+    PostProcess::Chain::BeginSceneCapture();
+
     BeginOpengl(0, 25, REFERENCE_WIDTH, 430);
 
     // LoginScene doesn't call CreateFrustrum (DefaultCamera tour mode angles differ from
@@ -404,6 +413,13 @@ bool NewRenderLogInScene(HDC hDC)
     // we reset iteration bounds to cover the full terrain so stale bounds from other scenes
     // don't restrict the render loop.
     ResetFrustrumBoundsFullTerrain();
+
+    // Center the sun shadow map on the camera focus (login is a cinematic
+    // backdrop, no selected hero). SetTarget before the 3D render (object caster
+    // range-cull keys off it); BuildFromCollected uses the same focus.
+    vec3_t shadowFocus;
+    VectorCopy(g_Camera.Position, shadowFocus);
+    SunShadow::SetTarget(shadowFocus);
 
     if (!CUIMng::Instance().m_CreditWin.IsShow())
     {
@@ -418,6 +434,14 @@ bool NewRenderLogInScene(HDC hDC)
         RenderBoids();
         RenderObjects_AfterCharacter();
         ThePetProcess().RenderPets();
+    }
+
+    // Resolve the captured 3D backdrop through the post-process chain (RTV ->
+    // bloom/tonemap/grade/fog/ssao/god rays/... -> backbuffer) BEFORE the UI, so
+    // the login UI / logo / text stay crisp. No-op when the chain is disabled.
+    {
+        const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
+        PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
     }
 
     BeginSprite();
@@ -480,6 +504,12 @@ bool NewRenderLogInScene(HDC hDC)
     EndBitmap();
 
     EndOpengl();
+
+    // Flush the body verts collected during RenderCharactersClient into the sun
+    // depth map, centered on the camera focus. Sampled next frame by the
+    // terrain/model shaders. No-op when shadows are off.
+    SunShadow::BuildFromCollected(shadowFocus);
+    // (No DebugDraw on the menu scenes — the corner panel would overlap the UI.)
 
     return true;
 }
