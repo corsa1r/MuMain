@@ -7,6 +7,7 @@
 
 #include "Render/PostProcess/PostProcessGL.h"
 #include "Render/SunDirection.h"
+#include "Render/Shadow/SunShadow.h"
 #include "Data/GameConfig/GameConfig.h"
 
 namespace ModelLighting
@@ -30,6 +31,14 @@ namespace ModelLighting
         GLint u_specPower      = -1;
         GLint u_alpha          = -1;
         GLint u_sunColor       = -1;
+        // Sun shadow (model program).
+        GLint u_shadowMap      = -1;
+        GLint u_shadowMatrix   = -1;
+        GLint u_shadowOn       = -1;
+        GLint u_shadowDarkness = -1;
+        GLint u_shadowTexel    = -1;
+        GLint u_shadowSoftness = -1;
+        GLint u_shadowBias     = -1;
 
         // Cached uniform locations (terrain program).
         GLint t_diffuse        = -1;
@@ -40,12 +49,24 @@ namespace ModelLighting
         GLint t_specStrength   = -1;
         GLint t_specPower      = -1;
         GLint t_sunColor       = -1;
+        // Sun shadow (terrain program).
+        GLint t_shadowMap      = -1;
+        GLint t_shadowMatrix   = -1;
+        GLint t_shadowOn       = -1;
+        GLint t_shadowDarkness = -1;
+        GLint t_shadowTexel    = -1;
+        GLint t_shadowSoftness = -1;
+        GLint t_shadowBias     = -1;
 
         // Config tunables, cached at Init().
         float s_normalStrength = 1.0f;
         float s_specStrength   = 0.30f;
         float s_specPower      = 24.0f;
         float s_sunColor[3]    = { 1.0f, 1.0f, 1.0f };
+
+        // Per-draw: does the MODEL program sample the sun shadow map? Toggled by
+        // the caller (true around static world objects, false around characters).
+        bool  s_receiveModelShadow = false;
 
         // --- Dynamic point lights (fed from the engine's AddTerrainLight sources) ---
         enum { MAX_LIGHTS = 24, MAX_COLLECT = 96 };
@@ -80,9 +101,11 @@ namespace ModelLighting
             "varying vec3 vLightEye;\n"
             "varying vec3 vEyePos;\n"
             "varying vec2 vUv;\n"
+            "varying vec3 vWorldPos;\n"   // gl_Vertex is WORLD space for models
             "uniform vec3 uLightDir;\n"   // same space as gl_Normal (NormalTransform)
             "void main(){\n"
             "    vEyePos    = (gl_ModelViewMatrix * gl_Vertex).xyz;\n"
+            "    vWorldPos  = gl_Vertex.xyz;\n"
             "    vNormalEye = gl_NormalMatrix * gl_Normal;\n"
             "    vLightEye  = gl_NormalMatrix * uLightDir;\n"
             "    vUv        = gl_MultiTexCoord0.xy;\n"
@@ -100,6 +123,7 @@ namespace ModelLighting
             "varying vec3 vLightEye;\n"
             "varying vec3 vEyePos;\n"
             "varying vec2 vUv;\n"
+            "varying vec3 vWorldPos;\n"
             "uniform sampler2D uDiffuse;\n"
             "uniform sampler2D uNormalTex;\n"
             "uniform vec3  uBodyLight;\n"
@@ -109,6 +133,26 @@ namespace ModelLighting
             "uniform float uSpecPower;\n"
             "uniform float uAlpha;\n"
             "uniform vec3  uSunColor;\n"
+            // Sun shadow map (forward sample: vWorldPos -> light space, no
+            // screen-space reconstruction).
+            "uniform sampler2D uShadowMap;\n"
+            "uniform mat4  uShadowMatrix;\n"
+            "uniform int   uShadowOn;\n"
+            "uniform float uShadowDarkness;\n"
+            "uniform float uShadowTexel;\n"
+            "uniform float uShadowSoftness;\n"
+            "uniform float uShadowBias;\n"
+            "float sunShadow(float ndl){\n"
+            "    if (uShadowOn == 0) return 1.0;\n"
+            "    vec4 sc = uShadowMatrix * vec4(vWorldPos, 1.0);\n"   // ortho -> w==1
+            "    if (sc.x<0.0||sc.x>1.0||sc.y<0.0||sc.y>1.0||sc.z>1.0) return 1.0;\n"
+            "    float bias = clamp(uShadowBias*0.0008*(1.0-ndl)+0.0004, 0.0003, 0.004);\n"
+            "    float r = uShadowTexel * max(uShadowSoftness, 0.001);\n"
+            "    float sh = 0.0;\n"
+            "    for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++)\n"
+            "        sh += (sc.z - bias > texture2D(uShadowMap, sc.xy+vec2(float(x),float(y))*r).r) ? 1.0 : 0.0;\n"
+            "    return 1.0 - (sh/9.0)*uShadowDarkness;\n"
+            "}\n"
             // Dynamic point lights (eye space). Accumulate diffuse falloff.
             "uniform int   uNumLights;\n"
             "uniform vec3  uLightPos[24];\n"
@@ -163,6 +207,9 @@ namespace ModelLighting
             "    spec *= max(ndl, 0.0);\n"   // no glint on back-facing surfaces
             // Specular reflects the light source -> tint it by the sun color.
             "    vec3 color = diffuse + uSunColor * spec;\n"
+            // Sun shadow darkens the SUN contribution (diffuse+spec); point lights
+            // below are unaffected so torches still light shadowed areas.
+            "    color *= sunShadow(ndl);\n"
             // Dynamic point lights add on top, illuminating the albedo with the
             // same (normal-mapped) normal as the sun.
             "    color += texColor.rgb * pointLights(N, vEyePos);\n"
@@ -180,9 +227,11 @@ namespace ModelLighting
             "varying vec3 vEyePos;\n"
             "varying vec2 vUv;\n"
             "varying vec4 vColor;\n"
+            "varying vec3 vWorldPos;\n"
             "uniform vec3 uLightDir;\n"
             "void main(){\n"
             "    vEyePos    = (gl_ModelViewMatrix * gl_Vertex).xyz;\n"
+            "    vWorldPos  = gl_Vertex.xyz;\n"
             "    vNormalEye = gl_NormalMatrix * gl_Normal;\n"
             "    vLightEye  = gl_NormalMatrix * uLightDir;\n"
             "    vUv        = gl_MultiTexCoord0.xy;\n"
@@ -197,6 +246,25 @@ namespace ModelLighting
             "varying vec3 vEyePos;\n"
             "varying vec2 vUv;\n"
             "varying vec4 vColor;\n"
+            "varying vec3 vWorldPos;\n"
+            "uniform sampler2D uShadowMap;\n"
+            "uniform mat4  uShadowMatrix;\n"
+            "uniform int   uShadowOn;\n"
+            "uniform float uShadowDarkness;\n"
+            "uniform float uShadowTexel;\n"
+            "uniform float uShadowSoftness;\n"
+            "uniform float uShadowBias;\n"
+            "float sunShadow(float ndl){\n"
+            "    if (uShadowOn == 0) return 1.0;\n"
+            "    vec4 sc = uShadowMatrix * vec4(vWorldPos, 1.0);\n"
+            "    if (sc.x<0.0||sc.x>1.0||sc.y<0.0||sc.y>1.0||sc.z>1.0) return 1.0;\n"
+            "    float bias = clamp(uShadowBias*0.0008*(1.0-ndl)+0.0004, 0.0003, 0.004);\n"
+            "    float r = uShadowTexel * max(uShadowSoftness, 0.001);\n"
+            "    float sh = 0.0;\n"
+            "    for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++)\n"
+            "        sh += (sc.z - bias > texture2D(uShadowMap, sc.xy+vec2(float(x),float(y))*r).r) ? 1.0 : 0.0;\n"
+            "    return 1.0 - (sh/9.0)*uShadowDarkness;\n"
+            "}\n"
             "uniform sampler2D uDiffuse;\n"
             "uniform sampler2D uNormalTex;\n"
             "uniform int   uHasNormalMap;\n"
@@ -244,7 +312,8 @@ namespace ModelLighting
             "        float ndl0 = max(dot(Nm, normalize(vLightEye)), 0.0);\n"
             "        float lum0 = 0.4 + 0.6 * ndl0;\n"
             "        vec3 tint0 = mix(vec3(1.0), uSunColor, ndl0);\n"
-            "        vec3 c0 = base * lum0 * tint0 + texColor.rgb * pointLights(Nm, vEyePos);\n"
+            "        vec3 c0 = base * lum0 * tint0 * sunShadow(ndl0);\n"
+            "        c0 += texColor.rgb * pointLights(Nm, vEyePos);\n"
             "        gl_FragColor = vec4(c0, outA);\n"
             "        return;\n"
             "    }\n"
@@ -268,6 +337,7 @@ namespace ModelLighting
             // Ground specular kept subtler than models (x0.5) so it doesn't read wet.
             "    float spec = pow(max(dot(Nb, H), 0.0), uSpecPower) * uSpecStrength * 0.5 * ndl;\n"
             "    vec3 color = lit + uSunColor * spec;\n"
+            "    color *= sunShadow(ndl);\n"
             "    color += texColor.rgb * pointLights(Nb, vEyePos);\n"
             "    gl_FragColor = vec4(color, outA);\n"
             "}\n";
@@ -310,6 +380,33 @@ namespace ModelLighting
         }
     }
 
+    // Bind the sun shadow map (unit 2) + its world->light matrix and params to
+    // whichever program is current. Leaves the active texture unit at 0 so the
+    // diffuse draw is unaffected. When shadows are off / not ready, just sets
+    // uShadowOn=0 (the shader early-outs to fully lit).
+    void BindSunShadow(GLint locMap, GLint locMat, GLint locOn, GLint locDark,
+                       GLint locTexel, GLint locSoft, GLint locBias)
+    {
+        const PostProcess::GLProcs& gl = PostProcess::GL();
+        const bool on = SunShadow::Enabled() && SunShadow::MapReady();
+        if (locOn >= 0) gl.Uniform1i(locOn, on ? 1 : 0);
+        if (!on) return;
+        if (gl.ActiveTexture)
+        {
+            gl.ActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, (GLuint)SunShadow::DepthTexture());
+            gl.ActiveTexture(GL_TEXTURE0);
+        }
+        if (locMap >= 0) gl.Uniform1i(locMap, 2);
+        if (locMat >= 0 && gl.UniformMatrix4fv)
+            gl.UniformMatrix4fv(locMat, 1, GL_FALSE, SunShadow::Matrix());
+        if (locDark >= 0) gl.Uniform1f(locDark, SunShadow::Darkness());
+        const int res = SunShadow::Resolution();
+        if (locTexel >= 0) gl.Uniform1f(locTexel, res > 0 ? 1.0f/(float)res : 0.0005f);
+        if (locSoft >= 0) gl.Uniform1f(locSoft, SunShadow::Softness());
+        if (locBias >= 0) gl.Uniform1f(locBias, SunShadow::Bias());
+    }
+
     void Init()
     {
         if (s_inited) return;
@@ -346,6 +443,13 @@ namespace ModelLighting
         u_specPower      = gl.GetUniformLocation(s_prog, "uSpecPower");
         u_alpha          = gl.GetUniformLocation(s_prog, "uAlpha");
         u_sunColor       = gl.GetUniformLocation(s_prog, "uSunColor");
+        u_shadowMap      = gl.GetUniformLocation(s_prog, "uShadowMap");
+        u_shadowMatrix   = gl.GetUniformLocation(s_prog, "uShadowMatrix");
+        u_shadowOn       = gl.GetUniformLocation(s_prog, "uShadowOn");
+        u_shadowDarkness = gl.GetUniformLocation(s_prog, "uShadowDarkness");
+        u_shadowTexel    = gl.GetUniformLocation(s_prog, "uShadowTexel");
+        u_shadowSoftness = gl.GetUniformLocation(s_prog, "uShadowSoftness");
+        u_shadowBias     = gl.GetUniformLocation(s_prog, "uShadowBias");
         u_numLights[0]   = gl.GetUniformLocation(s_prog, "uNumLights");
         u_lightPos[0]    = gl.GetUniformLocation(s_prog, "uLightPos");
         u_lightColor[0]  = gl.GetUniformLocation(s_prog, "uLightColor");
@@ -363,6 +467,13 @@ namespace ModelLighting
             t_specStrength   = gl.GetUniformLocation(s_terrainProg, "uSpecStrength");
             t_specPower      = gl.GetUniformLocation(s_terrainProg, "uSpecPower");
             t_sunColor       = gl.GetUniformLocation(s_terrainProg, "uSunColor");
+            t_shadowMap      = gl.GetUniformLocation(s_terrainProg, "uShadowMap");
+            t_shadowMatrix   = gl.GetUniformLocation(s_terrainProg, "uShadowMatrix");
+            t_shadowOn       = gl.GetUniformLocation(s_terrainProg, "uShadowOn");
+            t_shadowDarkness = gl.GetUniformLocation(s_terrainProg, "uShadowDarkness");
+            t_shadowTexel    = gl.GetUniformLocation(s_terrainProg, "uShadowTexel");
+            t_shadowSoftness = gl.GetUniformLocation(s_terrainProg, "uShadowSoftness");
+            t_shadowBias     = gl.GetUniformLocation(s_terrainProg, "uShadowBias");
             u_numLights[1]   = gl.GetUniformLocation(s_terrainProg, "uNumLights");
             u_lightPos[1]    = gl.GetUniformLocation(s_terrainProg, "uLightPos");
             u_lightColor[1]  = gl.GetUniformLocation(s_terrainProg, "uLightColor");
@@ -436,6 +547,16 @@ namespace ModelLighting
         gl.Uniform1f(u_specPower, s_specPower);
         gl.Uniform1f(u_alpha, alpha);
         gl.Uniform3fv(u_sunColor, 1, s_sunColor);
+        // Models always CAST (collected into the map). RECEIVING is per-draw:
+        // ON for static world objects (so building/tree walls catch the shadows
+        // other casters throw), OFF for characters/monsters (the one-frame-latent
+        // map + low-poly meshes self-acne/flicker). Caller toggles via
+        // SetReceiveShadow() around RenderObjects vs RenderCharactersClient.
+        if (s_receiveModelShadow)
+            BindSunShadow(u_shadowMap, u_shadowMatrix, u_shadowOn, u_shadowDarkness,
+                          u_shadowTexel, u_shadowSoftness, u_shadowBias);
+        else if (u_shadowOn >= 0)
+            gl.Uniform1i(u_shadowOn, 0);
         UploadLights(0);
     }
 
@@ -446,6 +567,8 @@ namespace ModelLighting
         if (gl.ActiveTexture) gl.ActiveTexture(GL_TEXTURE0);
         gl.UseProgram(0);
     }
+
+    void SetReceiveShadow(bool on) { s_receiveModelShadow = on; }
 
     void BeginTerrain(unsigned int normalTex)
     {
@@ -471,6 +594,8 @@ namespace ModelLighting
         gl.Uniform1f(t_specStrength, s_specStrength);
         gl.Uniform1f(t_specPower, s_specPower);
         gl.Uniform3fv(t_sunColor, 1, s_sunColor);
+        BindSunShadow(t_shadowMap, t_shadowMatrix, t_shadowOn, t_shadowDarkness,
+                      t_shadowTexel, t_shadowSoftness, t_shadowBias);
         UploadLights(1);
     }
 

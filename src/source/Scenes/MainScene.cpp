@@ -8,6 +8,8 @@
 #include "Camera/CameraUtility.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/Shadow/SunShadow.h"
+#include "Render/Models/ModelShader.h"
 #include "Render/PostProcess/PostProcessChain.h"
 #include "Render/PostProcess/PostProcessPreset.h"
 #include "Network/ServerMapManifest.h"
@@ -446,7 +448,11 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     // using WindowWidth/WindowHeight when setting the GL viewport, so the
     // FBO must match the real window pixels — not the reference values.
     SoftShadow::Resize(WindowWidth, WindowHeight);
-    SoftShadow::BeginFrame();
+    // Real-time sun shadows replace the legacy SoftShadow blob system entirely —
+    // skip its per-frame setup/composite so its blur/depth-composite pass can't
+    // interfere with the scene (it was making characters vanish).
+    if (!SunShadow::Enabled())
+        SoftShadow::BeginFrame();
 
     if (IsWaterTerrain() == false && renderTerrain)
     {
@@ -460,12 +466,16 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
             {
                 if ((gMapManager.IsPKField() || IsDoppelGanger2()) && renderStatic)
                 {
+                    ModelLighting::SetReceiveShadow(true);
                     FRAME_PROFILE(Objects); RenderObjects();
                 }
                 { FRAME_PROFILE(Terrain); RenderTerrain(false); }
             }
     }
 
+    // Static world objects RECEIVE the sun shadow (building/tree walls catch the
+    // shadows characters and other objects throw). Characters turn this back off.
+    ModelLighting::SetReceiveShadow(true);
     if (!gMapManager.IsPKField() && !IsDoppelGanger2() && renderStatic)
         { FRAME_PROFILE(Objects); RenderObjects(); }
 
@@ -492,6 +502,9 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
         RenderBoids();
     }
 
+    // Characters/monsters CAST but don't self-receive (one-frame-latent map +
+    // low-poly meshes would acne/flicker). Turn receiving off for their draws.
+    ModelLighting::SetReceiveShadow(false);
     { FRAME_PROFILE(Characters); RenderCharactersClient(); }
 
     if (EditFlag != EDIT_NONE && renderTerrain)
@@ -514,11 +527,16 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
         RenderBoids(true);
 
     if (renderStatic)
+    {
+        ModelLighting::SetReceiveShadow(true);
         { FRAME_PROFILE(Objects); RenderObjects_AfterCharacter(); }
+    }
+    ModelLighting::SetReceiveShadow(false);   // restore default for any later model draws
 
     // All shadow-emitting passes are done. Blur and composite over the
     // back buffer before joints/effects/sprites overlay on top.
-    SoftShadow::Composite();
+    if (!SunShadow::Enabled())
+        SoftShadow::Composite();
 
     RenderJoints(byWaterMap);
 
@@ -686,6 +704,9 @@ bool RenderMainScene()
     // RenderMainSceneUI, so the in-game UI/text is never post-processed.
     PostProcess::Chain::BeginSceneCapture();
 
+    // M1: gate caster collection to the player (BodyOrigin near this target).
+    SunShadow::SetTarget(Hero->Object.Position);
+
     SetupMainSceneViewport(width, height, byWaterMap, cameraPos);
     RenderGameWorld(byWaterMap, width, height);
 
@@ -776,6 +797,14 @@ bool RenderMainScene()
 
 
     EndOpengl();
+
+    // FORWARD SHADOW MAP: flush the character verts collected this frame (during
+    // RenderGameWorld's RenderBodyShadow) into the sun depth map, centered on the
+    // hero. Built here at frame end; the model/terrain shaders sample it NEXT
+    // frame (one-frame lag — invisible, and avoids re-issuing characters before
+    // their transforms exist). No-op when shadows are off.
+    SunShadow::BuildFromCollected(Hero->Object.Position);
+    SunShadow::DebugDraw();   // bottom-left depth preview (diagnostic, M1)
 
     return true;
 }

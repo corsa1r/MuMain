@@ -53,6 +53,14 @@ namespace ModelLighting
     // Restore fixed-function (glUseProgram(0)) and active texture unit 0.
     void End();
 
+    // Whether the MODEL program samples the sun shadow map (receives shadows).
+    // Default OFF: dynamic characters/monsters cast but don't self-receive (the
+    // one-frame-latent map + low-poly meshes would acne/flicker). Turn ON around
+    // static world objects (RenderObjects) so building/tree walls catch the
+    // shadows other casters throw, then OFF again before characters. Terrain
+    // always receives independently (BeginTerrain).
+    void SetReceiveShadow(bool on);
+
     // Terrain variant: SUN RE-LIGHT. Uses the tile's lightmap (gl_Color) as
     // albedo and re-lights it per-pixel with the shared sun (half-lambert off the
     // perturbed normal) + sun tint + specular, so flat ground tracks sun

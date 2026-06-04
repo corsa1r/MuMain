@@ -4,6 +4,7 @@
 #include "stdafx.h"
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/SunDirection.h"
+#include "Render/Shadow/SunShadow.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Engine/Object/ZzzInfomation.h" 
 #include "ZzzBMD.h"
@@ -2394,12 +2395,6 @@ void BMD::RenderBodyShadow(const int blendMesh, const int hiddenMesh, const int 
         return;
     }
 
-    // Route this shadow draw into the offscreen shadow FBO. On End it's
-    // restored to the previously bound framebuffer. If SoftShadow is
-    // unavailable (init failed) these calls are no-ops and the shadow
-    // draws fall back to the legacy straight-to-back-buffer path.
-    SoftShadow::BeginShadowDraw();
-
     int startMesh = 0;
     int endMesh = NumMeshs;
     if (startMeshNumber != -1)
@@ -2410,6 +2405,119 @@ void BMD::RenderBodyShadow(const int blendMesh, const int hiddenMesh, const int 
     {
         endMesh = endMeshNumber;
     }
+
+    // FORWARD SHADOW MAP: collect this body's real (un-sheared) world-space verts
+    // for the sun depth map. Curated selection mirrors AddMeshShadowTriangles
+    // (skip hiddenMesh + the blend/effect mesh + empty meshes). Per-mesh guards
+    // reject garbage (a vertex far from BodyOrigin, or a mesh whose own bbox
+    // sprawls) so one bad transform can't fill the whole map. The map is sampled
+    // in the model/terrain shaders (SunShadow), not screen space.
+    if (clothesCount == 0 && SunShadow::CharacterCastWanted())
+    {
+        // Use a DEDICATED buffer, not the engine's shared RenderArrayVertices —
+        // borrowing that corrupts the model's own draw (which fills/draws from it
+        // across multiple passes), making cast-shadow models render invisible.
+        static vec3_t s_sunCast[MAX_VERTICES * 3];
+        auto sv = s_sunCast;
+        for (int i = startMesh; i < endMesh; i++)
+        {
+            if (i == hiddenMesh) continue;
+            const Mesh_t* mesh = &Meshs[i];
+            if (mesh->NumTriangles <= 0 || mesh->Texture == blendMesh) continue;
+            int n = 0; bool bad = false;
+            float mn[3] = {  1e9f,  1e9f,  1e9f };
+            float mx[3] = { -1e9f, -1e9f, -1e9f };
+            for (int j = 0; j < mesh->NumTriangles && !bad; j++)
+            {
+                const auto* tp = &mesh->Triangles[j];
+                for (int k = 0; k < 3; k++)
+                {
+                    const float* v = VertexTransform[i][tp->VertexIndex[k]];
+                    if (!(fabs(v[0]-BodyOrigin[0]) <= 1500.f &&
+                          fabs(v[1]-BodyOrigin[1]) <= 1500.f &&
+                          fabs(v[2]-BodyOrigin[2]) <= 1500.f)) { bad = true; break; }
+                    for (int c = 0; c < 3; c++)
+                    { if (v[c] < mn[c]) mn[c] = v[c]; if (v[c] > mx[c]) mx[c] = v[c]; }
+                    // NOTE: VectorCopy is a macro that evaluates its 2nd arg 3x —
+                    // so 'sv[n++]' would increment n three times and scramble the
+                    // vertex. Index with a fixed n, then advance separately.
+                    VectorCopy(v, sv[n]);
+                    ++n;
+                }
+            }
+            if (!bad && (mx[0]-mn[0] > 900.f || mx[1]-mn[1] > 900.f || mx[2]-mn[2] > 900.f))
+                bad = true;
+            if (!bad && n > 0) SunShadow::PushCharacterVerts(&sv[0][0], n);
+        }
+    }
+
+    // CAPE / CLOTH casters: the cloth path (clothesCount > 0) is a separate
+    // RenderBodyShadow call from the body, so collect it too. Mirror the legacy
+    // tessellation (AddClothesShadowTriangles) but push the real 3D particle
+    // positions (pCloth->GetPosition) WITHOUT CalcShadowPosition, so the cape
+    // throws a true volumetric shadow into the sun depth map instead of a flat
+    // blob. Same per-vertex distance guard rejects any stray particle.
+    if (clothesCount > 0 && SunShadow::CharacterCastWanted())
+    {
+        static vec3_t s_clothCast[MAX_VERTICES * 3];
+        auto sv = s_clothCast;
+        const int cap = MAX_VERTICES * 3;
+        for (int i = 0; i < clothesCount; i++)
+        {
+            auto* const pCloth = &static_cast<CPhysicsCloth*>(pClothes)[i];
+            const int columns = pCloth->GetVerticalCount();
+            const int rows    = pCloth->GetHorizontalCount();
+            int n = 0;
+            for (int col = 0; col < columns - 1 && n + 6 <= cap; ++col)
+            {
+                for (int row = 0; row < rows - 1 && n + 6 <= cap; ++row)
+                {
+                    const int ia = rows * col + row;
+                    const int ib = rows * (col + 1) + row;
+                    const int ic = rows * col + row + 1;
+                    const int id = rows * (col + 1) + row + 1;
+                    vec3_t pa, pb, pc, pd;
+                    pCloth->GetPosition(ia, &pa);
+                    pCloth->GetPosition(ib, &pb);
+                    pCloth->GetPosition(ic, &pc);
+                    pCloth->GetPosition(id, &pd);
+                    bool ok = true;
+                    const vec3_t* quad[4] = { &pa, &pb, &pc, &pd };
+                    for (int q = 0; q < 4 && ok; ++q)
+                    {
+                        const float* p = (*quad[q]);
+                        if (!(fabs(p[0]-BodyOrigin[0]) <= 1500.f &&
+                              fabs(p[1]-BodyOrigin[1]) <= 1500.f &&
+                              fabs(p[2]-BodyOrigin[2]) <= 1500.f)) ok = false;
+                    }
+                    if (!ok) continue;
+                    // A-triangle (a,b,c), V-triangle (d,b,c) — see legacy path.
+                    VectorCopy(pa, sv[n]); ++n;
+                    VectorCopy(pb, sv[n]); ++n;
+                    VectorCopy(pc, sv[n]); ++n;
+                    VectorCopy(pd, sv[n]); ++n;
+                    VectorCopy(pb, sv[n]); ++n;
+                    VectorCopy(pc, sv[n]); ++n;
+                }
+            }
+            if (n > 0) SunShadow::PushCharacterVerts(&sv[0][0], n);
+        }
+    }
+
+    // When real-time sun shadows are on, the legacy planar blob below is
+    // replaced by the depth-map shadow, so skip it. This MUST return before
+    // SoftShadow::BeginShadowDraw(): that call rebinds the render target to the
+    // shadow FBO and only EndShadowDraw() restores it. Returning after Begin
+    // (but before End) would leave every later draw — including the caster's
+    // own model — landing in the shadow FBO, making it vanish.
+    if (SunShadow::Enabled())
+        return;
+
+    // Route this shadow draw into the offscreen shadow FBO. On End it's
+    // restored to the previously bound framebuffer. If SoftShadow is
+    // unavailable (init failed) these calls are no-ops and the shadow
+    // draws fall back to the legacy straight-to-back-buffer path.
+    SoftShadow::BeginShadowDraw();
 
     // Shadow shear now comes from the shared world sun (which also drives the
     // god rays), so characters/objects and the volumetric shafts agree. The
@@ -2454,6 +2562,68 @@ void BMD::RenderBodyShadow(const int blendMesh, const int hiddenMesh, const int 
     EndRender();
 
     SoftShadow::EndShadowDraw();
+}
+
+void BMD::CollectSunCaster(const int blendMesh, const int hiddenMesh)
+{
+    if (NumMeshs <= 0 || !SunShadow::Enabled()) return;
+
+    // Loose collection: unlike the character body path there is NO tight
+    // per-vertex/origin or mesh-span guard (large buildings legitimately span
+    // far). The whole object was already range-culled by the caller. Dedicated
+    // static buffers (never the shared RenderArrayVertices); triangulate (fan)
+    // straight from VertexTransform (already world space).
+    static vec3_t s_objCast[MAX_VERTICES * 3];          // opaque: xyz
+    static float  s_objTex [MAX_VERTICES * 3 * 5];      // alpha-tested: x,y,z,u,v
+    const int cap = MAX_VERTICES * 3;                    // max verts per mesh
+
+    for (int i = 0; i < NumMeshs; i++)
+    {
+        if (i == hiddenMesh) continue;
+        const Mesh_t* mesh = &Meshs[i];
+        if (mesh->NumTriangles <= 0 || mesh->Texture == blendMesh) continue;
+        // Skip meshes RenderMesh wouldn't draw: a mesh mapped to BITMAP_HIDE is
+        // invisible, so it must not cast (e.g. a hidden sub-part of an object).
+        const int texIndex = IndexTexture[mesh->Texture];
+        if (texIndex == BITMAP_HIDE) continue;
+
+        // A 4-component (RGBA) texture is alpha-tested by RenderMesh; such a mesh
+        // (fence/grille/foliage) must cast through its texture so the holes show
+        // in the shadow. Opaque meshes use the cheap position-only path.
+        auto* tex = Bitmaps.GetTexture(texIndex);
+        const bool alphaTested = tex && tex->Components == 4 && tex->TextureNumber != 0;
+
+        int n = 0;   // emitted triangle verts for this mesh
+        for (int j = 0; j < mesh->NumTriangles && n + 3 <= cap; j++)
+        {
+            const auto* tp = &mesh->Triangles[j];
+            const int P = tp->Polygon;                  // 3 (tri) or 4 (quad)
+            for (int k = 2; k < P && n + 3 <= cap; k++) // fan: (0,k-1,k)
+            {
+                const int corner[3] = { 0, k - 1, k };
+                for (int t = 0; t < 3; t++)
+                {
+                    const int c = corner[t];
+                    const float* v = VertexTransform[i][tp->VertexIndex[c]];
+                    if (alphaTested)
+                    {
+                        const auto& uv = mesh->TexCoords[tp->TexCoordIndex[c]];
+                        float* d = &s_objTex[n * 5];
+                        d[0] = v[0]; d[1] = v[1]; d[2] = v[2];
+                        d[3] = uv.TexCoordU; d[4] = uv.TexCoordV;
+                    }
+                    else
+                    {
+                        VectorCopy(v, s_objCast[n]);   // macro: fixed index
+                    }
+                    ++n;
+                }
+            }
+        }
+        if (n <= 0) continue;
+        if (alphaTested) SunShadow::PushTexturedCaster(tex->TextureNumber, s_objTex, n);
+        else             SunShadow::PushCharacterVerts(&s_objCast[0][0], n);
+    }
 }
 
 void BMD::RenderObjectBoundingBox()
