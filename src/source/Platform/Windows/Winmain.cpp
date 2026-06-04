@@ -1600,6 +1600,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.dynamicLightFlicker   = cfg.GetDynamicLightFlicker();
         pps.playerLight       = cfg.GetPlayerLight();
         pps.playerLightRadius = cfg.GetPlayerLightRadius();
+        pps.sunShadows          = cfg.GetSunShadows();
+        pps.sunShadowResolution = cfg.GetSunShadowResolution();
+        pps.sunShadowDistance   = cfg.GetSunShadowDistance();
+        pps.sunShadowDarkness   = cfg.GetSunShadowDarkness();
+        pps.sunShadowSoftness   = cfg.GetSunShadowSoftness();
+        pps.sunShadowBias       = cfg.GetSunShadowBias();
         PostProcess::Chain::ApplySettings(pps);
 
         // Seed the per-map preset system with this global look + the override

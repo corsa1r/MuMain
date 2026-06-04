@@ -103,6 +103,13 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyDynamicLightFlicker[]   = L"DynamicLightFlicker";
     inline constexpr wchar_t CfgKeyPlayerLight[]           = L"PlayerLight";
     inline constexpr wchar_t CfgKeyPlayerLightRadius[]     = L"PlayerLightRadius";
+    // Graphics — real-time sun shadow map (forward shadow mapping).
+    inline constexpr wchar_t CfgKeySunShadows[]           = L"SunShadows";
+    inline constexpr wchar_t CfgKeySunShadowResolution[]  = L"SunShadowResolution";
+    inline constexpr wchar_t CfgKeySunShadowDistance[]    = L"SunShadowDistance";
+    inline constexpr wchar_t CfgKeySunShadowDarkness[]    = L"SunShadowDarkness";
+    inline constexpr wchar_t CfgKeySunShadowSoftness[]    = L"SunShadowSoftness";
+    inline constexpr wchar_t CfgKeySunShadowBias[]        = L"SunShadowBias";
 }
 
 namespace CfgDefaults
@@ -238,4 +245,10 @@ namespace CfgDefaults
     inline constexpr float CfgDefaultDynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw
     inline constexpr bool  CfgDefaultPlayerLight           = true;
     inline constexpr float CfgDefaultPlayerLightRadius     = 700.0f;
+    inline constexpr bool  CfgDefaultSunShadows            = true;
+    inline constexpr int   CfgDefaultSunShadowResolution   = 4096;
+    inline constexpr float CfgDefaultSunShadowDistance     = 1500.0f;
+    inline constexpr float CfgDefaultSunShadowDarkness     = 0.5f;
+    inline constexpr float CfgDefaultSunShadowSoftness     = 0.87f;
+    inline constexpr float CfgDefaultSunShadowBias         = 1.0f;
 }

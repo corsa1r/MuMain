@@ -113,5 +113,18 @@ namespace PostProcess
         float dynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw rand() flicker
         bool  playerLight           = true;  // always-on hero light
         float playerLightRadius     = 700.0f;
+
+        // Real-time sun shadow map (forward shadow mapping; SunShadow module —
+        // NOT a screen-space pass). Casters: characters/monsters/NPCs (+wings/
+        // capes) and static world objects (incl. alpha-tested cutouts like
+        // fences). Receivers: terrain + static objects. Driven by the shared sun
+        // (God Rays azimuth / Sun Height Z). Distributed by Chain::ApplySettings
+        // to SunShadow::SetParams. Off by default => no shadow pass cost.
+        bool  sunShadows           = true;
+        int   sunShadowResolution  = 4096;    // depth map size: 1024 / 2048 / 4096
+        float sunShadowDistance    = 1500.0f; // ortho half-extent (world u) around hero
+        float sunShadowDarkness    = 0.5f;    // 0 = none .. 1 = black under shadow
+        float sunShadowSoftness    = 1.5f;   // PCF radius (texels); higher = softer edge
+        float sunShadowBias        = 1.0f;    // slope-bias scale; raise to kill acne
     };
 }

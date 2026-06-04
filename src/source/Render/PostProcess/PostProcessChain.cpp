@@ -11,6 +11,7 @@
 #include "GodRaysPass.h"
 #include "Render/SunDirection.h"
 #include "Render/Models/ModelShader.h"
+#include "Render/Shadow/SunShadow.h"
 #include "LutPass.h"
 #include "ColorEffectPasses.h"
 
@@ -496,10 +497,30 @@ namespace PostProcess
             // passes — matches user expectation. s_enabled is always set (startup
             // Winmain, editor ApplyLive) before this runs, so the gate is correct.
             const float sunColor[3] = { s.godRaysR, s.godRaysG, s.godRaysB };
-            ModelLighting::SetParams(s.perPixelLighting && s_enabled, s.normalMapStrength,
-                                     s.specularStrength, s.specularPower, sunColor);
+            // Sun shadows are sampled INSIDE the model/terrain shaders, so a
+            // receiver only catches a shadow when this shader actually runs.
+            // Therefore run it whenever shadows are on too — even if Per-Pixel
+            // Lighting is unchecked (e.g. a custom map whose preset never had it).
+            // In that shadows-only case force neutral relief/spec so the base
+            // look stays legacy-equivalent and ONLY the shadow term is added.
+            const bool  wantShader = (s.perPixelLighting || s.sunShadows) && s_enabled;
+            const float nrmStr = s.perPixelLighting ? s.normalMapStrength : 0.0f;
+            const float spcStr = s.perPixelLighting ? s.specularStrength  : 0.0f;
+            ModelLighting::SetParams(wantShader, nrmStr, spcStr, s.specularPower, sunColor);
+            // Terrain re-light only when Per-Pixel Lighting is actually on. When
+            // the shader runs solely to receive shadows (PPL off), keep the
+            // ground's legacy look and just multiply the shadow term.
+            ModelLighting::SetGroundRelight(s.perPixelLighting);
             ModelLighting::SetDynamicLights(s.dynamicLights, s.dynamicLightIntensity, s.dynamicLightFlicker);
             ModelLighting::SetPlayerLight(s.playerLight, s.playerLightRadius);
+
+            // Real-time sun shadows: same single funnel. Gated by s_enabled (the
+            // post-chain master) so it follows the master toggle like the model
+            // lighting above. Receives the per-map preset on map entry, startup
+            // config, and editor live-apply.
+            SunShadow::SetParams(s.sunShadows && s_enabled, s.sunShadowResolution,
+                                 s.sunShadowDistance, s.sunShadowDarkness,
+                                 s.sunShadowSoftness, s.sunShadowBias);
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }

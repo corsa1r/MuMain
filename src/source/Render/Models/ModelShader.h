@@ -61,6 +61,12 @@ namespace ModelLighting
     // always receives independently (BeginTerrain).
     void SetReceiveShadow(bool on);
 
+    // Terrain re-light mode. true = full per-pixel sun re-light (Per-Pixel
+    // Lighting on). false = shadow-only: the terrain shader runs solely so the
+    // ground can receive sun shadows, outputting the exact legacy color times
+    // the shadow term (no re-light) — used on maps with no normal maps / PPL off.
+    void SetGroundRelight(bool on);
+
     // Terrain variant: SUN RE-LIGHT. Uses the tile's lightmap (gl_Color) as
     // albedo and re-lights it per-pixel with the shared sun (half-lambert off the
     // perturbed normal) + sun tint + specular, so flat ground tracks sun

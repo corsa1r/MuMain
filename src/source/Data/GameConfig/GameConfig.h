@@ -182,6 +182,20 @@ public:
     void  SetPlayerLight(bool enabled);
     void  SetPlayerLightRadius(float v);
 
+    // [Graphics] Real-time sun shadow map (forward shadow mapping).
+    bool  GetSunShadows()          const { return m_sunShadows; }
+    int   GetSunShadowResolution() const { return m_sunShadowResolution; }
+    float GetSunShadowDistance()   const { return m_sunShadowDistance; }
+    float GetSunShadowDarkness()   const { return m_sunShadowDarkness; }
+    float GetSunShadowSoftness()   const { return m_sunShadowSoftness; }
+    float GetSunShadowBias()       const { return m_sunShadowBias; }
+    void  SetSunShadows(bool enabled);
+    void  SetSunShadowResolution(int v);
+    void  SetSunShadowDistance(float v);
+    void  SetSunShadowDarkness(float v);
+    void  SetSunShadowSoftness(float v);
+    void  SetSunShadowBias(float v);
+
     // [Graphics] — setters used by the live editor panel's "Save to config.ini".
     // Each updates the in-memory value and writes it through to config.ini.
     void SetBloomThreshold(float v);
@@ -315,6 +329,12 @@ private:
     float m_dynamicLightFlicker;
     bool  m_playerLight;
     float m_playerLightRadius;
+    bool  m_sunShadows;
+    int   m_sunShadowResolution;
+    float m_sunShadowDistance;
+    float m_sunShadowDarkness;
+    float m_sunShadowSoftness;
+    float m_sunShadowBias;
 
     int ReadInt(const wchar_t* section, const wchar_t* key, int defaultValue);
     void WriteInt(const wchar_t* section, const wchar_t* key, int value);

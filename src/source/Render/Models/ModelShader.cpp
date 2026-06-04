@@ -57,6 +57,7 @@ namespace ModelLighting
         GLint t_shadowTexel    = -1;
         GLint t_shadowSoftness = -1;
         GLint t_shadowBias     = -1;
+        GLint t_reLight        = -1;
 
         // Config tunables, cached at Init().
         float s_normalStrength = 1.0f;
@@ -67,6 +68,11 @@ namespace ModelLighting
         // Per-draw: does the MODEL program sample the sun shadow map? Toggled by
         // the caller (true around static world objects, false around characters).
         bool  s_receiveModelShadow = false;
+
+        // Terrain: do the full per-pixel sun re-light (Per-Pixel Lighting on) vs
+        // shadow-only (PPL off, shader runs solely so the ground can catch sun
+        // shadows — keep the exact legacy look, just multiply the shadow term).
+        bool  s_groundRelight = true;
 
         // --- Dynamic point lights (fed from the engine's AddTerrainLight sources) ---
         enum { MAX_LIGHTS = 24, MAX_COLLECT = 96 };
@@ -247,6 +253,11 @@ namespace ModelLighting
             "varying vec2 vUv;\n"
             "varying vec4 vColor;\n"
             "varying vec3 vWorldPos;\n"
+            // 1 = full per-pixel sun re-light (Per-Pixel Lighting on). 0 =
+            // shadow-only: keep the EXACT legacy ground color and only multiply
+            // the shadow term, so a custom map with no normal maps / PPL off
+            // still receives shadows without its terrain look changing.
+            "uniform int   uReLight;\n"
             "uniform sampler2D uShadowMap;\n"
             "uniform mat4  uShadowMatrix;\n"
             "uniform int   uShadowOn;\n"
@@ -304,6 +315,16 @@ namespace ModelLighting
             "    vec3 base = texColor.rgb * vColor.rgb;\n"   // lightmap albedo
             // alpha = texture alpha * layer blend weight (a==1 on the base pass).
             "    float outA = texColor.a * vColor.a;\n"
+            // Shadow-only mode (PPL off, wrapped solely to receive shadows):
+            // output the unchanged legacy ground color times the shadow term so
+            // nothing else about the terrain look shifts. No re-light, no spec,
+            // no per-pixel point lights.
+            "    if (uReLight == 0){\n"
+            "        vec3 Nm = normalize(vNormalEye);\n"
+            "        float ndlS = max(dot(Nm, normalize(vLightEye)), 0.0);\n"
+            "        gl_FragColor = vec4(base * sunShadow(ndlS), outA);\n"
+            "        return;\n"
+            "    }\n"
             // No normal map (e.g. grass billboards): still re-light by the sun
             // using the macro normal so brightness/tint match the ground beneath,
             // just without bump relief.
@@ -474,6 +495,7 @@ namespace ModelLighting
             t_shadowTexel    = gl.GetUniformLocation(s_terrainProg, "uShadowTexel");
             t_shadowSoftness = gl.GetUniformLocation(s_terrainProg, "uShadowSoftness");
             t_shadowBias     = gl.GetUniformLocation(s_terrainProg, "uShadowBias");
+            t_reLight        = gl.GetUniformLocation(s_terrainProg, "uReLight");
             u_numLights[1]   = gl.GetUniformLocation(s_terrainProg, "uNumLights");
             u_lightPos[1]    = gl.GetUniformLocation(s_terrainProg, "uLightPos");
             u_lightColor[1]  = gl.GetUniformLocation(s_terrainProg, "uLightColor");
@@ -569,6 +591,7 @@ namespace ModelLighting
     }
 
     void SetReceiveShadow(bool on) { s_receiveModelShadow = on; }
+    void SetGroundRelight(bool on) { s_groundRelight = on; }
 
     void BeginTerrain(unsigned int normalTex)
     {
@@ -594,6 +617,7 @@ namespace ModelLighting
         gl.Uniform1f(t_specStrength, s_specStrength);
         gl.Uniform1f(t_specPower, s_specPower);
         gl.Uniform3fv(t_sunColor, 1, s_sunColor);
+        if (t_reLight >= 0) gl.Uniform1i(t_reLight, s_groundRelight ? 1 : 0);
         BindSunShadow(t_shadowMap, t_shadowMatrix, t_shadowOn, t_shadowDarkness,
                       t_shadowTexel, t_shadowSoftness, t_shadowBias);
         UploadLights(1);

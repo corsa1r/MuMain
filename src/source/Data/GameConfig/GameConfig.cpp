@@ -125,6 +125,12 @@ void GameConfig::Load()
     m_dynamicLightFlicker  = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightFlicker, CfgDefaultDynamicLightFlicker);
     m_playerLight          = ReadBool (CfgSectionGraphics, CfgKeyPlayerLight, CfgDefaultPlayerLight);
     m_playerLightRadius    = ReadFloat(CfgSectionGraphics, CfgKeyPlayerLightRadius, CfgDefaultPlayerLightRadius);
+    m_sunShadows           = ReadBool (CfgSectionGraphics, CfgKeySunShadows, CfgDefaultSunShadows);
+    m_sunShadowResolution  = ReadInt  (CfgSectionGraphics, CfgKeySunShadowResolution, CfgDefaultSunShadowResolution);
+    m_sunShadowDistance    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowDistance, CfgDefaultSunShadowDistance);
+    m_sunShadowDarkness    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowDarkness, CfgDefaultSunShadowDarkness);
+    m_sunShadowSoftness    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowSoftness, CfgDefaultSunShadowSoftness);
+    m_sunShadowBias        = ReadFloat(CfgSectionGraphics, CfgKeySunShadowBias, CfgDefaultSunShadowBias);
 
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
@@ -241,6 +247,12 @@ void GameConfig::PersistGraphics()
     WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightFlicker, m_dynamicLightFlicker);
     WriteBool  (CfgSectionGraphics, CfgKeyPlayerLight, m_playerLight);
     WriteFloat (CfgSectionGraphics, CfgKeyPlayerLightRadius, m_playerLightRadius);
+    WriteBool  (CfgSectionGraphics, CfgKeySunShadows, m_sunShadows);
+    WriteInt   (CfgSectionGraphics, CfgKeySunShadowResolution, m_sunShadowResolution);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowDistance, m_sunShadowDistance);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowDarkness, m_sunShadowDarkness);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowSoftness, m_sunShadowSoftness);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowBias, m_sunShadowBias);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -714,6 +726,36 @@ void GameConfig::SetPlayerLightRadius(float v)
 {
     m_playerLightRadius = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPlayerLightRadius, v);
+}
+void GameConfig::SetSunShadows(bool enabled)
+{
+    m_sunShadows = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadows, enabled);
+}
+void GameConfig::SetSunShadowResolution(int v)
+{
+    m_sunShadowResolution = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowResolution, v);
+}
+void GameConfig::SetSunShadowDistance(float v)
+{
+    m_sunShadowDistance = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowDistance, v);
+}
+void GameConfig::SetSunShadowDarkness(float v)
+{
+    m_sunShadowDarkness = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowDarkness, v);
+}
+void GameConfig::SetSunShadowSoftness(float v)
+{
+    m_sunShadowSoftness = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowSoftness, v);
+}
+void GameConfig::SetSunShadowBias(float v)
+{
+    m_sunShadowBias = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowBias, v);
 }
 
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)

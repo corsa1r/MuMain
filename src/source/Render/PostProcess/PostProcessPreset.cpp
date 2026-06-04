@@ -119,6 +119,12 @@ namespace PostProcess
                 WF(p, L"DynamicLightFlicker", s.dynamicLightFlicker);
                 WB(p, L"PlayerLight", s.playerLight);
                 WF(p, L"PlayerLightRadius", s.playerLightRadius);
+                WB(p, L"SunShadows", s.sunShadows);
+                WI(p, L"SunShadowResolution", s.sunShadowResolution);
+                WF(p, L"SunShadowDistance", s.sunShadowDistance);
+                WF(p, L"SunShadowDarkness", s.sunShadowDarkness);
+                WF(p, L"SunShadowSoftness", s.sunShadowSoftness);
+                WF(p, L"SunShadowBias", s.sunShadowBias);
             }
             void ReadAll(const std::wstring& p, Settings& s)
             {
@@ -160,6 +166,12 @@ namespace PostProcess
                 s.dynamicLightFlicker   = RF(p, L"DynamicLightFlicker", d.dynamicLightFlicker);
                 s.playerLight       = RB(p, L"PlayerLight", d.playerLight);
                 s.playerLightRadius = RF(p, L"PlayerLightRadius", d.playerLightRadius);
+                s.sunShadows          = RB(p, L"SunShadows", d.sunShadows);
+                s.sunShadowResolution = RI(p, L"SunShadowResolution", d.sunShadowResolution);
+                s.sunShadowDistance   = RF(p, L"SunShadowDistance", d.sunShadowDistance);
+                s.sunShadowDarkness   = RF(p, L"SunShadowDarkness", d.sunShadowDarkness);
+                s.sunShadowSoftness   = RF(p, L"SunShadowSoftness", d.sunShadowSoftness);
+                s.sunShadowBias       = RF(p, L"SunShadowBias", d.sunShadowBias);
             }
         } // namespace
 

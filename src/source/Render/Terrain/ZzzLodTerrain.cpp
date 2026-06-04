@@ -10,6 +10,7 @@
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
 #include "Render/Models/ModelShader.h"
+#include "Render/Shadow/SunShadow.h"
 #include "Render/Sprites/GlobalBitmap.h"
 #include "ZzzLodTerrain.h"
 #include "Engine/Pathing/ZzzPath.h"
@@ -1515,7 +1516,11 @@ void RenderFace(int Texture, int mx, int my)
         BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
         if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
     }
-    const bool wrap = terrainShader && terrainNrm != 0;
+    // Wrap with the per-pixel terrain shader when the tile has a normal map
+    // (relief) OR when sun shadows are on (so EVERY ground tile can receive a
+    // shadow, even custom maps with no normal maps — the shader's shadow-only
+    // path then preserves the legacy look and just multiplies the shadow).
+    const bool wrap = terrainShader && (terrainNrm != 0 || SunShadow::Enabled());
 
     if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);
@@ -1561,7 +1566,11 @@ void RenderFaceAlpha(int Texture, int mx, int my)
         BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
         if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
     }
-    const bool wrap = terrainShader && terrainNrm != 0;
+    // Wrap with the per-pixel terrain shader when the tile has a normal map
+    // (relief) OR when sun shadows are on (so EVERY ground tile can receive a
+    // shadow, even custom maps with no normal maps — the shader's shadow-only
+    // path then preserves the legacy look and just multiplies the shadow).
+    const bool wrap = terrainShader && (terrainNrm != 0 || SunShadow::Enabled());
 
     if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);

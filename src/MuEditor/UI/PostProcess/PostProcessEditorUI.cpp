@@ -88,6 +88,12 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.dynamicLightFlicker   = c.GetDynamicLightFlicker();
     m_settings.playerLight       = c.GetPlayerLight();
     m_settings.playerLightRadius = c.GetPlayerLightRadius();
+    m_settings.sunShadows          = c.GetSunShadows();
+    m_settings.sunShadowResolution = c.GetSunShadowResolution();
+    m_settings.sunShadowDistance   = c.GetSunShadowDistance();
+    m_settings.sunShadowDarkness   = c.GetSunShadowDarkness();
+    m_settings.sunShadowSoftness   = c.GetSunShadowSoftness();
+    m_settings.sunShadowBias       = c.GetSunShadowBias();
     m_loaded = true;
 }
 
@@ -157,6 +163,12 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetDynamicLightFlicker(m_settings.dynamicLightFlicker);
     c.SetPlayerLight(m_settings.playerLight);
     c.SetPlayerLightRadius(m_settings.playerLightRadius);
+    c.SetSunShadows(m_settings.sunShadows);
+    c.SetSunShadowResolution(m_settings.sunShadowResolution);
+    c.SetSunShadowDistance(m_settings.sunShadowDistance);
+    c.SetSunShadowDarkness(m_settings.sunShadowDarkness);
+    c.SetSunShadowSoftness(m_settings.sunShadowSoftness);
+    c.SetSunShadowBias(m_settings.sunShadowBias);
 }
 
 void CPostProcessEditorUI::ApplyLive()
@@ -263,29 +275,23 @@ void CPostProcessEditorUI::Render()
         ImGui::TextDisabled("Player Light: always-on glow following your character.");
     }
 
-    if (ImGui::CollapsingHeader("Sun Shadows (M1 - models)", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Sun Shadows", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        // Runtime-only (not persisted) — this is the M1 validation surface.
-        static bool  s_on   = false;
-        static int   s_res  = 2048;
-        static float s_dist = 500.0f;
-        static float s_dark = 0.5f;
-        static float s_soft = 1.0f;
-        static float s_bias = 1.5f;
-        bool sc = false;
-        sc |= ImGui::Checkbox("Enabled##sunsh", &s_on);
+        // Persisted via m_settings -> ApplyLive (ApplySettings -> SunShadow) and
+        // saved by 'Save as Map Preset' / 'Save to config.ini'. 'changed' below
+        // re-applies the whole block live.
+        changed |= ImGui::Checkbox("Enabled##sunsh", &m_settings.sunShadows);
         const char* resItems[] = { "1024", "2048", "4096" };
-        int ri = (s_res >= 4096) ? 2 : (s_res >= 2048) ? 1 : 0;
+        int ri = (m_settings.sunShadowResolution >= 4096) ? 2 : (m_settings.sunShadowResolution >= 2048) ? 1 : 0;
         if (ImGui::Combo("Resolution##sunsh", &ri, resItems, 3))
-        { s_res = (ri == 2) ? 4096 : (ri == 1) ? 2048 : 1024; sc = true; }
-        // Distance = ortho half-extent. Set it LOW (~250-400) to zoom the corner
-        // debug view onto ONE character so its silhouette is large and clear.
-        sc |= ImGui::SliderFloat("Distance##sunsh", &s_dist, 150.0f, 4000.0f, "%.0f");
-        sc |= ImGui::SliderFloat("Darkness##sunsh", &s_dark, 0.0f, 1.0f, "%.2f");
-        sc |= ImGui::SliderFloat("Softness##sunsh", &s_soft, 0.0f, 4.0f, "%.2f");
-        sc |= ImGui::SliderFloat("Bias##sunsh", &s_bias, 0.0f, 6.0f, "%.2f");
-        if (sc) SunShadow::SetParams(s_on, s_res, s_dist, s_dark, s_soft, s_bias);
-        ImGui::TextDisabled("M1: characters self-shadow. REQUIRES Per-Pixel Lighting ON.");
+        { m_settings.sunShadowResolution = (ri == 2) ? 4096 : (ri == 1) ? 2048 : 1024; changed = true; }
+        // Distance = ortho half-extent around the hero. Lower = sharper but
+        // smaller coverage; higher = covers more buildings but blurrier.
+        changed |= ImGui::SliderFloat("Distance##sunsh", &m_settings.sunShadowDistance, 150.0f, 4000.0f, "%.0f");
+        changed |= ImGui::SliderFloat("Darkness##sunsh", &m_settings.sunShadowDarkness, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Softness##sunsh", &m_settings.sunShadowSoftness, 0.0f, 4.0f, "%.2f");
+        changed |= ImGui::SliderFloat("Bias##sunsh", &m_settings.sunShadowBias, 0.0f, 6.0f, "%.2f");
+        ImGui::TextDisabled("Characters/objects/terrain cast + receive. Needs Per-Pixel Lighting + master ON.");
         ImGui::TextDisabled("Sun = God Rays Sun Angle / Sun Height Z. Corner = the depth map.");
     }
 
