@@ -245,10 +245,6 @@ namespace SunShadow
             if (gl.ActiveTexture) gl.ActiveTexture(GL_TEXTURE0);
             glEnable(GL_TEXTURE_2D);
         }
-
-        // ---- debug preview --------------------------------------------------
-        GLuint s_dbgProg = 0;
-        GLint  s_dbgLoc  = -1;
     } // namespace
 
     void SetParams(bool enabled, int resolution, float distance,
@@ -495,42 +491,4 @@ namespace SunShadow
         s_texVerts.clear(); s_texBatches.clear();
     }
 
-    void DebugDraw()
-    {
-        if (!s_enabled || s_depthTex == 0 || !PostProcess::Available()) return;
-        const PostProcess::GLProcs& gl = PostProcess::GL();
-        if (s_dbgProg == 0)
-        {
-            const char* vs = "#version 120\nvarying vec2 vUV;\n"
-                "void main(){ gl_Position = gl_Vertex; vUV = gl_MultiTexCoord0.xy; }";
-            // Flat black/white SILHOUETTE: geometry -> white, empty sky -> black.
-            // No depth-colour gradient, so the actual caster SHAPE is unmistakable
-            // (a character should read as a clean human-ish white blob).
-            const char* fs = "#version 120\nuniform sampler2D uTex; varying vec2 vUV;\n"
-                "void main(){ float d = texture2D(uTex, vUV).r;\n"
-                "  if (d >= 0.9999) gl_FragColor = vec4(0.0,0.0,0.0,1.0);\n"
-                "  else gl_FragColor = vec4(1.0,1.0,1.0,1.0); }";
-            s_dbgProg = PostProcess::CompileProgram(vs, fs);
-            if (s_dbgProg) s_dbgLoc = gl.GetUniformLocation(s_dbgProg, "uTex");
-        }
-        if (!s_dbgProg) return;
-        GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
-        // State-neutral: the menu cursor (drawn after, via SceneManager
-        // RenderCursor) is alpha-tested + blended, so restore every enable we
-        // flip. (Program binding isn't on the attrib stack -> UseProgram(0) below.)
-        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, 420, 420);
-        glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
-        glEnable(GL_TEXTURE_2D);
-        gl.UseProgram(s_dbgProg);
-        gl.ActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, s_depthTex);
-        if (s_dbgLoc >= 0) gl.Uniform1i(s_dbgLoc, 0);
-        PostProcess::DrawFullscreenQuad();
-        gl.UseProgram(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glViewport(vp[0], vp[1], vp[2], vp[3]);
-        glPopAttrib();   // restore depth/blend/cull/texture enables
-    }
 }

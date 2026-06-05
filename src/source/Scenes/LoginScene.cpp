@@ -509,7 +509,6 @@ bool NewRenderLogInScene(HDC hDC)
     // depth map, centered on the camera focus. Sampled next frame by the
     // terrain/model shaders. No-op when shadows are off.
     SunShadow::BuildFromCollected(shadowFocus);
-    // (No DebugDraw on the menu scenes — the corner panel would overlap the UI.)
 
     return true;
 }

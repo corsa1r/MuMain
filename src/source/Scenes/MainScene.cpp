@@ -790,7 +790,6 @@ bool RenderMainScene()
     // frame (one-frame lag — invisible, and avoids re-issuing characters before
     // their transforms exist). No-op when shadows are off.
     SunShadow::BuildFromCollected(Hero->Object.Position);
-    SunShadow::DebugDraw();   // bottom-left depth preview (diagnostic, M1)
 
     return true;
 }

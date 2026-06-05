@@ -89,5 +89,4 @@ namespace SunShadow
     const float* LightShadowMatrices();      // contiguous base (8*16 floats) for one upload
 
     void Shutdown();
-    void DebugDraw();               // bottom-left corner depth preview (diagnostic)
 }

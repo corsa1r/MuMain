@@ -480,7 +480,6 @@ bool NewRenderCharacterScene(HDC hDC)
     // group. The terrain/model shaders sample it next frame. No-op when shadows
     // are off.
     SunShadow::BuildFromCollected(shadowFocus);
-    // (No DebugDraw on the menu scenes — the corner panel would overlap the UI.)
 
     return true;
 }
