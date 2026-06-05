@@ -9,6 +9,7 @@
 #include "SsaoPass.h"
 #include "FogPass.h"
 #include "GodRaysPass.h"
+#include "DofPass.h"
 #include "Render/SunDirection.h"
 #include "Render/Models/ModelShader.h"
 #include "Render/Shadow/SunShadow.h"
@@ -42,6 +43,7 @@ namespace PostProcess
             LutPass*        s_lut        = nullptr;
             FxaaPass*       s_fxaa       = nullptr;
             SharpenPass*    s_sharpen    = nullptr;
+            DofPass*        s_dof        = nullptr;
             VignettePass*   s_vignette   = nullptr;
             FilmGrainPass*  s_filmGrain  = nullptr;
 
@@ -299,6 +301,9 @@ namespace PostProcess
                 add(std::make_unique<LutPass>(),        s_lut);
                 add(std::make_unique<FxaaPass>(),       s_fxaa);
                 add(std::make_unique<SharpenPass>(),    s_sharpen);
+                // Depth of field after sharpen (the in-focus subject stays crisp,
+                // the background is blurred), before the final vignette/grain.
+                add(std::make_unique<DofPass>(),        s_dof);
                 add(std::make_unique<VignettePass>(),   s_vignette);
                 add(std::make_unique<FilmGrainPass>(),  s_filmGrain);
             }
@@ -317,7 +322,7 @@ namespace PostProcess
             s_godRays = nullptr;
             s_bloomPass = nullptr; s_toneMap = nullptr; s_colorGrade = nullptr;
             s_lut = nullptr;
-            s_fxaa = nullptr; s_sharpen = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
+            s_fxaa = nullptr; s_sharpen = nullptr; s_dof = nullptr; s_vignette = nullptr; s_filmGrain = nullptr;
             s_available = false;
             s_width = s_height = 0;
         }
@@ -455,6 +460,13 @@ namespace PostProcess
             {
                 s_sharpen->SetActive(s.sharpen);
                 s_sharpen->SetStrength(s.sharpenStrength);
+            }
+            if (s_dof)
+            {
+                s_dof->SetActive(s.depthOfField);
+                s_dof->SetFocus(s.dofFocusDistance);
+                s_dof->SetRange(s.dofFocusRange);
+                s_dof->SetBlur(s.dofBlur);
             }
             if (s_vignette)
             {

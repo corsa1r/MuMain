@@ -84,6 +84,8 @@ namespace PostProcess
             {
                 WB(p, L"SSAO", s.ssao); WF(p, L"SSAORadius", s.ssaoRadius);
                 WF(p, L"SSAOStrength", s.ssaoStrength); WF(p, L"SSAOPower", s.ssaoPower);
+                WB(p, L"DepthOfField", s.depthOfField); WF(p, L"DofFocusDistance", s.dofFocusDistance);
+                WF(p, L"DofFocusRange", s.dofFocusRange); WF(p, L"DofBlur", s.dofBlur);
                 WB(p, L"Fog", s.fog);
                 WF(p, L"FogColorR", s.fogR); WF(p, L"FogColorG", s.fogG); WF(p, L"FogColorB", s.fogB);
                 WF(p, L"FogDensity", s.fogDensity); WF(p, L"FogStart", s.fogStart);
@@ -132,6 +134,8 @@ namespace PostProcess
                 const Settings d;   // defaults
                 s.ssao = RB(p, L"SSAO", d.ssao); s.ssaoRadius = RF(p, L"SSAORadius", d.ssaoRadius);
                 s.ssaoStrength = RF(p, L"SSAOStrength", d.ssaoStrength); s.ssaoPower = RF(p, L"SSAOPower", d.ssaoPower);
+                s.depthOfField = RB(p, L"DepthOfField", d.depthOfField); s.dofFocusDistance = RF(p, L"DofFocusDistance", d.dofFocusDistance);
+                s.dofFocusRange = RF(p, L"DofFocusRange", d.dofFocusRange); s.dofBlur = RF(p, L"DofBlur", d.dofBlur);
                 s.fog = RB(p, L"Fog", d.fog);
                 s.fogR = RF(p, L"FogColorR", d.fogR); s.fogG = RF(p, L"FogColorG", d.fogG); s.fogB = RF(p, L"FogColorB", d.fogB);
                 s.fogDensity = RF(p, L"FogDensity", d.fogDensity); s.fogStart = RF(p, L"FogStart", d.fogStart);

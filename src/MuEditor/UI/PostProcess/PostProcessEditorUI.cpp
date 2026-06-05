@@ -30,6 +30,10 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.ssaoRadius        = c.GetSSAORadius();
     m_settings.ssaoStrength      = c.GetSSAOStrength();
     m_settings.ssaoPower         = c.GetSSAOPower();
+    m_settings.depthOfField      = c.GetDepthOfField();
+    m_settings.dofFocusDistance  = c.GetDofFocusDistance();
+    m_settings.dofFocusRange     = c.GetDofFocusRange();
+    m_settings.dofBlur           = c.GetDofBlur();
     m_settings.fog               = c.GetFog();
     m_settings.fogR              = c.GetFogColorR();
     m_settings.fogG              = c.GetFogColorG();
@@ -106,6 +110,10 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetSSAORadius(m_settings.ssaoRadius);
     c.SetSSAOStrength(m_settings.ssaoStrength);
     c.SetSSAOPower(m_settings.ssaoPower);
+    c.SetDepthOfField(m_settings.depthOfField);
+    c.SetDofFocusDistance(m_settings.dofFocusDistance);
+    c.SetDofFocusRange(m_settings.dofFocusRange);
+    c.SetDofBlur(m_settings.dofBlur);
     c.SetFog(m_settings.fog);
     c.SetFogColorR(m_settings.fogR);
     c.SetFogColorG(m_settings.fogG);
@@ -305,6 +313,15 @@ void CPostProcessEditorUI::Render()
         changed |= ImGui::SliderFloat("Strength##ssao", &m_settings.ssaoStrength, 0.0f, 3.0f, "%.2f");
         changed |= ImGui::SliderFloat("Power##ssao", &m_settings.ssaoPower, 0.5f, 4.0f, "%.2f");
         ImGui::TextDisabled("Depth-based; darkens crevices/contact. Heavy.");
+    }
+
+    if (ImGui::CollapsingHeader("Depth of Field", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##dof", &m_settings.depthOfField);
+        changed |= ImGui::SliderFloat("Focus Dist##dof", &m_settings.dofFocusDistance, 50.0f, 4000.0f, "%.0f");
+        changed |= ImGui::SliderFloat("Focus Range##dof", &m_settings.dofFocusRange, 0.0f, 2000.0f, "%.0f");
+        changed |= ImGui::SliderFloat("Blur##dof", &m_settings.dofBlur, 0.0f, 4.0f, "%.2f");
+        ImGui::TextDisabled("Focus Dist = depth kept sharp (tune to the hero).");
     }
 
     if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))

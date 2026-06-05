@@ -46,6 +46,10 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeySSAORadius[]      = L"SSAORadius";
     inline constexpr wchar_t CfgKeySSAOStrength[]    = L"SSAOStrength";
     inline constexpr wchar_t CfgKeySSAOPower[]       = L"SSAOPower";
+    inline constexpr wchar_t CfgKeyDepthOfField[]    = L"DepthOfField";
+    inline constexpr wchar_t CfgKeyDofFocusDistance[]= L"DofFocusDistance";
+    inline constexpr wchar_t CfgKeyDofFocusRange[]   = L"DofFocusRange";
+    inline constexpr wchar_t CfgKeyDofBlur[]         = L"DofBlur";
     inline constexpr wchar_t CfgKeyFog[]             = L"Fog";
     inline constexpr wchar_t CfgKeyFogColorR[]       = L"FogColorR";
     inline constexpr wchar_t CfgKeyFogColorG[]       = L"FogColorG";
@@ -161,6 +165,12 @@ namespace CfgDefaults
     inline constexpr float CfgDefaultSSAORadius   = 60.0f;
     inline constexpr float CfgDefaultSSAOStrength = 1.0f;
     inline constexpr float CfgDefaultSSAOPower    = 1.5f;
+
+    // Depth of field on by default (user-validated cinematic focus on the hero).
+    inline constexpr bool  CfgDefaultDepthOfField     = true;
+    inline constexpr float CfgDefaultDofFocusDistance = 1834.0f;
+    inline constexpr float CfgDefaultDofFocusRange    = 318.0f;
+    inline constexpr float CfgDefaultDofBlur          = 0.73f;
 
     // Fog off by default; cool dark-fantasy haze, distance-only (no height fog).
     inline constexpr bool  CfgDefaultFog              = false;

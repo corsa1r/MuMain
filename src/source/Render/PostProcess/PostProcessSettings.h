@@ -78,6 +78,14 @@ namespace PostProcess
         bool  sharpen         = true;
         float sharpenStrength = 0.30f;   // 0 = none .. ~1 strong
 
+        // Depth of field (cinematic focus blur). On by default — user-validated
+        // focus on the hero. focusDistance = view-space distance kept sharp;
+        // focusRange = sharp half-width around it; blur = bokeh size.
+        bool  depthOfField     = true;
+        float dofFocusDistance = 1834.0f;
+        float dofFocusRange    = 318.0f;
+        float dofBlur          = 0.73f;
+
         // Film grain / dither (breaks 8-bit banding in dark gradients)
         bool  filmGrain       = true;
         float filmGrainStrength = 0.05f; // additive noise amplitude

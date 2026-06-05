@@ -1540,6 +1540,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.ssaoRadius        = cfg.GetSSAORadius();
         pps.ssaoStrength      = cfg.GetSSAOStrength();
         pps.ssaoPower         = cfg.GetSSAOPower();
+        pps.depthOfField      = cfg.GetDepthOfField();
+        pps.dofFocusDistance  = cfg.GetDofFocusDistance();
+        pps.dofFocusRange     = cfg.GetDofFocusRange();
+        pps.dofBlur           = cfg.GetDofBlur();
         pps.fog               = cfg.GetFog();
         pps.fogR              = cfg.GetFogColorR();
         pps.fogG              = cfg.GetFogColorG();

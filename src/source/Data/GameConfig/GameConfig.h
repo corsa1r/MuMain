@@ -77,6 +77,16 @@ public:
     void SetSSAOStrength(float v);
     void SetSSAOPower(float v);
 
+    // [Graphics] DepthOfField — cinematic focus blur.
+    bool  GetDepthOfField()     const { return m_depthOfField; }
+    float GetDofFocusDistance() const { return m_dofFocusDistance; }
+    float GetDofFocusRange()    const { return m_dofFocusRange; }
+    float GetDofBlur()          const { return m_dofBlur; }
+    void SetDepthOfField(bool enabled);
+    void SetDofFocusDistance(float v);
+    void SetDofFocusRange(float v);
+    void SetDofBlur(float v);
+
     // [Graphics] Fog — depth-based atmospheric haze.
     bool  GetFog()              const { return m_fog; }
     float GetFogColorR()        const { return m_fogColorR; }
@@ -281,6 +291,10 @@ private:
     float m_ssaoRadius;
     float m_ssaoStrength;
     float m_ssaoPower;
+    bool  m_depthOfField;
+    float m_dofFocusDistance;
+    float m_dofFocusRange;
+    float m_dofBlur;
     bool  m_fog;
     float m_fogColorR;
     float m_fogColorG;

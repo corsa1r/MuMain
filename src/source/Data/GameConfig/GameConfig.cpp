@@ -71,6 +71,10 @@ void GameConfig::Load()
     m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
     m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
     m_ssaoPower        = ReadFloat(CfgSectionGraphics, CfgKeySSAOPower, CfgDefaultSSAOPower);
+    m_depthOfField     = ReadBool (CfgSectionGraphics, CfgKeyDepthOfField, CfgDefaultDepthOfField);
+    m_dofFocusDistance = ReadFloat(CfgSectionGraphics, CfgKeyDofFocusDistance, CfgDefaultDofFocusDistance);
+    m_dofFocusRange    = ReadFloat(CfgSectionGraphics, CfgKeyDofFocusRange, CfgDefaultDofFocusRange);
+    m_dofBlur          = ReadFloat(CfgSectionGraphics, CfgKeyDofBlur, CfgDefaultDofBlur);
     m_fog              = ReadBool (CfgSectionGraphics, CfgKeyFog, CfgDefaultFog);
     m_fogColorR        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorR, CfgDefaultFogColorR);
     m_fogColorG        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorG, CfgDefaultFogColorG);
@@ -195,6 +199,10 @@ void GameConfig::PersistGraphics()
     WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
     WriteFloat(CfgSectionGraphics, CfgKeySSAOPower, m_ssaoPower);
+    WriteBool (CfgSectionGraphics, CfgKeyDepthOfField, m_depthOfField);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofFocusDistance, m_dofFocusDistance);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofFocusRange, m_dofFocusRange);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofBlur, m_dofBlur);
     WriteBool (CfgSectionGraphics, CfgKeyFog, m_fog);
     WriteFloat(CfgSectionGraphics, CfgKeyFogColorR, m_fogColorR);
     WriteFloat(CfgSectionGraphics, CfgKeyFogColorG, m_fogColorG);
@@ -471,6 +479,26 @@ void GameConfig::SetSSAOPower(float v)
 {
     m_ssaoPower = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOPower, v);
+}
+void GameConfig::SetDepthOfField(bool enabled)
+{
+    m_depthOfField = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDepthOfField, enabled);
+}
+void GameConfig::SetDofFocusDistance(float v)
+{
+    m_dofFocusDistance = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofFocusDistance, v);
+}
+void GameConfig::SetDofFocusRange(float v)
+{
+    m_dofFocusRange = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofFocusRange, v);
+}
+void GameConfig::SetDofBlur(float v)
+{
+    m_dofBlur = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofBlur, v);
 }
 void GameConfig::SetFog(bool enabled)
 {
