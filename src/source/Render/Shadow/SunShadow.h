@@ -30,7 +30,11 @@ namespace SunShadow
 
     // ---- Caster collection (called from the forward render) -----------------
     bool CharacterCastWanted();                       // collect this frame?
-    void PushCharacterVerts(const float* xyz, int n); // n triangle verts (world)
+    void PushCharacterVerts(const float* xyz, int n); // n triangle verts (world) — sun map only
+    // Static-object casters: feed the sun map AND the static-only buffer used by
+    // the dynamic point-light cone maps (so moving characters don't throw torch
+    // shadows). Use this from the OBJECT collector, not the character one.
+    void PushStaticCaster(const float* xyz, int n);
 
     // Static world objects (buildings/trees/props) as casters: true when
     // collecting this frame AND the object at 'origin' is within the shadow-map
@@ -65,6 +69,24 @@ namespace SunShadow
     float        Darkness();
     float        Softness();
     float        Bias();
+    float        Distance();    // sun ortho footprint half-extent (shared distance filter)
+
+    // ---- Dynamic point-light CONE shadows -----------------------------------
+    // The nearest N caster lights each get a perspective depth map of the same
+    // collected casters (aimed down from the light), built at frame end and
+    // sampled by the model/terrain point-light loop to shadow that light.
+    void SetLightShadowParams(int count, int resolution);   // config: caster count + map size
+    int  LightShadowCap();                                  // hard max slots (compile-time)
+    // Per-frame: per-SLOT world positions (xyz*8) + radii + used mask. ModelLighting
+    // keeps each caster torch in a fixed slot across frames (stable identity), so the
+    // one-frame-lagged cone map is never mis-paired when the active-light order churns.
+    void SetLightCasters(const float* posXYZ, const float* radii, const int* used, int slotCount);
+    bool         LightShadowReady();
+    int          LightShadowCount();         // highest valid slot + 1
+    bool         LightShadowSlotValid(int s);
+    unsigned int LightShadowTexture(int s);  // per-slot depth texture
+    const float* LightShadowMatrix(int s);   // world -> light clip [0,1] (perspective: divide by w)
+    const float* LightShadowMatrices();      // contiguous base (8*16 floats) for one upload
 
     void Shutdown();
     void DebugDraw();               // bottom-left corner depth preview (diagnostic)

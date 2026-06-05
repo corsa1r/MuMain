@@ -512,6 +512,7 @@ namespace PostProcess
             // ground's legacy look and just multiply the shadow term.
             ModelLighting::SetGroundRelight(s.perPixelLighting);
             ModelLighting::SetDynamicLights(s.dynamicLights, s.dynamicLightIntensity, s.dynamicLightFlicker);
+            ModelLighting::SetMaxDynamicLights(s.dynamicLightCount);
             ModelLighting::SetPlayerLight(s.playerLight, s.playerLightRadius);
 
             // Real-time sun shadows: same single funnel. Gated by s_enabled (the

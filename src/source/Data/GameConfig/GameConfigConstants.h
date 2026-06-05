@@ -16,6 +16,7 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyWidth[]      = L"Width";
     inline constexpr wchar_t CfgKeyHeight[]     = L"Height";
     inline constexpr wchar_t CfgKeyWindowed[]   = L"Windowed";
+    inline constexpr wchar_t CfgKeyFps[]        = L"FPS";   // target frame cap (-1 = unlimited)
 
     // Audio — volume 0 = off, >0 = on (no separate Enabled flag).
     inline constexpr wchar_t CfgKeySoundVolume[]  = L"SoundVolume";
@@ -101,6 +102,7 @@ namespace CfgKeys
     inline constexpr wchar_t CfgKeyDynamicLights[]         = L"DynamicLights";
     inline constexpr wchar_t CfgKeyDynamicLightIntensity[] = L"DynamicLightIntensity";
     inline constexpr wchar_t CfgKeyDynamicLightFlicker[]   = L"DynamicLightFlicker";
+    inline constexpr wchar_t CfgKeyDynamicLightCount[]     = L"DynamicLightCount";
     inline constexpr wchar_t CfgKeyPlayerLight[]           = L"PlayerLight";
     inline constexpr wchar_t CfgKeyPlayerLightRadius[]     = L"PlayerLightRadius";
     // Graphics — real-time sun shadow map (forward shadow mapping).
@@ -117,6 +119,7 @@ namespace CfgDefaults
     inline constexpr int  CfgDefaultWindowWidth  = 1024;
     inline constexpr int  CfgDefaultWindowHeight = 768;
     inline constexpr bool CfgDefaultWindowed     = true;
+    inline constexpr double CfgDefaultFps        = 10.0;   // target frame cap (-1 = unlimited)
 
     inline constexpr int  CfgDefaultSoundVolume = 5;
     inline constexpr int  CfgDefaultMusicVolume = 5;
@@ -243,6 +246,7 @@ namespace CfgDefaults
     inline constexpr bool  CfgDefaultDynamicLights         = true;
     inline constexpr float CfgDefaultDynamicLightIntensity = 4.0f;
     inline constexpr float CfgDefaultDynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw
+    inline constexpr int   CfgDefaultDynamicLightCount     = 24;    // cap on active nearest lights (1..24)
     inline constexpr bool  CfgDefaultPlayerLight           = true;
     inline constexpr float CfgDefaultPlayerLightRadius     = 700.0f;
     inline constexpr bool  CfgDefaultSunShadows            = true;

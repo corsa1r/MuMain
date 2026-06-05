@@ -74,6 +74,7 @@ namespace PostProcess
         ok &= LoadProc(s_procs.UseProgram,             "glUseProgram");
         ok &= LoadProc(s_procs.GetUniformLocation,     "glGetUniformLocation");
         ok &= LoadProc(s_procs.Uniform1i,              "glUniform1i");
+        ok &= LoadProc(s_procs.Uniform1iv,             "glUniform1iv");
         ok &= LoadProc(s_procs.Uniform1f,              "glUniform1f");
         ok &= LoadProc(s_procs.Uniform1fv,             "glUniform1fv");
         ok &= LoadProc(s_procs.Uniform2f,              "glUniform2f");

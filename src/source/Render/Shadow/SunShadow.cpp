@@ -34,7 +34,11 @@ namespace SunShadow
         float  s_lightProj[16];
 
         // ---- Collected caster verts (filled during the forward render) ------
-        std::vector<float> s_verts;          // xyz triplets, world space (opaque)
+        std::vector<float> s_verts;          // xyz triplets, world space (opaque) — ALL casters (sun)
+        // Static-object casters ONLY (no characters/NPCs/monsters). The dynamic
+        // point-light cone maps use THIS so moving characters don't throw torch
+        // shadows; the sun map still uses the full s_verts above.
+        std::vector<float> s_objVerts;
         float s_target[3] = { 0,0,0 };       // camera focus (player) for M1 gate
 
         // Alpha-tested casters: interleaved x,y,z,u,v, grouped into per-texture
@@ -42,6 +46,27 @@ namespace SunShadow
         struct TexBatch { unsigned int tex; int first; int count; };
         std::vector<float>    s_texVerts;
         std::vector<TexBatch> s_texBatches;
+
+        // ---- Dynamic point-light CONE shadow maps --------------------------
+        // The nearest N caster lights (fed by ModelLighting each frame) each get a
+        // perspective depth map of the SAME collected casters, aimed down from the
+        // light. Sampled in the model/terrain point-light loop to shadow that light.
+        enum { MAX_LIGHT_SHADOWS = 8 };
+        int    s_lightShadowCount = 0;       // configured caster count (0..MAX)
+        int    s_lightShadowRes   = 1024;    // per-light map resolution
+        // Per-frame caster light data (world space), set by SetLightCasters. Each
+        // entry is a fixed SLOT: ModelLighting keeps a torch in the same slot across
+        // frames (stable identity) so the one-frame-lagged map is never mis-paired.
+        int    s_lightInUsed[MAX_LIGHT_SHADOWS] = {};   // slot s holds a caster this frame
+        float  s_lightInPos[MAX_LIGHT_SHADOWS][3] = {};
+        float  s_lightInRadius[MAX_LIGHT_SHADOWS] = {};
+        // Built GL maps + world->light[0,1] matrices (frame end). Indexed by SLOT.
+        GLuint s_lightFbo[MAX_LIGHT_SHADOWS] = {0,0};
+        GLuint s_lightTex[MAX_LIGHT_SHADOWS] = {0,0};
+        float  s_lightMatrix[MAX_LIGHT_SHADOWS][16];
+        bool   s_lightSlotValid[MAX_LIGHT_SHADOWS] = {}; // slot's map built this frame
+        int    s_lightBuiltCount = 0;        // highest valid slot + 1 (ready check)
+        int    s_lightBuiltRes   = 0;
 
         GLint  s_savedFbo = 0;
         GLint  s_savedVp[4] = {0,0,0,0};
@@ -83,6 +108,17 @@ namespace SunShadow
             m[0]=2.0f/(r-l); m[5]=2.0f/(t-b); m[10]=-2.0f/(fr-n);
             m[12]=-(r+l)/(r-l); m[13]=-(t+b)/(t-b); m[14]=-(fr+n)/(fr-n); m[15]=1.0f;
         }
+        // Symmetric perspective (column-major), for the point-light CONE maps.
+        void perspective(float fovYdeg, float aspect, float n, float fr, float m[16])
+        {
+            const float t = std::tan(fovYdeg * 0.5f * 3.14159265f / 180.0f);
+            for (int i=0;i<16;++i) m[i]=0.0f;
+            m[0]  = 1.0f/(t*aspect);
+            m[5]  = 1.0f/t;
+            m[10] = -(fr+n)/(fr-n);
+            m[11] = -1.0f;
+            m[14] = -2.0f*fr*n/(fr-n);
+        }
 
         bool EnsureFbo(int res)
         {
@@ -110,6 +146,104 @@ namespace SunShadow
             }
             s_builtRes = res;
             return true;
+        }
+
+        // Create up to 'count' per-light depth FBOs at 'res' (idempotent; rebuilt
+        // when the resolution changes). Each is a GL_DEPTH_COMPONENT texture like
+        // the sun map.
+        bool EnsureLightFbos(int res, int count)
+        {
+            if (!PostProcess::Available()) return false;
+            const PostProcess::GLProcs& gl = PostProcess::GL();
+            if (res != s_lightBuiltRes)
+            {
+                for (int i = 0; i < MAX_LIGHT_SHADOWS; ++i)
+                {
+                    if (s_lightFbo[i]) { gl.DeleteFramebuffers(1, &s_lightFbo[i]); s_lightFbo[i] = 0; }
+                    if (s_lightTex[i]) { glDeleteTextures(1, &s_lightTex[i]);      s_lightTex[i] = 0; }
+                }
+                s_lightBuiltRes = 0;
+            }
+            for (int i = 0; i < count && i < MAX_LIGHT_SHADOWS; ++i)
+            {
+                if (s_lightFbo[i]) continue;
+                s_lightTex[i] = PostProcess::CreateDepthTexture(res, res);
+                if (!s_lightTex[i]) return false;
+                gl.GenFramebuffers(1, &s_lightFbo[i]);
+                gl.BindFramebuffer(GL_FRAMEBUFFER, s_lightFbo[i]);
+                gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_lightTex[i], 0);
+                glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);
+                bool ok = gl.CheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+                gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+                if (!ok) { OutputDebugStringA("[SunShadow] light FBO incomplete\n"); return false; }
+            }
+            s_lightBuiltRes = res;
+            return true;
+        }
+
+        // Build a CONE (perspective) depth map of the collected casters from each
+        // of the nearest N caster lights, aimed straight DOWN (casters sit below
+        // the light). Self-contained: saves/restores FBO + viewport + matrices +
+        // enable state. Called from BuildFromCollected while s_verts is still valid.
+        void BuildLightShadows()
+        {
+            for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s) s_lightSlotValid[s] = false;
+            s_lightBuiltCount = 0;
+            int usedSlots = 0;
+            for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s) if (s_lightInUsed[s]) ++usedSlots;
+            if (usedSlots <= 0 || s_objVerts.empty()) return;   // static objects only
+            if (!EnsureLightFbos(s_lightShadowRes, MAX_LIGHT_SHADOWS)) return;
+
+            const PostProcess::GLProcs& gl = PostProcess::GL();
+            static const float B[16] = { 0.5f,0,0,0, 0,0.5f,0,0, 0,0,0.5f,0, 0.5f,0.5f,0.5f,1 };
+
+            GLint savedFbo = 0, savedVp[4] = {0,0,0,0};
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &savedFbo);
+            glGetIntegerv(GL_VIEWPORT, savedVp);
+            glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_POLYGON_BIT);
+
+            for (int i = 0; i < MAX_LIGHT_SHADOWS; ++i)
+            {
+                if (!s_lightInUsed[i]) continue;        // build only occupied slots
+                const float* L = s_lightInPos[i];
+                float radius = s_lightInRadius[i]; if (radius < 50.0f) radius = 50.0f;
+
+                float eye[3] = { L[0], L[1], L[2] };
+                float ctr[3] = { L[0], L[1], L[2] - 1.0f };   // look straight down (up = Z)
+                float up[3]  = { 0.0f, 1.0f, 0.0f };
+                float view[16]; lookAt(eye, ctr, up, view);
+                float proj[16]; perspective(120.0f, 1.0f, radius * 0.05f + 1.0f, radius * 1.6f, proj);
+                float pv[16];   mat4mul(proj, view, pv);
+                mat4mul(B, pv, s_lightMatrix[i]);
+
+                gl.BindFramebuffer(GL_FRAMEBUFFER, s_lightFbo[i]);
+                glViewport(0, 0, s_lightBuiltRes, s_lightBuiltRes);
+                glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadMatrixf(proj);
+                glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadMatrixf(view);
+
+                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glDepthFunc(GL_LESS);
+                glDisable(GL_CULL_FACE); glDisable(GL_BLEND); glDisable(GL_TEXTURE_2D);
+                glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1.6f, 3.0f);
+                glClearDepth(1.0); glClear(GL_DEPTH_BUFFER_BIT);
+
+                glEnableClientState(GL_VERTEX_ARRAY);
+                glVertexPointer(3, GL_FLOAT, 0, s_objVerts.data());
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(s_objVerts.size() / 3));
+                glDisableClientState(GL_VERTEX_ARRAY);
+
+                glMatrixMode(GL_PROJECTION); glPopMatrix();
+                glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+                s_lightSlotValid[i] = true;
+                s_lightBuiltCount = i + 1;
+            }
+
+            glPopAttrib();
+            gl.BindFramebuffer(GL_FRAMEBUFFER, (GLuint)savedFbo);
+            glViewport(savedVp[0], savedVp[1], savedVp[2], savedVp[3]);
+            if (gl.UseProgram)    gl.UseProgram(0);
+            if (gl.ActiveTexture) gl.ActiveTexture(GL_TEXTURE0);
+            glEnable(GL_TEXTURE_2D);
         }
 
         // ---- debug preview --------------------------------------------------
@@ -164,6 +298,17 @@ namespace SunShadow
         s_verts.insert(s_verts.end(), xyz, xyz + (size_t)n * 3);
     }
 
+    // Static-object casters: feed BOTH the sun map (s_verts) AND the static-only
+    // buffer the dynamic light cone maps use (so characters are excluded there).
+    void PushStaticCaster(const float* xyz, int n)
+    {
+        if (!s_enabled || n <= 0 || !xyz) return;
+        if (s_verts.size() <= 2000000u * 3u)
+            s_verts.insert(s_verts.end(), xyz, xyz + (size_t)n * 3);
+        if (s_objVerts.size() <= 2000000u * 3u)
+            s_objVerts.insert(s_objVerts.end(), xyz, xyz + (size_t)n * 3);
+    }
+
     void PushTexturedCaster(unsigned int glTex, const float* posUV, int nVerts)
     {
         if (!s_enabled || nVerts <= 0 || !posUV || glTex == 0) return;
@@ -175,8 +320,8 @@ namespace SunShadow
 
     void BuildFromCollected(const float cameraTarget[3])
     {
-        if (!s_enabled || !PostProcess::Available()) { s_verts.clear(); s_texVerts.clear(); s_texBatches.clear(); return; }
-        if (!EnsureFbo(s_res))                        { s_verts.clear(); s_texVerts.clear(); s_texBatches.clear(); return; }
+        if (!s_enabled || !PostProcess::Available()) { s_verts.clear(); s_objVerts.clear(); s_texVerts.clear(); s_texBatches.clear(); return; }
+        if (!EnsureFbo(s_res))                        { s_verts.clear(); s_objVerts.clear(); s_texVerts.clear(); s_texBatches.clear(); return; }
         const PostProcess::GLProcs& gl = PostProcess::GL();
 
         // ---- Light ortho camera from the shared world sun -------------------
@@ -280,8 +425,13 @@ namespace SunShadow
         if (gl.ActiveTexture) gl.ActiveTexture(GL_TEXTURE0);
         glEnable(GL_TEXTURE_2D);
 
+        // Point-light CONE shadow maps from the same collected casters (frame end,
+        // before the buffer is cleared). No-op when no caster lights are set.
+        BuildLightShadows();
+
         s_ready = true;
         s_verts.clear();        // fresh collection next frame
+        s_objVerts.clear();
         s_texVerts.clear();
         s_texBatches.clear();
     }
@@ -293,6 +443,40 @@ namespace SunShadow
     float        Darkness()     { return s_darkness; }
     float        Softness()     { return s_softness; }
     float        Bias()         { return s_bias; }
+    float        Distance()     { return s_distance; }   // ortho footprint half-extent
+
+    // ---- Dynamic point-light cone shadows -----------------------------------
+    void SetLightShadowParams(int count, int resolution)
+    {
+        s_lightShadowCount = (count < 0) ? 0 : (count > MAX_LIGHT_SHADOWS ? MAX_LIGHT_SHADOWS : count);
+        s_lightShadowRes   = (resolution >= 2048) ? 2048 : (resolution >= 1024 ? 1024 : 512);
+    }
+    int  LightShadowCap() { return MAX_LIGHT_SHADOWS; }
+
+    void SetLightCasters(const float* posXYZ, const float* radii, const int* used, int slotCount)
+    {
+        if (slotCount > MAX_LIGHT_SHADOWS) slotCount = MAX_LIGHT_SHADOWS;
+        if (slotCount < 0) slotCount = 0;
+        for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s)
+        {
+            const bool u = (s < slotCount) && used && used[s];
+            s_lightInUsed[s] = u ? 1 : 0;
+            if (u)
+            {
+                s_lightInPos[s][0] = posXYZ[s*3+0];
+                s_lightInPos[s][1] = posXYZ[s*3+1];
+                s_lightInPos[s][2] = posXYZ[s*3+2];
+                s_lightInRadius[s] = radii ? radii[s] : 300.0f;
+            }
+        }
+    }
+
+    bool         LightShadowReady()          { return s_ready && s_lightBuiltCount > 0; }
+    int          LightShadowCount()          { return s_lightBuiltCount; }  // highest valid slot+1
+    bool         LightShadowSlotValid(int s) { return (s >= 0 && s < MAX_LIGHT_SHADOWS) && s_lightSlotValid[s]; }
+    unsigned int LightShadowTexture(int s)   { return (s >= 0 && s < MAX_LIGHT_SHADOWS) ? s_lightTex[s] : 0; }
+    const float* LightShadowMatrix(int s)    { return s_lightMatrix[(s >= 0 && s < MAX_LIGHT_SHADOWS) ? s : 0]; }
+    const float* LightShadowMatrices()       { return &s_lightMatrix[0][0]; }  // contiguous 8*16
 
     void Shutdown()
     {
@@ -300,9 +484,14 @@ namespace SunShadow
         {
             const PostProcess::GLProcs& gl = PostProcess::GL();
             if (s_fbo) { gl.DeleteFramebuffers(1, &s_fbo); s_fbo = 0; }
+            for (int i = 0; i < MAX_LIGHT_SHADOWS; ++i)
+                if (s_lightFbo[i]) { gl.DeleteFramebuffers(1, &s_lightFbo[i]); s_lightFbo[i] = 0; }
         }
         if (s_depthTex) { glDeleteTextures(1, &s_depthTex); s_depthTex = 0; }
-        s_builtRes = 0; s_ready = false; s_verts.clear();
+        for (int i = 0; i < MAX_LIGHT_SHADOWS; ++i)
+            if (s_lightTex[i]) { glDeleteTextures(1, &s_lightTex[i]); s_lightTex[i] = 0; }
+        s_lightBuiltRes = 0; s_lightBuiltCount = 0;
+        s_builtRes = 0; s_ready = false; s_verts.clear(); s_objVerts.clear();
         s_texVerts.clear(); s_texBatches.clear();
     }
 

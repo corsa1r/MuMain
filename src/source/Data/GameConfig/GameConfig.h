@@ -17,9 +17,13 @@ public:
     int  GetWindowWidth()  const { return m_windowWidth; }
     int  GetWindowHeight() const { return m_windowHeight; }
     bool GetWindowMode()   const { return m_windowMode; }
+    // Target frame cap (-1 = unlimited). Seeded at startup; the $fps chat command
+    // updates it via SetTargetFps so it persists to config.ini for next run.
+    double GetTargetFps()  const { return m_targetFps; }
 
     void SetWindowSize(int width, int height);
     void SetWindowMode(bool windowed);
+    void SetTargetFps(double fps);
 
     // Audio — volume 0 = off, >0 = on. No separate Enabled flag.
     int  GetSoundVolume()  const { return m_soundVolume; }
@@ -174,11 +178,13 @@ public:
     bool  GetDynamicLights()        const { return m_dynamicLights; }
     float GetDynamicLightIntensity() const { return m_dynamicLightIntensity; }
     float GetDynamicLightFlicker()  const { return m_dynamicLightFlicker; }
+    int   GetDynamicLightCount()    const { return m_dynamicLightCount; }
     bool  GetPlayerLight()          const { return m_playerLight; }
     float GetPlayerLightRadius()    const { return m_playerLightRadius; }
     void  SetDynamicLights(bool enabled);
     void  SetDynamicLightIntensity(float v);
     void  SetDynamicLightFlicker(float v);
+    void  SetDynamicLightCount(int v);
     void  SetPlayerLight(bool enabled);
     void  SetPlayerLightRadius(float v);
 
@@ -250,6 +256,7 @@ private:
     int  m_windowWidth;
     int  m_windowHeight;
     bool m_windowMode;
+    double m_targetFps;
 
     int  m_soundVolume;
     int  m_musicVolume;
@@ -327,6 +334,7 @@ private:
     bool  m_dynamicLights;
     float m_dynamicLightIntensity;
     float m_dynamicLightFlicker;
+    int   m_dynamicLightCount;
     bool  m_playerLight;
     float m_playerLightRadius;
     bool  m_sunShadows;

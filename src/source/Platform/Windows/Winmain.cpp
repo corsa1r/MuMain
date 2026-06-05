@@ -1598,6 +1598,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         pps.dynamicLights         = cfg.GetDynamicLights();
         pps.dynamicLightIntensity = cfg.GetDynamicLightIntensity();
         pps.dynamicLightFlicker   = cfg.GetDynamicLightFlicker();
+        pps.dynamicLightCount     = cfg.GetDynamicLightCount();
         pps.playerLight       = cfg.GetPlayerLight();
         pps.playerLightRadius = cfg.GetPlayerLightRadius();
         pps.sunShadows          = cfg.GetSunShadows();
@@ -1670,8 +1671,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     if (IsVSyncAvailable())
     {
         EnableVSync();
-        SetTargetFps(-1); // unlimited
     }
+    // Apply the persisted frame cap from config.ini ([Window] FPS; -1 = unlimited).
+    // The $fps chat command updates this live AND writes it back for next run.
+    SetTargetFps(GameConfig::GetInstance().GetTargetFps());
 
     CreateNewFonts(CalculateFontSizes());
 

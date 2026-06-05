@@ -2621,8 +2621,10 @@ void BMD::CollectSunCaster(const int blendMesh, const int hiddenMesh)
             }
         }
         if (n <= 0) continue;
+        // PushStaticCaster (not PushCharacterVerts): static objects feed BOTH the
+        // sun map and the dynamic-light cone maps; characters feed only the sun.
         if (alphaTested) SunShadow::PushTexturedCaster(tex->TextureNumber, s_objTex, n);
-        else             SunShadow::PushCharacterVerts(&s_objCast[0][0], n);
+        else             SunShadow::PushStaticCaster(&s_objCast[0][0], n);
     }
 }
 

@@ -40,6 +40,7 @@ void GameConfig::Load()
     m_windowWidth  = ReadInt(CfgSectionWindow, CfgKeyWidth, CfgDefaultWindowWidth);
     m_windowHeight = ReadInt(CfgSectionWindow, CfgKeyHeight, CfgDefaultWindowHeight);
     m_windowMode   = ReadBool(CfgSectionWindow, CfgKeyWindowed, CfgDefaultWindowed);
+    m_targetFps    = (double)ReadFloat(CfgSectionWindow, CfgKeyFps, (float)CfgDefaultFps);
 
     m_soundVolume  = ReadInt(CfgSectionAudio, CfgKeySoundVolume, CfgDefaultSoundVolume);
     m_musicVolume  = ReadInt(CfgSectionAudio, CfgKeyMusicVolume, CfgDefaultMusicVolume);
@@ -123,6 +124,7 @@ void GameConfig::Load()
     m_dynamicLights        = ReadBool (CfgSectionGraphics, CfgKeyDynamicLights, CfgDefaultDynamicLights);
     m_dynamicLightIntensity = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightIntensity, CfgDefaultDynamicLightIntensity);
     m_dynamicLightFlicker  = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightFlicker, CfgDefaultDynamicLightFlicker);
+    m_dynamicLightCount    = ReadInt  (CfgSectionGraphics, CfgKeyDynamicLightCount, CfgDefaultDynamicLightCount);
     m_playerLight          = ReadBool (CfgSectionGraphics, CfgKeyPlayerLight, CfgDefaultPlayerLight);
     m_playerLightRadius    = ReadFloat(CfgSectionGraphics, CfgKeyPlayerLightRadius, CfgDefaultPlayerLightRadius);
     m_sunShadows           = ReadBool (CfgSectionGraphics, CfgKeySunShadows, CfgDefaultSunShadows);
@@ -160,6 +162,7 @@ void GameConfig::Save()
     WriteInt(CfgSectionWindow, CfgKeyWidth, m_windowWidth);
     WriteInt(CfgSectionWindow, CfgKeyHeight, m_windowHeight);
     WriteBool(CfgSectionWindow, CfgKeyWindowed, m_windowMode);
+    WriteFloat(CfgSectionWindow, CfgKeyFps, (float)m_targetFps);
 
     WriteInt(CfgSectionAudio, CfgKeySoundVolume, m_soundVolume);
     WriteInt(CfgSectionAudio, CfgKeyMusicVolume, m_musicVolume);
@@ -245,6 +248,7 @@ void GameConfig::PersistGraphics()
     WriteBool  (CfgSectionGraphics, CfgKeyDynamicLights, m_dynamicLights);
     WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightIntensity, m_dynamicLightIntensity);
     WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightFlicker, m_dynamicLightFlicker);
+    WriteInt   (CfgSectionGraphics, CfgKeyDynamicLightCount, m_dynamicLightCount);
     WriteBool  (CfgSectionGraphics, CfgKeyPlayerLight, m_playerLight);
     WriteFloat (CfgSectionGraphics, CfgKeyPlayerLightRadius, m_playerLightRadius);
     WriteBool  (CfgSectionGraphics, CfgKeySunShadows, m_sunShadows);
@@ -264,6 +268,12 @@ void GameConfig::SetWindowSize(int width, int height)
 void GameConfig::SetWindowMode(bool windowed)
 {
     m_windowMode = windowed;
+}
+
+void GameConfig::SetTargetFps(double fps)
+{
+    m_targetFps = fps;
+    WriteFloat(CfgSections::CfgSectionWindow, CfgKeys::CfgKeyFps, (float)fps);
 }
 
 void GameConfig::SetSoundVolume(int level)
@@ -716,6 +726,11 @@ void GameConfig::SetDynamicLightFlicker(float v)
 {
     m_dynamicLightFlicker = v;
     WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightFlicker, v);
+}
+void GameConfig::SetDynamicLightCount(int v)
+{
+    m_dynamicLightCount = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightCount, v);
 }
 void GameConfig::SetPlayerLight(bool enabled)
 {

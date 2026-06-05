@@ -111,6 +111,7 @@ namespace PostProcess
         bool  dynamicLights         = true;
         float dynamicLightIntensity = 4.0f;
         float dynamicLightFlicker   = 0.0f;  // 0 = steady, 1 = raw rand() flicker
+        int   dynamicLightCount     = 24;    // cap on simultaneously-active nearest lights (1..24)
         bool  playerLight           = true;  // always-on hero light
         float playerLightRadius     = 700.0f;
 

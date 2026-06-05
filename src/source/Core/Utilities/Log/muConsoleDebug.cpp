@@ -11,6 +11,7 @@
 #include "Engine/Object/ZzzInterface.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "WindowsConsole.h"
+#include "Data/GameConfig/GameConfig.h"
 
 #include "Render/Sprites/GlobalBitmap.h"
 #include "Render/Textures/ZzzTexture.h"
@@ -102,9 +103,15 @@ bool CmuConsoleDebug::CheckCommand(const std::wstring& strCommand)
     }
     else if (strCommand.compare(0, 4, L"$fps") == 0)
     {
-        auto fps_str = strCommand.substr(5);
-        auto target_fps = std::stof(fps_str);
+        double target_fps = -1.0;   // "$fps" alone -> unlimited
+        if (strCommand.size() > 5)
+        {
+            try { target_fps = std::stod(strCommand.substr(5)); }
+            catch (...) { target_fps = -1.0; }
+        }
         SetTargetFps(target_fps);
+        // Persist to config.ini ([Window] FPS) so the cap survives the next run.
+        GameConfig::GetInstance().SetTargetFps(target_fps);
         return true;
     }
     else if (strCommand.compare(L"$vsync on") == 0)

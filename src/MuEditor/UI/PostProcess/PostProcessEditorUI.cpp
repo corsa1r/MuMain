@@ -86,6 +86,7 @@ void CPostProcessEditorUI::LoadFromConfig()
     m_settings.dynamicLights         = c.GetDynamicLights();
     m_settings.dynamicLightIntensity = c.GetDynamicLightIntensity();
     m_settings.dynamicLightFlicker   = c.GetDynamicLightFlicker();
+    m_settings.dynamicLightCount     = c.GetDynamicLightCount();
     m_settings.playerLight       = c.GetPlayerLight();
     m_settings.playerLightRadius = c.GetPlayerLightRadius();
     m_settings.sunShadows          = c.GetSunShadows();
@@ -161,6 +162,7 @@ void CPostProcessEditorUI::SaveToConfig()
     c.SetDynamicLights(m_settings.dynamicLights);
     c.SetDynamicLightIntensity(m_settings.dynamicLightIntensity);
     c.SetDynamicLightFlicker(m_settings.dynamicLightFlicker);
+    c.SetDynamicLightCount(m_settings.dynamicLightCount);
     c.SetPlayerLight(m_settings.playerLight);
     c.SetPlayerLightRadius(m_settings.playerLightRadius);
     c.SetSunShadows(m_settings.sunShadows);
@@ -268,6 +270,7 @@ void CPostProcessEditorUI::Render()
         changed |= ImGui::Checkbox("Dynamic Lights##ppl", &m_settings.dynamicLights);
         changed |= ImGui::SliderFloat("Light Intensity##ppl", &m_settings.dynamicLightIntensity, 0.0f, 4.0f, "%.2f");
         changed |= ImGui::SliderFloat("Flicker##ppl", &m_settings.dynamicLightFlicker, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::SliderInt("Max Lights##ppl", &m_settings.dynamicLightCount, 1, 24);
         changed |= ImGui::Checkbox("Player Light##ppl", &m_settings.playerLight);
         changed |= ImGui::SliderFloat("Player Radius##ppl", &m_settings.playerLightRadius, 100.0f, 1500.0f, "%.0f");
         ImGui::TextDisabled("Torches/lanterns/lava/skills cast real per-pixel light.");

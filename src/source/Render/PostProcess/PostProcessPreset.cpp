@@ -117,6 +117,7 @@ namespace PostProcess
                 WB(p, L"DynamicLights", s.dynamicLights);
                 WF(p, L"DynamicLightIntensity", s.dynamicLightIntensity);
                 WF(p, L"DynamicLightFlicker", s.dynamicLightFlicker);
+                WI(p, L"DynamicLightCount", s.dynamicLightCount);
                 WB(p, L"PlayerLight", s.playerLight);
                 WF(p, L"PlayerLightRadius", s.playerLightRadius);
                 WB(p, L"SunShadows", s.sunShadows);
@@ -164,6 +165,7 @@ namespace PostProcess
                 s.dynamicLights         = RB(p, L"DynamicLights", d.dynamicLights);
                 s.dynamicLightIntensity = RF(p, L"DynamicLightIntensity", d.dynamicLightIntensity);
                 s.dynamicLightFlicker   = RF(p, L"DynamicLightFlicker", d.dynamicLightFlicker);
+                s.dynamicLightCount     = RI(p, L"DynamicLightCount", d.dynamicLightCount);
                 s.playerLight       = RB(p, L"PlayerLight", d.playerLight);
                 s.playerLightRadius = RF(p, L"PlayerLightRadius", d.playerLightRadius);
                 s.sunShadows          = RB(p, L"SunShadows", d.sunShadows);

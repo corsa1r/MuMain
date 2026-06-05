@@ -87,6 +87,7 @@ namespace ModelLighting
     // SelectActiveLights: pick the nearest N to camPos for this frame's draws
     //                   (call once per frame, before ClearLights).
     void SetDynamicLights(bool enabled, float intensity, float flicker);
+    void SetMaxDynamicLights(int n);   // cap on simultaneously-active nearest lights (1..24)
     void SetPlayerLight(bool enabled, float radius);   // always-on hero light
     bool DynamicLightsActive();   // feature on AND program valid
     void ClearLights();

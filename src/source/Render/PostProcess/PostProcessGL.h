@@ -60,6 +60,7 @@ namespace PostProcess
         PFNGLUSEPROGRAMPROC              UseProgram       = nullptr;
         PFNGLGETUNIFORMLOCATIONPROC      GetUniformLocation = nullptr;
         PFNGLUNIFORM1IPROC               Uniform1i        = nullptr;
+        PFNGLUNIFORM1IVPROC              Uniform1iv       = nullptr;   // int array (per-light shadow slot)
         PFNGLUNIFORM1FPROC               Uniform1f        = nullptr;
         PFNGLUNIFORM1FVPROC              Uniform1fv       = nullptr;
         PFNGLUNIFORM2FPROC               Uniform2f        = nullptr;
