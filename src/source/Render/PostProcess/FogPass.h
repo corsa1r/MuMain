@@ -46,6 +46,8 @@ namespace PostProcess
         GLint  m_locColor = -1, m_locDensity = -1, m_locStart = -1;
         GLint  m_locHeightStrength = -1, m_locHeightTop = -1;
         GLint  m_locInvView = -1;
+        GLint  m_locShadowMap = -1, m_locShadowMat = -1, m_locHasShadow = -1;
+        GLint  m_locSunMul = -1, m_locShadowMul = -1;
 
         float m_r = 0.04f, m_g = 0.05f, m_b = 0.07f;  // cool dark-fantasy haze
         float m_density = 0.6f;
