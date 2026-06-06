@@ -592,6 +592,16 @@ namespace
         return s;
     }
 
+    // Sibling normal-map name for a disk texture: <base>.OZJ -> <base>_n.OZJ.
+    // Mirrors GlobalBitmap::NormalSibling so per-pixel lighting finds the copied
+    // normal in the custom slot (all base-world tiles were upscaled with normals).
+    std::wstring NormalSiblingName(const std::wstring& diskName)
+    {
+        const auto dot = diskName.find_last_of(L'.');
+        if (dot == std::wstring::npos) return diskName + L"_n";
+        return diskName.substr(0, dot) + L"_n" + diskName.substr(dot);
+    }
+
     // Seeds a custom slot with a chosen classic world's tile bitmaps.
     // Each entry in WORLD_TEXTURE_FILES is a *logical* path
     // (".jpg"/".tga"); the bytes we copy come from the on-disk
@@ -601,7 +611,9 @@ namespace
     // baseWorld is the 1-based World folder index (Data\World<n>\).
     // Falls back to World1 (Lorencia) when the requested directory
     // doesn't exist so a misconfigured manifest can't strand the slot.
-    void CopyWorldAssetsFromTo(int baseWorld, const fs::path& dst)
+    // normalsOnly = backfill mode: copy ONLY missing <base>_n normal maps, never
+    // touching the diffuse tiles (so a hand-edited slot keeps its custom textures).
+    void CopyWorldAssetsFromTo(int baseWorld, const fs::path& dst, bool normalsOnly = false)
     {
         std::error_code ec;
         wchar_t srcDir[32];
@@ -616,7 +628,18 @@ namespace
             const std::wstring diskName = TranslateToDiskFilename(file);
             const fs::path srcFile = src / diskName;
             if (!fs::exists(srcFile, ec)) continue;
-            fs::copy_file(srcFile, dst / diskName,
+            if (!normalsOnly)
+                fs::copy_file(srcFile, dst / diskName,
+                              fs::copy_options::overwrite_existing, ec);
+
+            // Copy the sibling normal map (<base>_n.OZJ/.OZT) so per-pixel lighting /
+            // sun shadows work on the sourced ground textures. In backfill mode skip
+            // ones the slot already has.
+            const std::wstring nrmName = NormalSiblingName(diskName);
+            const fs::path srcNrm = src / nrmName;
+            if (!fs::exists(srcNrm, ec)) continue;
+            if (normalsOnly && fs::exists(dst / nrmName, ec)) continue;
+            fs::copy_file(srcNrm, dst / nrmName,
                           fs::copy_options::overwrite_existing, ec);
         }
     }
@@ -1469,11 +1492,19 @@ namespace MuEditor::CustomMap
         // slot that originally seeded from Tarkan doesn't quietly get
         // re-seeded with Lorencia bitmaps.
         std::error_code ec2;
-        const fs::path probe =
-            fs::path(GetCustomMapDirectory(mapId)) / L"TileGrass01.OZJ";
+        const fs::path slotDir = fs::path(GetCustomMapDirectory(mapId));
+        const fs::path probe    = slotDir / L"TileGrass01.OZJ";
+        const fs::path probeNrm = slotDir / L"TileGrass01_n.OZJ";
         if (!fs::exists(probe, ec2))
         {
             CopyDefaultWorldAssets(mapId, manifest.baseWorld);
+        }
+        else if (!fs::exists(probeNrm, ec2))
+        {
+            // Slot seeded before normal maps were copied: backfill the missing
+            // <base>_n siblings (diffuse tiles untouched) so older custom maps
+            // light correctly without recreating them.
+            CopyWorldAssetsFromTo(manifest.baseWorld, slotDir, /*normalsOnly*/ true);
         }
 
         // Reload tile bitmaps from the slot's own folder so the ground
