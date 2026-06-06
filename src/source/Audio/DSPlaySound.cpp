@@ -100,12 +100,18 @@ private:
     IDirectSound3DBuffer* Get3DBuffer(int bufferId, int channel) const noexcept;
     void EnsureCoInitialized();
     void CoUninitializeIfNeeded();
+    HRESULT InitializeDeviceObjectsLocked();   // create device_/primary/listener (caller holds mutex_)
+    bool    RecreateDeviceLocked();            // rebuild device + all buffers on the current default endpoint
 
     mutable std::mutex mutex_;
     ComPtr<IDirectSound> device_;
     ComPtr<IDirectSound3DListener> listener_;
     std::array<SoundBufferEntry, MAX_BUFFER> entries_ {};
     std::atomic<bool> comInitialized_ { false };
+    // Set when the output endpoint is lost for good (e.g. the user changed the
+    // Windows default playback device); the next PlayBuffer rebuilds the device.
+    std::atomic<bool> deviceLost_ { false };
+    HWND windowHandle_ = nullptr;              // kept so we can re-create the device after a loss
     std::uint32_t bufferBytes_ = 0;
     bool enableSound_ = false;
     bool enable3DSound_ = false;
@@ -119,18 +125,12 @@ DirectSoundManager& Manager()
     return instance;
 }
 
-HRESULT DirectSoundManager::Initialize(HWND windowHandle)
+HRESULT DirectSoundManager::InitializeDeviceObjectsLocked()
 {
-    std::lock_guard lock(mutex_);
-
-    if (device_)
-    {
-        enableSound_ = true;
-        return S_OK;
-    }
-
     EnsureCoInitialized();
 
+    // DirectSoundCreate(nullptr) binds to whatever is the CURRENT default playback
+    // endpoint, so calling this again after a device change re-targets the new one.
     IDirectSound* rawDevice = nullptr;
     HRESULT hr = DirectSoundCreate(nullptr, &rawDevice, nullptr);
     if (FAILED(hr))
@@ -140,7 +140,7 @@ HRESULT DirectSoundManager::Initialize(HWND windowHandle)
     }
     device_.reset(rawDevice);
 
-    hr = device_->SetCooperativeLevel(windowHandle, DSSCL_PRIORITY);
+    hr = device_->SetCooperativeLevel(windowHandle_, DSSCL_PRIORITY);
     if (FAILED(hr))
     {
         g_ErrorReport.Write(L"InitDirectSound - SetCooperativeLevel failed (0x%08X)\r\n", hr);
@@ -187,6 +187,24 @@ HRESULT DirectSoundManager::Initialize(HWND windowHandle)
         return hr;
     }
     listener_.reset(rawListener);
+    return S_OK;
+}
+
+HRESULT DirectSoundManager::Initialize(HWND windowHandle)
+{
+    std::lock_guard lock(mutex_);
+
+    if (device_)
+    {
+        enableSound_ = true;
+        return S_OK;
+    }
+
+    windowHandle_ = windowHandle;
+
+    HRESULT hr = InitializeDeviceObjectsLocked();
+    if (FAILED(hr))
+        return hr;
 
     for (auto& entry : entries_)
     {
@@ -195,7 +213,59 @@ HRESULT DirectSoundManager::Initialize(HWND windowHandle)
 
     bufferBytes_ = 0;
     enableSound_ = true;
+    deviceLost_ = false;
     return S_OK;
+}
+
+// Rebuild the DirectSound device and every previously-loaded buffer on the
+// current default playback endpoint. Called when a buffer loss turns out to be
+// permanent (the user switched the Windows output device). Assumes mutex_ held.
+// Entry metadata (name / maxChannels / enable3D) is preserved across the tear-
+// down so the same sound set is recreated from the original .wav files.
+bool DirectSoundManager::RecreateDeviceLocked()
+{
+    for (auto& entry : entries_)
+    {
+        for (auto& buffer : entry.buffers)     buffer.reset();
+        for (auto& buffer3D : entry.buffers3D) buffer3D.reset();
+        entry.attachedObjects.fill(nullptr);
+    }
+    listener_.reset();
+    device_.reset();
+
+    HRESULT hr = InitializeDeviceObjectsLocked();
+    if (FAILED(hr))
+    {
+        // Leave deviceLost_ set so the next PlayBuffer retries (the new endpoint
+        // may not be ready the instant Windows reports the change).
+        g_ErrorReport.Write(L"RecreateDeviceLocked - re-create failed (0x%08X)\r\n", hr);
+        return false;
+    }
+
+    for (int i = 0; i < MAX_BUFFER; ++i)
+    {
+        auto& entry = entries_[i];
+        if (entry.maxChannels <= 0)
+            continue;
+
+        wchar_t nameCopy[kBufferNameLength];
+        wcsncpy_s(nameCopy, entry.name.data(), _TRUNCATE);
+
+        // maxChannels / enable3D are preserved; CreateStaticBuffer rebuilds
+        // buffers[0..maxChannels) from the .wav and re-copies the wave data.
+        HRESULT chr = CreateStaticBuffer(entry, static_cast<ESound>(i), nameCopy, entry.enable3D);
+        if (FAILED(chr))
+        {
+            for (auto& buffer : entry.buffers)     buffer.reset();
+            for (auto& buffer3D : entry.buffers3D) buffer3D.reset();
+            entry.maxChannels = 0;   // treat as unloaded so callers no-op on it
+            continue;
+        }
+        SetVolumeInternal(static_cast<ESound>(i), masterVolume_);
+    }
+
+    deviceLost_ = false;
+    return true;
 }
 
 void DirectSoundManager::Shutdown()
@@ -313,6 +383,13 @@ HRESULT DirectSoundManager::PlayBuffer(ESound bufferId, OBJECT* object, bool loo
     }
 
     std::lock_guard lock(mutex_);
+
+    // A previous play found the output device gone (default-device switch). Rebuild
+    // it on the new endpoint before doing anything else so audio resumes. Best
+    // effort — on failure deviceLost_ stays set and we retry next time.
+    if (deviceLost_)
+        RecreateDeviceLocked();
+
     auto& entry = entries_[bufferId];
     if (entry.maxChannels == 0)
     {
@@ -408,14 +485,25 @@ HRESULT DirectSoundManager::RestoreBuffers(int bufferId, int channel)
         return S_OK;
     }
 
-    do
+    // DSERR_BUFFERLOST usually clears after a few tries (transient focus loss).
+    // But if the endpoint is gone for good — the user switched the Windows default
+    // output device — Restore() returns DSERR_BUFFERLOST forever. The original
+    // unbounded loop hung here on the main thread (holding the audio mutex),
+    // freezing the whole game. Cap the retries; on exhaustion flag the device lost
+    // so the next PlayBuffer rebuilds it on the new endpoint (RecreateDeviceLocked).
+    constexpr int kMaxRestoreAttempts = 8;   // ~80ms worst case
+    for (int attempt = 0; ; ++attempt)
     {
         hr = buffer->Restore();
-        if (hr == DSERR_BUFFERLOST)
+        if (hr != DSERR_BUFFERLOST)
+            break;
+        if (attempt + 1 >= kMaxRestoreAttempts)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            deviceLost_ = true;
+            return hr;
         }
-    } while (hr == DSERR_BUFFERLOST);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 
     if (SUCCEEDED(hr))
     {
@@ -454,6 +542,14 @@ void DirectSoundManager::SetMasterVolume(long volume)
 void DirectSoundManager::Update3DPositions()
 {
     if (!IsEnabled() || !Is3DEnabled())
+    {
+        return;
+    }
+
+    // Device gone (e.g. output device switched)? Don't touch the lost 3D buffers
+    // every frame — PlayBuffer rebuilds the device on the next sound. This runs
+    // each frame, so it must never block on a dead endpoint.
+    if (deviceLost_)
     {
         return;
     }
