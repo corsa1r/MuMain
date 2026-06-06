@@ -29,6 +29,10 @@ inline BYTE TERRAIN_ATTRIBUTE(float x, float y)
     return TerrainWall[yf * TERRAIN_SIZE + xf];
 }
 
+// True if the terrain tile at (x,y) maps to the water texture (used by
+// WaterReflection to build the per-map water-surface mesh).
+bool IsWaterTileXY(int x, int y);
+
 bool OpenTerrainHeight(wchar_t* name);
 void SaveTerrainHeight(wchar_t* name);
 bool OpenTerrainHeightNew(const wchar_t* strFilename);

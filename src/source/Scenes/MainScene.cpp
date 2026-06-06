@@ -9,6 +9,7 @@
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/SoftShadow/SoftShadow.h"
 #include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
 #include "Render/Models/ModelShader.h"
 #include "Render/PostProcess/PostProcessChain.h"
 #include "Render/PostProcess/PostProcessPreset.h"
@@ -694,6 +695,9 @@ bool RenderMainScene()
     SunShadow::SetTarget(Hero->Object.Position);
 
     SetupMainSceneViewport(width, height, byWaterMap, cameraPos);
+    // Planar water reflection: render the mirrored world into a texture now (camera
+    // matrices are set), before the world render so water tiles can sample it.
+    WaterReflection::Build();
     RenderGameWorld(byWaterMap, width, height);
 
 #ifdef _EDITOR
@@ -790,6 +794,8 @@ bool RenderMainScene()
     // frame (one-frame lag — invisible, and avoids re-issuing characters before
     // their transforms exist). No-op when shadows are off.
     SunShadow::BuildFromCollected(Hero->Object.Position);
+
+    WaterReflection::DebugDraw();   // M1: bottom-left preview of the mirrored world
 
     return true;
 }

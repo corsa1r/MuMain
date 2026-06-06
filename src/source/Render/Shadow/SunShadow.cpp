@@ -4,6 +4,7 @@
 #include "Render/Shadow/SunShadow.h"
 #include "Render/PostProcess/PostProcessGL.h"
 #include "Render/SunDirection.h"
+#include "Render/Water/WaterReflection.h"
 
 #include <gl/glew.h>
 #include <windows.h>
@@ -260,7 +261,7 @@ namespace SunShadow
     }
     bool Enabled() { return s_enabled; }
 
-    bool CharacterCastWanted() { return s_enabled && PostProcess::Available(); }
+    bool CharacterCastWanted() { return s_enabled && PostProcess::Available() && !WaterReflection::Rendering(); }
 
     void SetTarget(const float p[3])
     {
@@ -279,6 +280,7 @@ namespace SunShadow
     bool ObjectCastWanted(const float origin[3])
     {
         if (!s_enabled || !PostProcess::Available()) return false;
+        if (WaterReflection::Rendering()) return false;   // don't collect mirrored geometry
         const float dx = origin[0] - s_target[0];
         const float dy = origin[1] - s_target[1];
         // map half-extent (ortho fit ~= s_distance) plus a margin for an

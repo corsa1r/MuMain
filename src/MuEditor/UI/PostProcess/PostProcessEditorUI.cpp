@@ -8,6 +8,7 @@
 #include "Render/PostProcess/PostProcessChain.h"
 #include "Render/PostProcess/PostProcessPreset.h"
 #include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
 #include "Data/GameConfig/GameConfig.h"
 #include "Network/ServerMapManifest.h"        // CurrentServerMapNumber (true map id)
 #include "../MuEditor/Core/MuEditorCore.h"   // g_MuEditorCore.SetHoveringUI
@@ -452,6 +453,48 @@ void CPostProcessEditorUI::Render()
             ImGui::EndCombo();
         }
         ImGui::TextDisabled("Drop .cube files in Data/PostProcess/.");
+    }
+
+    // ---- Water Reflection (planar mirror) — part of the per-map preset --------
+    // Drives m_settings so 'Save as Map Preset' persists it and map entry restores
+    // it (ApplyLive -> Chain::ApplySettings distributes to the WaterReflection module).
+    if (ImGui::CollapsingHeader("Water Reflection", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        changed |= ImGui::Checkbox("Enabled##wr", &m_settings.waterReflect);
+        changed |= ImGui::SliderFloat("Strength##wr", &m_settings.waterStrength, 0.0f, 1.0f, "%.2f");
+
+        ImGui::Separator(); ImGui::TextDisabled("Plane");
+        changed |= ImGui::SliderFloat("Plane Grow##wr", &m_settings.waterGrow, 0.0f, 12.0f, "%.0f tiles");
+        ImGui::TextDisabled("Grows the flat plane outward (never shrinks); the");
+        ImGui::TextDisabled("spill past the shore is hidden by depth occlusion.");
+        float wtint[3] = { m_settings.waterTintR, m_settings.waterTintG, m_settings.waterTintB };
+        if (ImGui::ColorEdit3("Tint##wr", wtint))
+        {
+            m_settings.waterTintR = wtint[0]; m_settings.waterTintG = wtint[1]; m_settings.waterTintB = wtint[2];
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Tint Opacity##wr", &m_settings.waterTintOpacity, 0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled("Tint covers the base-water edge; 0 = off.");
+
+        ImGui::Separator(); ImGui::TextDisabled("Reflection");
+        changed |= ImGui::SliderFloat("Global Blur##wr", &m_settings.waterBlur, 0.0f, 12.0f, "%.1f px");
+        ImGui::TextDisabled("Softens the WHOLE reflection (0 = crisp).");
+        changed |= ImGui::SliderFloat("Clip Depth##wr", &m_settings.waterClipDepth, 0.0f, 800.0f, "%.0f");
+        ImGui::TextDisabled("How far below the surface still reflects (higher = less cut).");
+        {
+            float g = (m_settings.waterHeightGate > 2000.0f) ? 2000.0f : m_settings.waterHeightGate;
+            if (ImGui::SliderFloat("Height Gate##wr", &g, 20.0f, 2000.0f, "%.0f"))
+            {
+                m_settings.waterHeightGate = (g >= 2000.0f) ? 9999.0f : g;   // max = off
+                changed = true;
+            }
+            ImGui::TextDisabled("Skip water tiles this far from the plane (cliffs). Max = off.");
+        }
+
+        // Debug overlay is a transient view aid, not a saved look -> drive directly.
+        static bool wrDebug = WaterReflection::DebugOverlayEnabled();
+        if (ImGui::Checkbox("Debug Overlay##wr", &wrDebug)) WaterReflection::SetDebugOverlay(wrDebug);
+        ImGui::Text("Water level: %.0f", WaterReflection::GetMeasuredLevel());
     }
 
     ImGui::Separator();

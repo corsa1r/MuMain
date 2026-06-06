@@ -135,5 +135,19 @@ namespace PostProcess
         float sunShadowDarkness    = 0.5f;    // 0 = none .. 1 = black under shadow
         float sunShadowSoftness    = 1.5f;   // PCF radius (texels); higher = softer edge
         float sunShadowBias        = 1.0f;    // slope-bias scale; raise to kill acne
+
+        // Planar water reflection (flat water-surface plane + mirror RTT;
+        // WaterReflection module, NOT a screen-space pass). Per-map so each map
+        // keeps its own water color/look. Distributed by Chain::ApplySettings.
+        bool  waterReflect      = true;
+        float waterStrength     = 0.45f;   // reflection blend (0 = flat tint .. 1 = mirror)
+        float waterTintR        = 0.10f;   // flat water color
+        float waterTintG        = 0.18f;
+        float waterTintB        = 0.26f;
+        float waterTintOpacity  = 0.30f;   // master water opacity
+        float waterGrow         = 0.0f;    // plane grow margin in tiles (grow-only)
+        float waterBlur         = 1.5f;    // reflection global blur (texels)
+        float waterClipDepth    = 90.0f;   // how far below surface still reflects
+        float waterHeightGate   = 9999.0f; // skip water tiles this far from plane (off=big)
     };
 }

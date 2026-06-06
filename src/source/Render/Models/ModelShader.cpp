@@ -8,6 +8,7 @@
 #include "Render/PostProcess/PostProcessGL.h"
 #include "Render/SunDirection.h"
 #include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
 #include "Data/GameConfig/GameConfig.h"
 
 namespace ModelLighting
@@ -129,6 +130,10 @@ namespace ModelLighting
             "    vNormalEye = gl_NormalMatrix * gl_Normal;\n"
             "    vLightEye  = gl_NormalMatrix * uLightDir;\n"
             "    vUv        = gl_MultiTexCoord0.xy;\n"
+            // Emit eye-space clip coord so user clip planes (the water-reflection
+            // pass clips submerged geometry) apply to shader-drawn meshes too.
+            // Harmless in the main pass (no clip plane enabled there).
+            "    gl_ClipVertex = gl_ModelViewMatrix * gl_Vertex;\n"
             // ftransform() guarantees the clip position is BIT-IDENTICAL to the
             // fixed-function path. Equipment is drawn in multiple overlapping
             // passes (base + glow); if this pass used gl_ProjectionMatrix *
@@ -286,6 +291,9 @@ namespace ModelLighting
             "    vLightEye  = gl_NormalMatrix * uLightDir;\n"
             "    vUv        = gl_MultiTexCoord0.xy;\n"
             "    vColor     = gl_Color;\n"   // rgb = baked PrimaryTerrainLight; a = layer-2 blend weight (1 on base)
+            // See model shader: lets the water-reflection clip plane cut submerged
+            // terrain. Harmless when no clip plane is enabled (main pass).
+            "    gl_ClipVertex = gl_ModelViewMatrix * gl_Vertex;\n"
             "    gl_Position = ftransform();\n"
             "}\n";
 
@@ -443,7 +451,13 @@ namespace ModelLighting
         void EnsureEyeLights()
         {
             if (!s_eyeDirty) return;
-            s_eyeDirty = false;
+            // Keep the cache dirty THROUGH the water mirror pass: its modelview is
+            // reflected, so positions baked there are wrong for the main render.
+            // Recomputing each mirror draw is cheap (<=24 lights) and lets the main
+            // pass rebuild eye positions with the real camera matrix (else dynamic
+            // lights illuminate mirrored space and torches look switched off).
+            if (!WaterReflection::Rendering())
+                s_eyeDirty = false;
             float m[16];
             glGetFloatv(GL_MODELVIEW_MATRIX, m);
             for (int i = 0; i < s_activeCount; i++)
@@ -780,6 +794,11 @@ namespace ModelLighting
     void AddLight(float x, float y, float z, float r, float g, float b, float radius)
     {
         if (!s_dynLights) return;
+        // The water-reflection mirror pass re-runs RenderObjects, which would
+        // register torch lights at mirrored (underwater) positions and pollute the
+        // nearest-N selection (toggling reflection visibly flipped which torches
+        // lit). Never collect lights while rendering the reflection.
+        if (WaterReflection::Rendering()) return;
         // Merge into a co-located existing light (e.g. a skill that spams many
         // AddTerrainLight calls at one spot) so clustered sources collapse to one
         // slot and don't evict distant torches. Keep the brightest + largest.

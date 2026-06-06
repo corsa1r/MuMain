@@ -11,6 +11,7 @@
 #include "Render/Models/ZzzBMD.h"
 #include "Render/Models/ModelShader.h"
 #include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
 #include "Render/Sprites/GlobalBitmap.h"
 #include "ZzzLodTerrain.h"
 #include "Engine/Pathing/ZzzPath.h"
@@ -1659,6 +1660,20 @@ void FaceTexture(int Texture, float xf, float yf, bool Water, bool Scale)
 
 int WaterTextureNumber = 0;
 
+// Is the terrain tile at (x,y) a water tile? Same rule the renderer uses (texture
+// index 5 in either layer; index 11 on PK/Doppel fields). Used by WaterReflection
+// to build the per-map water-surface mesh.
+bool IsWaterTileXY(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= TERRAIN_SIZE || y >= TERRAIN_SIZE) return false;
+    const int idx = TERRAIN_INDEX(x, y);
+    const unsigned char l1 = TerrainMappingLayer1[idx];
+    const unsigned char l2 = TerrainMappingLayer2[idx];
+    if (l1 == 5 || l2 == 5) return true;
+    if (l1 == 11 && (gMapManager.IsPKField() || IsDoppelGanger2())) return true;
+    return false;
+}
+
 void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
 {
     RenderTerrainVisual(xi, yi);
@@ -1687,6 +1702,13 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
         FaceTexture(Texture, xf, yf, Water, false);
         RenderFace(Texture, xi, yi);
 
+        // Tile has water if ANY layer maps to the water texture (index 5). Capture
+        // it here because the layer-2 branch below clears `Water` for non-water
+        // overlays; layer-2 water (Atlans-style, and generic overlay water) would
+        // otherwise be missed by the reflection overlay.
+        bool waterTile = Water;
+        if (TerrainMappingLayer2[TerrainIndex1] == 5) waterTile = true;
+
         if (TerrainMappingAlpha[TerrainIndex1] > 0.f
             || TerrainMappingAlpha[TerrainIndex2] > 0.f
             || TerrainMappingAlpha[TerrainIndex3] > 0.f
@@ -1710,6 +1732,10 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
                 }
             }
         }
+
+        // (Water reflection is now a prebuilt per-map mesh — see WaterReflection;
+        // no per-tile collection needed here.)
+        (void)waterTile;
     }
     else
     {
@@ -3262,6 +3288,9 @@ void RenderTerrain(bool EditFlag)
         EnableCullFace();
         RenderPointers();
         EnableDepthTest();
+
+        // Draw the prebuilt water-surface mesh (planar reflection + tint).
+        WaterReflection::DrawSurface();
     }
 }
 

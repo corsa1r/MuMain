@@ -128,6 +128,14 @@ namespace PostProcess
                 WF(p, L"SunShadowDarkness", s.sunShadowDarkness);
                 WF(p, L"SunShadowSoftness", s.sunShadowSoftness);
                 WF(p, L"SunShadowBias", s.sunShadowBias);
+                WB(p, L"WaterReflect", s.waterReflect);
+                WF(p, L"WaterStrength", s.waterStrength);
+                WF(p, L"WaterTintR", s.waterTintR); WF(p, L"WaterTintG", s.waterTintG); WF(p, L"WaterTintB", s.waterTintB);
+                WF(p, L"WaterTintOpacity", s.waterTintOpacity);
+                WF(p, L"WaterGrow", s.waterGrow);
+                WF(p, L"WaterBlur", s.waterBlur);
+                WF(p, L"WaterClipDepth", s.waterClipDepth);
+                WF(p, L"WaterHeightGate", s.waterHeightGate);
             }
             void ReadAll(const std::wstring& p, Settings& s)
             {
@@ -178,6 +186,16 @@ namespace PostProcess
                 s.sunShadowDarkness   = RF(p, L"SunShadowDarkness", d.sunShadowDarkness);
                 s.sunShadowSoftness   = RF(p, L"SunShadowSoftness", d.sunShadowSoftness);
                 s.sunShadowBias       = RF(p, L"SunShadowBias", d.sunShadowBias);
+                s.waterReflect     = RB(p, L"WaterReflect", d.waterReflect);
+                s.waterStrength    = RF(p, L"WaterStrength", d.waterStrength);
+                s.waterTintR       = RF(p, L"WaterTintR", d.waterTintR);
+                s.waterTintG       = RF(p, L"WaterTintG", d.waterTintG);
+                s.waterTintB       = RF(p, L"WaterTintB", d.waterTintB);
+                s.waterTintOpacity = RF(p, L"WaterTintOpacity", d.waterTintOpacity);
+                s.waterGrow        = RF(p, L"WaterGrow", d.waterGrow);
+                s.waterBlur        = RF(p, L"WaterBlur", d.waterBlur);
+                s.waterClipDepth   = RF(p, L"WaterClipDepth", d.waterClipDepth);
+                s.waterHeightGate  = RF(p, L"WaterHeightGate", d.waterHeightGate);
             }
         } // namespace
 

@@ -13,6 +13,7 @@
 #include "Render/SunDirection.h"
 #include "Render/Models/ModelShader.h"
 #include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
 #include "LutPass.h"
 #include "ColorEffectPasses.h"
 
@@ -534,6 +535,18 @@ namespace PostProcess
             SunShadow::SetParams(s.sunShadows && s_enabled, s.sunShadowResolution,
                                  s.sunShadowDistance, s.sunShadowDarkness,
                                  s.sunShadowSoftness, s.sunShadowBias);
+
+            // Planar water reflection (its own module, runs in MainScene; has its
+            // own Enabled flag so it is NOT gated by the post-chain master). Same
+            // single funnel: startup config, per-map preset on entry, editor apply.
+            WaterReflection::SetEnabled(s.waterReflect);
+            WaterReflection::SetStrength(s.waterStrength);
+            WaterReflection::SetTint(s.waterTintR, s.waterTintG, s.waterTintB);
+            WaterReflection::SetTintOpacity(s.waterTintOpacity);
+            WaterReflection::SetEdgeRadius(s.waterGrow);
+            WaterReflection::SetBlur(s.waterBlur);
+            WaterReflection::SetClipDepth(s.waterClipDepth);
+            WaterReflection::SetHeightGate(s.waterHeightGate);
         }
 
         GLuint ActiveSceneFramebuffer() { return s_activeSceneFBO; }
