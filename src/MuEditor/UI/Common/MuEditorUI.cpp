@@ -10,6 +10,7 @@
 #include "Data/Translation/i18n.h"
 #include "../MuEditor/UI/Console/MuEditorConsoleUI.h"
 #include "../MuEditor/UI/DevEditor/DevEditorUI.h"
+#include "../MuEditor/UI/PostProcess/PostProcessEditorUI.h"
 
 // UI Layout constants
 constexpr float TOOLBAR_HEIGHT = 40.0f;
@@ -160,6 +161,14 @@ void CMuEditorUI::RenderToolbarFull(bool& editorEnabled, bool& showItemEditor, b
         {
             showDevEditor = true;
             g_DevEditorUI.RequestEditCurrentMap();
+        }
+
+        // Post-process tuning panel (live bloom/tonemap/grade/FXAA/etc.).
+        // The panel owns its own visibility, so just toggle it.
+        ImGui::SameLine();
+        if (ImGui::Button("Post FX"))
+        {
+            g_PostProcessEditorUI.Toggle();
         }
 
         // Console toggle

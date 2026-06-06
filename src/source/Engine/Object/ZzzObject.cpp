@@ -4,6 +4,7 @@
 #include "Camera/CameraMove.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
+#include "Render/Shadow/SunShadow.h"
 #include "Engine/Object/ZzzInfomation.h"
 #include "Engine/Object/ZzzObject.h"
 #include "Engine/Object/ZzzCharacter.h"
@@ -3455,6 +3456,15 @@ void RenderObjects()
                                                 {
                                                     RenderObject(o);
                                                     RenderObjectVisual(o);
+                                                    // Static world object casts into the sun
+                                                    // shadow map (VertexTransform is valid now,
+                                                    // right after its render). Range-culled.
+                                                    // HiddenMesh==-2 marks an INVISIBLE object
+                                                    // (Draw_RenderObject skips it, line ~410) such
+                                                    // as a walk-on collision platform / fence — it
+                                                    // must not throw a phantom shadow.
+                                                    if (o->HiddenMesh != -2 && SunShadow::ObjectCastWanted(o->Position))
+                                                        Models[o->Type].CollectSunCaster(o->BlendMesh, o->HiddenMesh);
                                                 }
                                             }
 #ifdef CSK_DEBUG_RENDER_BOUNDINGBOX

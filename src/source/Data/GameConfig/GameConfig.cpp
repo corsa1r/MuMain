@@ -40,6 +40,7 @@ void GameConfig::Load()
     m_windowWidth  = ReadInt(CfgSectionWindow, CfgKeyWidth, CfgDefaultWindowWidth);
     m_windowHeight = ReadInt(CfgSectionWindow, CfgKeyHeight, CfgDefaultWindowHeight);
     m_windowMode   = ReadBool(CfgSectionWindow, CfgKeyWindowed, CfgDefaultWindowed);
+    m_targetFps    = (double)ReadFloat(CfgSectionWindow, CfgKeyFps, (float)CfgDefaultFps);
 
     m_soundVolume  = ReadInt(CfgSectionAudio, CfgKeySoundVolume, CfgDefaultSoundVolume);
     m_musicVolume  = ReadInt(CfgSectionAudio, CfgKeyMusicVolume, CfgDefaultMusicVolume);
@@ -54,9 +55,94 @@ void GameConfig::Load()
 
     m_zoom = ReadInt(CfgSectionCamera, CfgKeyZoom, CfgDefaultZoom);
 
+    // Read BEFORE the obsolete-section cleanup below. (The previous bug: this
+    // was read in Winmain AFTER Load() had already deleted [Graphics], so the
+    // flag was always the default.)
+    // Post-process chain — read BEFORE the obsolete-section cleanup below. (The
+    // previous bug: these were read in Winmain AFTER Load() had already deleted
+    // [Graphics], so the flags were always the defaults.)
+    m_postProcess      = ReadBool (CfgSectionGraphics, CfgKeyPostProcess, CfgDefaultPostProcess);
+    m_ppGlobalOverride = ReadBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, CfgDefaultPPGlobalOverride);
+    m_anisotropic      = ReadBool (CfgSectionGraphics, CfgKeyAnisotropic, CfgDefaultAnisotropic);
+    m_anisotropicLevel = ReadInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, CfgDefaultAnisotropicLevel);
+    m_textureLodBias   = ReadFloat(CfgSectionGraphics, CfgKeyTextureLodBias, CfgDefaultTextureLodBias);
+    m_terrainTiling    = ReadFloat(CfgSectionGraphics, CfgKeyTerrainTiling, CfgDefaultTerrainTiling);
+    m_ssao             = ReadBool (CfgSectionGraphics, CfgKeySSAO, CfgDefaultSSAO);
+    m_ssaoRadius       = ReadFloat(CfgSectionGraphics, CfgKeySSAORadius, CfgDefaultSSAORadius);
+    m_ssaoStrength     = ReadFloat(CfgSectionGraphics, CfgKeySSAOStrength, CfgDefaultSSAOStrength);
+    m_ssaoPower        = ReadFloat(CfgSectionGraphics, CfgKeySSAOPower, CfgDefaultSSAOPower);
+    m_depthOfField     = ReadBool (CfgSectionGraphics, CfgKeyDepthOfField, CfgDefaultDepthOfField);
+    m_dofFocusDistance = ReadFloat(CfgSectionGraphics, CfgKeyDofFocusDistance, CfgDefaultDofFocusDistance);
+    m_dofFocusRange    = ReadFloat(CfgSectionGraphics, CfgKeyDofFocusRange, CfgDefaultDofFocusRange);
+    m_dofBlur          = ReadFloat(CfgSectionGraphics, CfgKeyDofBlur, CfgDefaultDofBlur);
+    m_fog              = ReadBool (CfgSectionGraphics, CfgKeyFog, CfgDefaultFog);
+    m_fogColorR        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorR, CfgDefaultFogColorR);
+    m_fogColorG        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorG, CfgDefaultFogColorG);
+    m_fogColorB        = ReadFloat(CfgSectionGraphics, CfgKeyFogColorB, CfgDefaultFogColorB);
+    m_fogDensity       = ReadFloat(CfgSectionGraphics, CfgKeyFogDensity, CfgDefaultFogDensity);
+    m_fogStart         = ReadFloat(CfgSectionGraphics, CfgKeyFogStart, CfgDefaultFogStart);
+    m_fogHeightStrength = ReadFloat(CfgSectionGraphics, CfgKeyFogHeightStrength, CfgDefaultFogHeightStrength);
+    m_fogHeightTop     = ReadFloat(CfgSectionGraphics, CfgKeyFogHeightTop, CfgDefaultFogHeightTop);
+    m_bloom            = ReadBool (CfgSectionGraphics, CfgKeyBloom, CfgDefaultBloom);
+    m_bloomStrength    = ReadInt  (CfgSectionGraphics, CfgKeyBloomStrength, CfgDefaultBloomStrength);
+    m_bloomThreshold   = ReadFloat(CfgSectionGraphics, CfgKeyBloomThreshold, CfgDefaultBloomThreshold);
+    m_toneMap          = ReadBool (CfgSectionGraphics, CfgKeyToneMap, CfgDefaultToneMap);
+    m_exposure         = ReadFloat(CfgSectionGraphics, CfgKeyExposure, CfgDefaultExposure);
+    m_colorGrade       = ReadBool (CfgSectionGraphics, CfgKeyColorGrade, CfgDefaultColorGrade);
+    m_contrast         = ReadFloat(CfgSectionGraphics, CfgKeyContrast, CfgDefaultContrast);
+    m_saturation       = ReadFloat(CfgSectionGraphics, CfgKeySaturation, CfgDefaultSaturation);
+    m_brightness       = ReadFloat(CfgSectionGraphics, CfgKeyBrightness, CfgDefaultBrightness);
+    m_temperature      = ReadFloat(CfgSectionGraphics, CfgKeyTemperature, CfgDefaultTemperature);
+    m_gradeShadows     = ReadFloat(CfgSectionGraphics, CfgKeyGradeShadows, CfgDefaultGradeShadows);
+    m_gradeMidtones    = ReadFloat(CfgSectionGraphics, CfgKeyGradeMidtones, CfgDefaultGradeMidtones);
+    m_gradeHighlights  = ReadFloat(CfgSectionGraphics, CfgKeyGradeHighlights, CfgDefaultGradeHighlights);
+    m_vignette         = ReadBool (CfgSectionGraphics, CfgKeyVignette, CfgDefaultVignette);
+    m_vignetteStrength = ReadFloat(CfgSectionGraphics, CfgKeyVignetteStrength, CfgDefaultVignetteStrength);
+    m_vignetteRadius   = ReadFloat(CfgSectionGraphics, CfgKeyVignetteRadius, CfgDefaultVignetteRadius);
+    m_msaa             = ReadBool (CfgSectionGraphics, CfgKeyMSAA, CfgDefaultMSAA);
+    m_msaaSamples      = ReadInt  (CfgSectionGraphics, CfgKeyMSAASamples, CfgDefaultMSAASamples);
+    m_fxaa             = ReadBool (CfgSectionGraphics, CfgKeyFXAA, CfgDefaultFXAA);
+    m_sharpen          = ReadBool (CfgSectionGraphics, CfgKeySharpen, CfgDefaultSharpen);
+    m_sharpenStrength  = ReadFloat(CfgSectionGraphics, CfgKeySharpenStrength, CfgDefaultSharpenStrength);
+    m_filmGrain        = ReadBool (CfgSectionGraphics, CfgKeyFilmGrain, CfgDefaultFilmGrain);
+    m_filmGrainStrength = ReadFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, CfgDefaultFilmGrainStrength);
+    m_godRays          = ReadBool (CfgSectionGraphics, CfgKeyGodRays, CfgDefaultGodRays);
+    m_godRaysLightX    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysLightX, CfgDefaultGodRaysLightX);
+    m_godRaysLightY    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysLightY, CfgDefaultGodRaysLightY);
+    m_godRaysSunZ      = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysSunZ, CfgDefaultGodRaysSunZ);
+    m_godRaysDensity   = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysDensity, CfgDefaultGodRaysDensity);
+    m_godRaysWeight    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysWeight, CfgDefaultGodRaysWeight);
+    m_godRaysDecay     = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysDecay, CfgDefaultGodRaysDecay);
+    m_godRaysThreshold = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysThreshold, CfgDefaultGodRaysThreshold);
+    m_godRaysIntensity = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysIntensity, CfgDefaultGodRaysIntensity);
+    m_godRaysSamples   = ReadInt  (CfgSectionGraphics, CfgKeyGodRaysSamples, CfgDefaultGodRaysSamples);
+    m_godRaysColorR    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorR, CfgDefaultGodRaysColorR);
+    m_godRaysColorG    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorG, CfgDefaultGodRaysColorG);
+    m_godRaysColorB    = ReadFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, CfgDefaultGodRaysColorB);
+    m_lut              = ReadBool  (CfgSectionGraphics, CfgKeyLut, CfgDefaultLut);
+    m_lutFile          = ReadString(CfgSectionGraphics, CfgKeyLutFile, CfgDefaultLutFile);
+    m_perPixelLighting  = ReadBool (CfgSectionGraphics, CfgKeyPerPixelLighting, CfgDefaultPerPixelLighting);
+    m_normalMapStrength = ReadFloat(CfgSectionGraphics, CfgKeyNormalMapStrength, CfgDefaultNormalMapStrength);
+    m_specularStrength  = ReadFloat(CfgSectionGraphics, CfgKeySpecularStrength, CfgDefaultSpecularStrength);
+    m_specularPower     = ReadFloat(CfgSectionGraphics, CfgKeySpecularPower, CfgDefaultSpecularPower);
+    m_dynamicLights        = ReadBool (CfgSectionGraphics, CfgKeyDynamicLights, CfgDefaultDynamicLights);
+    m_dynamicLightIntensity = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightIntensity, CfgDefaultDynamicLightIntensity);
+    m_dynamicLightFlicker  = ReadFloat(CfgSectionGraphics, CfgKeyDynamicLightFlicker, CfgDefaultDynamicLightFlicker);
+    m_dynamicLightCount    = ReadInt  (CfgSectionGraphics, CfgKeyDynamicLightCount, CfgDefaultDynamicLightCount);
+    m_playerLight          = ReadBool (CfgSectionGraphics, CfgKeyPlayerLight, CfgDefaultPlayerLight);
+    m_playerLightRadius    = ReadFloat(CfgSectionGraphics, CfgKeyPlayerLightRadius, CfgDefaultPlayerLightRadius);
+    m_sunShadows           = ReadBool (CfgSectionGraphics, CfgKeySunShadows, CfgDefaultSunShadows);
+    m_sunShadowResolution  = ReadInt  (CfgSectionGraphics, CfgKeySunShadowResolution, CfgDefaultSunShadowResolution);
+    m_sunShadowDistance    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowDistance, CfgDefaultSunShadowDistance);
+    m_sunShadowDarkness    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowDarkness, CfgDefaultSunShadowDarkness);
+    m_sunShadowSoftness    = ReadFloat(CfgSectionGraphics, CfgKeySunShadowSoftness, CfgDefaultSunShadowSoftness);
+    m_sunShadowBias        = ReadFloat(CfgSectionGraphics, CfgKeySunShadowBias, CfgDefaultSunShadowBias);
+
     // Strip keys/sections we used to write but no longer use, so user config
     // files don't accumulate orphans. Append one line per retired key — no
     // central registry of valid keys to keep in sync.
+    // NOTE: [Graphics] is a LIVE section again (post-process) — strip only its
+    // dead keys, NOT the whole section, or the saved flags would be wiped.
     RemoveObsoleteKey(CfgSectionGraphics, L"RenderTextType");
     RemoveObsoleteKey(CfgSectionGraphics, L"ColorDepth");      // 16/32bpp toggle, dead since fullscreen uses GetDesktopBitsPerPel
     RemoveObsoleteKey(CfgSectionAudio,    L"SoundEnabled");   // replaced by SoundVolume==0
@@ -64,8 +150,12 @@ void GameConfig::Load()
     RemoveObsoleteKey(CfgSectionAudio,    L"VolumeLevel");    // legacy single-volume key
     RemoveObsoleteKey(CfgSectionLogin,    L"Version");        // launcher metadata, never read by client
     RemoveObsoleteKey(CfgSectionLogin,    L"TestVersion");    // launcher metadata, never read by client
-    RemoveObsoleteSection(CfgSectionGraphics);                // empty after RenderTextType + ColorDepth removal
     RemoveObsoleteSection(L"PARTITION");                      // launcher metadata, never read by client
+
+    // Seed config.ini with the full [Graphics] block so every tunable is
+    // discoverable/editable even on a fresh config or before the first Save().
+    // (Idempotent — values were just read above; this only materializes them.)
+    PersistGraphics();
 }
 
 void GameConfig::Save()
@@ -76,6 +166,7 @@ void GameConfig::Save()
     WriteInt(CfgSectionWindow, CfgKeyWidth, m_windowWidth);
     WriteInt(CfgSectionWindow, CfgKeyHeight, m_windowHeight);
     WriteBool(CfgSectionWindow, CfgKeyWindowed, m_windowMode);
+    WriteFloat(CfgSectionWindow, CfgKeyFps, (float)m_targetFps);
 
     WriteInt(CfgSectionAudio, CfgKeySoundVolume, m_soundVolume);
     WriteInt(CfgSectionAudio, CfgKeyMusicVolume, m_musicVolume);
@@ -89,6 +180,91 @@ void GameConfig::Save()
     WriteInt(CfgSectionConnectionSettings, CfgKeyServerPort, m_serverPort);
 
     WriteInt(CfgSectionCamera, CfgKeyZoom, m_zoom);
+
+    PersistGraphics();
+}
+
+void GameConfig::PersistGraphics()
+{
+    using namespace CfgSections;
+    using namespace CfgKeys;
+
+    WriteBool (CfgSectionGraphics, CfgKeyPostProcess, m_postProcess);
+    WriteBool (CfgSectionGraphics, CfgKeyPPGlobalOverride, m_ppGlobalOverride);
+    WriteBool (CfgSectionGraphics, CfgKeyAnisotropic, m_anisotropic);
+    WriteInt  (CfgSectionGraphics, CfgKeyAnisotropicLevel, m_anisotropicLevel);
+    WriteFloat(CfgSectionGraphics, CfgKeyTextureLodBias, m_textureLodBias);
+    WriteFloat(CfgSectionGraphics, CfgKeyTerrainTiling, m_terrainTiling);
+    WriteBool (CfgSectionGraphics, CfgKeySSAO, m_ssao);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAORadius, m_ssaoRadius);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAOStrength, m_ssaoStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeySSAOPower, m_ssaoPower);
+    WriteBool (CfgSectionGraphics, CfgKeyDepthOfField, m_depthOfField);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofFocusDistance, m_dofFocusDistance);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofFocusRange, m_dofFocusRange);
+    WriteFloat(CfgSectionGraphics, CfgKeyDofBlur, m_dofBlur);
+    WriteBool (CfgSectionGraphics, CfgKeyFog, m_fog);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorR, m_fogColorR);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorG, m_fogColorG);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogColorB, m_fogColorB);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogDensity, m_fogDensity);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogStart, m_fogStart);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogHeightStrength, m_fogHeightStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeyFogHeightTop, m_fogHeightTop);
+    WriteBool (CfgSectionGraphics, CfgKeyBloom, m_bloom);
+    WriteInt  (CfgSectionGraphics, CfgKeyBloomStrength, m_bloomStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeyBloomThreshold, m_bloomThreshold);
+    WriteBool (CfgSectionGraphics, CfgKeyToneMap, m_toneMap);
+    WriteFloat(CfgSectionGraphics, CfgKeyExposure, m_exposure);
+    WriteBool (CfgSectionGraphics, CfgKeyColorGrade, m_colorGrade);
+    WriteFloat(CfgSectionGraphics, CfgKeyContrast, m_contrast);
+    WriteFloat(CfgSectionGraphics, CfgKeySaturation, m_saturation);
+    WriteFloat(CfgSectionGraphics, CfgKeyBrightness, m_brightness);
+    WriteFloat(CfgSectionGraphics, CfgKeyTemperature, m_temperature);
+    WriteFloat(CfgSectionGraphics, CfgKeyGradeShadows, m_gradeShadows);
+    WriteFloat(CfgSectionGraphics, CfgKeyGradeMidtones, m_gradeMidtones);
+    WriteFloat(CfgSectionGraphics, CfgKeyGradeHighlights, m_gradeHighlights);
+    WriteBool (CfgSectionGraphics, CfgKeyVignette, m_vignette);
+    WriteFloat(CfgSectionGraphics, CfgKeyVignetteStrength, m_vignetteStrength);
+    WriteFloat(CfgSectionGraphics, CfgKeyVignetteRadius, m_vignetteRadius);
+    WriteBool (CfgSectionGraphics, CfgKeyMSAA, m_msaa);
+    WriteInt  (CfgSectionGraphics, CfgKeyMSAASamples, m_msaaSamples);
+    WriteBool (CfgSectionGraphics, CfgKeyFXAA, m_fxaa);
+    WriteBool (CfgSectionGraphics, CfgKeySharpen, m_sharpen);
+    WriteFloat(CfgSectionGraphics, CfgKeySharpenStrength, m_sharpenStrength);
+    WriteBool (CfgSectionGraphics, CfgKeyFilmGrain, m_filmGrain);
+    WriteFloat(CfgSectionGraphics, CfgKeyFilmGrainStrength, m_filmGrainStrength);
+    WriteBool (CfgSectionGraphics, CfgKeyGodRays, m_godRays);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysLightX, m_godRaysLightX);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysLightY, m_godRaysLightY);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysSunZ, m_godRaysSunZ);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysDensity, m_godRaysDensity);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysWeight, m_godRaysWeight);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysDecay, m_godRaysDecay);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysThreshold, m_godRaysThreshold);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysIntensity, m_godRaysIntensity);
+    WriteInt  (CfgSectionGraphics, CfgKeyGodRaysSamples, m_godRaysSamples);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorR, m_godRaysColorR);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorG, m_godRaysColorG);
+    WriteFloat(CfgSectionGraphics, CfgKeyGodRaysColorB, m_godRaysColorB);
+    WriteBool  (CfgSectionGraphics, CfgKeyLut, m_lut);
+    WriteString(CfgSectionGraphics, CfgKeyLutFile, m_lutFile);
+    WriteBool  (CfgSectionGraphics, CfgKeyPerPixelLighting, m_perPixelLighting);
+    WriteFloat (CfgSectionGraphics, CfgKeyNormalMapStrength, m_normalMapStrength);
+    WriteFloat (CfgSectionGraphics, CfgKeySpecularStrength, m_specularStrength);
+    WriteFloat (CfgSectionGraphics, CfgKeySpecularPower, m_specularPower);
+    WriteBool  (CfgSectionGraphics, CfgKeyDynamicLights, m_dynamicLights);
+    WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightIntensity, m_dynamicLightIntensity);
+    WriteFloat (CfgSectionGraphics, CfgKeyDynamicLightFlicker, m_dynamicLightFlicker);
+    WriteInt   (CfgSectionGraphics, CfgKeyDynamicLightCount, m_dynamicLightCount);
+    WriteBool  (CfgSectionGraphics, CfgKeyPlayerLight, m_playerLight);
+    WriteFloat (CfgSectionGraphics, CfgKeyPlayerLightRadius, m_playerLightRadius);
+    WriteBool  (CfgSectionGraphics, CfgKeySunShadows, m_sunShadows);
+    WriteInt   (CfgSectionGraphics, CfgKeySunShadowResolution, m_sunShadowResolution);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowDistance, m_sunShadowDistance);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowDarkness, m_sunShadowDarkness);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowSoftness, m_sunShadowSoftness);
+    WriteFloat (CfgSectionGraphics, CfgKeySunShadowBias, m_sunShadowBias);
 }
 
 void GameConfig::SetWindowSize(int width, int height)
@@ -100,6 +276,12 @@ void GameConfig::SetWindowSize(int width, int height)
 void GameConfig::SetWindowMode(bool windowed)
 {
     m_windowMode = windowed;
+}
+
+void GameConfig::SetTargetFps(double fps)
+{
+    m_targetFps = fps;
+    WriteFloat(CfgSections::CfgSectionWindow, CfgKeys::CfgKeyFps, (float)fps);
 }
 
 void GameConfig::SetSoundVolume(int level)
@@ -230,9 +412,415 @@ bool GameConfig::ReadBool(const wchar_t* section, const wchar_t* key, bool defau
     return GetPrivateProfileIntW(section, key, defaultValue ? 1 : 0, m_configPath.c_str()) != 0;
 }
 
+void GameConfig::SetPostProcess(bool enabled)
+{
+    // Fully qualified: this function is outside the `using namespace` scope that
+    // Load()/Save() rely on.
+    m_postProcess = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPostProcess, enabled);
+}
+void GameConfig::SetPPGlobalOverride(bool enabled)
+{
+    m_ppGlobalOverride = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPPGlobalOverride, enabled);
+}
+void GameConfig::SetAnisotropic(bool enabled)
+{
+    m_anisotropic = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyAnisotropic, enabled);
+}
+void GameConfig::SetTextureLodBias(float v)
+{
+    m_textureLodBias = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyTextureLodBias, v);
+}
+void GameConfig::SetTerrainTiling(float v)
+{
+    m_terrainTiling = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyTerrainTiling, v);
+}
+void GameConfig::SetAnisotropicLevel(int level)
+{
+    m_anisotropicLevel = level;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyAnisotropicLevel, level);
+}
+
+void GameConfig::SetBloom(bool enabled)
+{
+    m_bloom = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBloom, enabled);
+}
+
+void GameConfig::SetBloomStrength(int strength)
+{
+    m_bloomStrength = strength;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBloomStrength, strength);
+}
+
+// --- Remaining [Graphics] setters (write-through to config.ini) -------------
+// All fully qualify the section/key namespaces because these live outside the
+// `using namespace` scope of Load()/Save().
+void GameConfig::SetSSAO(bool enabled)
+{
+    m_ssao = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAO, enabled);
+}
+void GameConfig::SetSSAORadius(float v)
+{
+    m_ssaoRadius = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAORadius, v);
+}
+void GameConfig::SetSSAOStrength(float v)
+{
+    m_ssaoStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOStrength, v);
+}
+void GameConfig::SetSSAOPower(float v)
+{
+    m_ssaoPower = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySSAOPower, v);
+}
+void GameConfig::SetDepthOfField(bool enabled)
+{
+    m_depthOfField = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDepthOfField, enabled);
+}
+void GameConfig::SetDofFocusDistance(float v)
+{
+    m_dofFocusDistance = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofFocusDistance, v);
+}
+void GameConfig::SetDofFocusRange(float v)
+{
+    m_dofFocusRange = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofFocusRange, v);
+}
+void GameConfig::SetDofBlur(float v)
+{
+    m_dofBlur = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDofBlur, v);
+}
+void GameConfig::SetFog(bool enabled)
+{
+    m_fog = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFog, enabled);
+}
+void GameConfig::SetFogColorR(float v)
+{
+    m_fogColorR = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorR, v);
+}
+void GameConfig::SetFogColorG(float v)
+{
+    m_fogColorG = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorG, v);
+}
+void GameConfig::SetFogColorB(float v)
+{
+    m_fogColorB = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogColorB, v);
+}
+void GameConfig::SetFogDensity(float v)
+{
+    m_fogDensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogDensity, v);
+}
+void GameConfig::SetFogStart(float v)
+{
+    m_fogStart = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogStart, v);
+}
+void GameConfig::SetFogHeightStrength(float v)
+{
+    m_fogHeightStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogHeightStrength, v);
+}
+void GameConfig::SetFogHeightTop(float v)
+{
+    m_fogHeightTop = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFogHeightTop, v);
+}
+void GameConfig::SetBloomThreshold(float v)
+{
+    m_bloomThreshold = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBloomThreshold, v);
+}
+void GameConfig::SetToneMap(bool enabled)
+{
+    m_toneMap = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyToneMap, enabled);
+}
+void GameConfig::SetExposure(float v)
+{
+    m_exposure = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyExposure, v);
+}
+void GameConfig::SetColorGrade(bool enabled)
+{
+    m_colorGrade = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyColorGrade, enabled);
+}
+void GameConfig::SetContrast(float v)
+{
+    m_contrast = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyContrast, v);
+}
+void GameConfig::SetSaturation(float v)
+{
+    m_saturation = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySaturation, v);
+}
+void GameConfig::SetBrightness(float v)
+{
+    m_brightness = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyBrightness, v);
+}
+void GameConfig::SetTemperature(float v)
+{
+    m_temperature = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyTemperature, v);
+}
+void GameConfig::SetGradeShadows(float v)
+{
+    m_gradeShadows = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGradeShadows, v);
+}
+void GameConfig::SetGradeMidtones(float v)
+{
+    m_gradeMidtones = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGradeMidtones, v);
+}
+void GameConfig::SetGradeHighlights(float v)
+{
+    m_gradeHighlights = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGradeHighlights, v);
+}
+void GameConfig::SetVignette(bool enabled)
+{
+    m_vignette = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyVignette, enabled);
+}
+void GameConfig::SetVignetteStrength(float v)
+{
+    m_vignetteStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyVignetteStrength, v);
+}
+void GameConfig::SetVignetteRadius(float v)
+{
+    m_vignetteRadius = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyVignetteRadius, v);
+}
+void GameConfig::SetMSAA(bool enabled)
+{
+    m_msaa = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyMSAA, enabled);
+}
+void GameConfig::SetMSAASamples(int samples)
+{
+    m_msaaSamples = samples;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyMSAASamples, samples);
+}
+void GameConfig::SetFXAA(bool enabled)
+{
+    m_fxaa = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFXAA, enabled);
+}
+void GameConfig::SetSharpen(bool enabled)
+{
+    m_sharpen = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySharpen, enabled);
+}
+void GameConfig::SetSharpenStrength(float v)
+{
+    m_sharpenStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySharpenStrength, v);
+}
+void GameConfig::SetFilmGrain(bool enabled)
+{
+    m_filmGrain = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFilmGrain, enabled);
+}
+void GameConfig::SetFilmGrainStrength(float v)
+{
+    m_filmGrainStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyFilmGrainStrength, v);
+}
+void GameConfig::SetGodRays(bool v)
+{
+    m_godRays = v;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRays, v);
+}
+void GameConfig::SetGodRaysLightX(float v)
+{
+    m_godRaysLightX = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysLightX, v);
+}
+void GameConfig::SetGodRaysLightY(float v)
+{
+    m_godRaysLightY = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysLightY, v);
+}
+void GameConfig::SetGodRaysSunZ(float v)
+{
+    m_godRaysSunZ = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysSunZ, v);
+}
+void GameConfig::SetGodRaysDensity(float v)
+{
+    m_godRaysDensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysDensity, v);
+}
+void GameConfig::SetGodRaysWeight(float v)
+{
+    m_godRaysWeight = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysWeight, v);
+}
+void GameConfig::SetGodRaysDecay(float v)
+{
+    m_godRaysDecay = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysDecay, v);
+}
+void GameConfig::SetGodRaysThreshold(float v)
+{
+    m_godRaysThreshold = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysThreshold, v);
+}
+void GameConfig::SetGodRaysIntensity(float v)
+{
+    m_godRaysIntensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysIntensity, v);
+}
+void GameConfig::SetGodRaysSamples(int v)
+{
+    m_godRaysSamples = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysSamples, v);
+}
+void GameConfig::SetGodRaysColorR(float v)
+{
+    m_godRaysColorR = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorR, v);
+}
+void GameConfig::SetGodRaysColorG(float v)
+{
+    m_godRaysColorG = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorG, v);
+}
+void GameConfig::SetGodRaysColorB(float v)
+{
+    m_godRaysColorB = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyGodRaysColorB, v);
+}
+void GameConfig::SetLut(bool enabled)
+{
+    m_lut = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyLut, enabled);
+}
+void GameConfig::SetLutFile(const std::wstring& file)
+{
+    m_lutFile = file;
+    WriteString(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyLutFile, file);
+}
+void GameConfig::SetPerPixelLighting(bool enabled)
+{
+    m_perPixelLighting = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPerPixelLighting, enabled);
+}
+void GameConfig::SetNormalMapStrength(float v)
+{
+    m_normalMapStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyNormalMapStrength, v);
+}
+void GameConfig::SetSpecularStrength(float v)
+{
+    m_specularStrength = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySpecularStrength, v);
+}
+void GameConfig::SetSpecularPower(float v)
+{
+    m_specularPower = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySpecularPower, v);
+}
+void GameConfig::SetDynamicLights(bool enabled)
+{
+    m_dynamicLights = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLights, enabled);
+}
+void GameConfig::SetDynamicLightIntensity(float v)
+{
+    m_dynamicLightIntensity = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightIntensity, v);
+}
+void GameConfig::SetDynamicLightFlicker(float v)
+{
+    m_dynamicLightFlicker = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightFlicker, v);
+}
+void GameConfig::SetDynamicLightCount(int v)
+{
+    m_dynamicLightCount = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyDynamicLightCount, v);
+}
+void GameConfig::SetPlayerLight(bool enabled)
+{
+    m_playerLight = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPlayerLight, enabled);
+}
+void GameConfig::SetPlayerLightRadius(float v)
+{
+    m_playerLightRadius = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeyPlayerLightRadius, v);
+}
+void GameConfig::SetSunShadows(bool enabled)
+{
+    m_sunShadows = enabled;
+    WriteBool(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadows, enabled);
+}
+void GameConfig::SetSunShadowResolution(int v)
+{
+    m_sunShadowResolution = v;
+    WriteInt(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowResolution, v);
+}
+void GameConfig::SetSunShadowDistance(float v)
+{
+    m_sunShadowDistance = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowDistance, v);
+}
+void GameConfig::SetSunShadowDarkness(float v)
+{
+    m_sunShadowDarkness = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowDarkness, v);
+}
+void GameConfig::SetSunShadowSoftness(float v)
+{
+    m_sunShadowSoftness = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowSoftness, v);
+}
+void GameConfig::SetSunShadowBias(float v)
+{
+    m_sunShadowBias = v;
+    WriteFloat(CfgSections::CfgSectionGraphics, CfgKeys::CfgKeySunShadowBias, v);
+}
+
 void GameConfig::WriteBool(const wchar_t* section, const wchar_t* key, bool value)
 {
     WritePrivateProfileStringW(section, key, value ? L"1" : L"0", m_configPath.c_str());
+}
+
+float GameConfig::ReadFloat(const wchar_t* section, const wchar_t* key, float defaultValue)
+{
+    wchar_t defBuf[64];
+    swprintf_s(defBuf, L"%g", defaultValue);
+
+    wchar_t buf[64]{};
+    GetPrivateProfileStringW(section, key, defBuf, buf, static_cast<DWORD>(_countof(buf)), m_configPath.c_str());
+    return static_cast<float>(wcstod(buf, nullptr));
+}
+
+void GameConfig::WriteFloat(const wchar_t* section, const wchar_t* key, float value)
+{
+    wchar_t buf[64];
+    swprintf_s(buf, L"%g", value);
+    WritePrivateProfileStringW(section, key, buf, m_configPath.c_str());
 }
 
 std::wstring GameConfig::ReadString(const wchar_t* section, const wchar_t* key, const std::wstring& defaultValue)

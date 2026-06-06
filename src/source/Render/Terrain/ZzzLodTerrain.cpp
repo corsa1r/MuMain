@@ -9,6 +9,10 @@
 #include <iterator>
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
+#include "Render/Models/ModelShader.h"
+#include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
+#include "Render/Sprites/GlobalBitmap.h"
 #include "ZzzLodTerrain.h"
 #include "Engine/Pathing/ZzzPath.h"
 #include "Render/Textures/ZzzTexture.h"
@@ -85,6 +89,8 @@ WORD            TerrainWall[TERRAIN_SIZE * TERRAIN_SIZE];
 float           SelectXF;
 float           SelectYF;
 float           WaterMove;
+// Terrain tiling density multiplier (see ZzzLodTerrain.h). 1.0 = legacy untouched.
+float           g_TerrainTilingScale = 1.0f;
 int             CurrentLayer;
 
 float           g_fSpecialHeight = 1200.f;
@@ -946,6 +952,17 @@ void SetTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
 
 void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    // Dynamic point lights: redirect dynamic-buffer light sources (torches,
+    // lanterns, candles, lava, skills, auras) into the per-pixel light list
+    // instead of the coarse terrain-vertex glow. Editor light-painting (which
+    // targets the raw TerrainLight buffer) is left untouched.
+    if (Buffer == PrimaryTerrainLight && ModelLighting::DynamicLightsActive())
+    {
+        const float z = RequestTerrainHeight(xf, yf) + 130.f;   // toward the flame height
+        ModelLighting::AddLight(xf, yf, z, Light[0], Light[1], Light[2], (float)Range * TERRAIN_SCALE * 1.75f);
+        return;
+    }
+
     auto rf = (float)Range;
 
     xf = (xf / TERRAIN_SCALE);
@@ -980,6 +997,13 @@ void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
 
 void AddTerrainLightClip(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    if (Buffer == PrimaryTerrainLight && ModelLighting::DynamicLightsActive())
+    {
+        const float z = RequestTerrainHeight(xf, yf) + 130.f;   // toward the flame height
+        ModelLighting::AddLight(xf, yf, z, Light[0], Light[1], Light[2], (float)Range * TERRAIN_SCALE * 1.75f);
+        return;
+    }
+
     auto rf = (float)Range;
 
     xf = (xf / TERRAIN_SCALE);
@@ -1243,10 +1267,15 @@ inline void Interpolation(int mx, int my)
     }
 }
 
+// The base RenderFace pass emits a surface normal per corner (TerrainNormal)
+// alongside the existing color/uv. Harmless to the legacy fixed-function path
+// (terrain has GL lighting off, so gl_Normal is ignored); consumed by the
+// additive terrain shader (ModelLighting::BeginTerrain) when active.
 inline void Vertex0()
 {
     glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex1]);
+    glNormal3fv(TerrainNormal[TerrainIndex1]);
     glVertex3fv(TerrainVertex[0]);
 }
 
@@ -1254,6 +1283,7 @@ inline void Vertex1()
 {
     glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex2]);
+    glNormal3fv(TerrainNormal[TerrainIndex2]);
     glVertex3fv(TerrainVertex[1]);
 }
 
@@ -1261,6 +1291,7 @@ inline void Vertex2()
 {
     glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex3]);
+    glNormal3fv(TerrainNormal[TerrainIndex3]);
     glVertex3fv(TerrainVertex[2]);
 }
 
@@ -1268,6 +1299,7 @@ inline void Vertex3()
 {
     glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
     glColor3fv(PrimaryTerrainLight[TerrainIndex4]);
+    glNormal3fv(TerrainNormal[TerrainIndex4]);
     glVertex3fv(TerrainVertex[3]);
 }
 
@@ -1311,6 +1343,7 @@ inline void VertexAlpha0()
     glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex1][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex1]);
+    glNormal3fv(TerrainNormal[TerrainIndex1]);
     glVertex3fv(TerrainVertex[0]);
 }
 
@@ -1319,6 +1352,7 @@ inline void VertexAlpha1()
     glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex2][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex2]);
+    glNormal3fv(TerrainNormal[TerrainIndex2]);
     glVertex3fv(TerrainVertex[1]);
 }
 
@@ -1327,6 +1361,7 @@ inline void VertexAlpha2()
     glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex3][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex3]);
+    glNormal3fv(TerrainNormal[TerrainIndex3]);
     glVertex3fv(TerrainVertex[2]);
 }
 
@@ -1335,6 +1370,7 @@ inline void VertexAlpha3()
     glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
     float* Light = &PrimaryTerrainLight[TerrainIndex4][0];
     glColor4f(Light[0], Light[1], Light[2], TerrainMappingAlpha[TerrainIndex4]);
+    glNormal3fv(TerrainNormal[TerrainIndex4]);
     glVertex3fv(TerrainVertex[3]);
 }
 
@@ -1470,12 +1506,31 @@ void RenderFace(int Texture, int mx, int my)
         DisableAlphaBlend();
     BindTexture(BITMAP_MAPTILE + Texture);
 
+    // Additive per-pixel relief on the base ground layer: only when the feature
+    // is active AND this tile has a sibling normal map. Tiles without one fall
+    // through to the unchanged fixed-function draw (exact legacy look). Blend/
+    // alpha/water passes are intentionally left legacy (different semantics).
+    GLuint terrainNrm = 0;
+    const bool terrainShader = ModelLighting::Active();
+    if (terrainShader)
+    {
+        BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
+        if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
+    }
+    // Wrap with the per-pixel terrain shader when the tile has a normal map
+    // (relief) OR when sun shadows are on (so EVERY ground tile can receive a
+    // shadow, even custom maps with no normal maps — the shader's shadow-only
+    // path then preserves the legacy look and just multiplies the shadow).
+    const bool wrap = terrainShader && (terrainNrm != 0 || SunShadow::Enabled());
+
+    if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);
     Vertex0();
     Vertex1();
     Vertex2();
     Vertex3();
     glEnd();
+    if (wrap) ModelLighting::EndTerrain();
 }
 
 void RenderFace_After(int Texture, int mx, int my)
@@ -1501,12 +1556,31 @@ void RenderFaceAlpha(int Texture, int mx, int my)
 {
     EnableAlphaTest();
     BindTexture(BITMAP_MAPTILE + Texture);
+
+    // Layer-2 overlay: same additive relief as the base pass. The shader carries
+    // the per-vertex blend alpha through (outA = texColor.a * vColor.a), matching
+    // the legacy GL_MODULATE cutout. Only when this tile has a normal map.
+    GLuint terrainNrm = 0;
+    const bool terrainShader = ModelLighting::Active();
+    if (terrainShader)
+    {
+        BITMAP_t* tileBmp = Bitmaps.GetTexture(BITMAP_MAPTILE + Texture);
+        if (tileBmp) terrainNrm = tileBmp->NormalTextureNumber;
+    }
+    // Wrap with the per-pixel terrain shader when the tile has a normal map
+    // (relief) OR when sun shadows are on (so EVERY ground tile can receive a
+    // shadow, even custom maps with no normal maps — the shader's shadow-only
+    // path then preserves the legacy look and just multiplies the shadow).
+    const bool wrap = terrainShader && (terrainNrm != 0 || SunShadow::Enabled());
+
+    if (wrap) ModelLighting::BeginTerrain(terrainNrm);
     glBegin(GL_TRIANGLE_FAN);
     VertexAlpha0();
     VertexAlpha1();
     VertexAlpha2();
     VertexAlpha3();
     glEnd();
+    if (wrap) ModelLighting::EndTerrain();
 }
 
 void RenderFaceBlend(int Texture, int mx, int my)
@@ -1526,17 +1600,15 @@ void FaceTexture(int Texture, float xf, float yf, bool Water, bool Scale)
     vec3_t Light, Pos;
     Vector(0.30f, 0.40f, 0.20f, Light);
     BITMAP_t* b = &Bitmaps[BITMAP_MAPTILE + Texture];
-    float Width, Height;
-    if (Scale)
-    {
-        Width = 16.f / b->Width;
-        Height = 16.f / b->Height;
-    }
-    else
-    {
-        Width = 64.f / b->Width;
-        Height = 64.f / b->Height;
-    }
+    // Tile UV span per terrain cell = ref / texturePixels, so a 256px tile spans
+    // 4 cells (64/256). When tiles are AI-upscaled (e.g. 256->1024) b->Width grows
+    // and the span shrinks, stretching the texture across 4x more cells (the
+    // "tiling got bigger" look). g_TerrainTilingScale multiplies the span back so
+    // the upscaled texture repeats at the ORIGINAL density — packing the extra
+    // texels into the same ground = ~4x crisper. Default 1.0 = legacy untouched.
+    const float ref = Scale ? 16.f : 64.f;
+    float Width  = (ref / b->Width)  * g_TerrainTilingScale;
+    float Height = (ref / b->Height) * g_TerrainTilingScale;
     float suf = xf * Width;
     float svf = yf * Height;
     if (!Water)
@@ -1588,6 +1660,20 @@ void FaceTexture(int Texture, float xf, float yf, bool Water, bool Scale)
 
 int WaterTextureNumber = 0;
 
+// Is the terrain tile at (x,y) a water tile? Same rule the renderer uses (texture
+// index 5 in either layer; index 11 on PK/Doppel fields). Used by WaterReflection
+// to build the per-map water-surface mesh.
+bool IsWaterTileXY(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= TERRAIN_SIZE || y >= TERRAIN_SIZE) return false;
+    const int idx = TERRAIN_INDEX(x, y);
+    const unsigned char l1 = TerrainMappingLayer1[idx];
+    const unsigned char l2 = TerrainMappingLayer2[idx];
+    if (l1 == 5 || l2 == 5) return true;
+    if (l1 == 11 && (gMapManager.IsPKField() || IsDoppelGanger2())) return true;
+    return false;
+}
+
 void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
 {
     RenderTerrainVisual(xi, yi);
@@ -1616,6 +1702,13 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
         FaceTexture(Texture, xf, yf, Water, false);
         RenderFace(Texture, xi, yi);
 
+        // Tile has water if ANY layer maps to the water texture (index 5). Capture
+        // it here because the layer-2 branch below clears `Water` for non-water
+        // overlays; layer-2 water (Atlans-style, and generic overlay water) would
+        // otherwise be missed by the reflection overlay.
+        bool waterTile = Water;
+        if (TerrainMappingLayer2[TerrainIndex1] == 5) waterTile = true;
+
         if (TerrainMappingAlpha[TerrainIndex1] > 0.f
             || TerrainMappingAlpha[TerrainIndex2] > 0.f
             || TerrainMappingAlpha[TerrainIndex3] > 0.f
@@ -1639,6 +1732,10 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
                 }
             }
         }
+
+        // (Water reflection is now a prebuilt per-map mesh — see WaterReflection;
+        // no per-tile collection needed here.)
+        (void)waterTile;
     }
     else
     {
@@ -1660,7 +1757,13 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
             BITMAP_t* pBitmap = Bitmaps.FindTexture(Texture);
             if (pBitmap)
             {
-                float Height = pBitmap->Height * 2.f;
+                // Grass billboard WORLD height derives from the texture's pixel
+                // height (*2). When the grass texture is AI-upscaled (e.g. 64->256)
+                // that makes the blades render 4x taller. Divide by the same
+                // upscale factor (g_TerrainTilingScale) so the geometry height
+                // stays the original regardless of texture resolution. Default
+                // 1.0 = legacy untouched.
+                float Height = pBitmap->Height * 2.f / g_TerrainTilingScale;
                 BindTexture(Texture);
 
                 if (gMapManager.IsPKField() || IsDoppelGanger2())
@@ -1693,20 +1796,35 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
 #ifdef ASG_ADD_MAP_KARUTAN
                 }
 #endif	// ASG_ADD_MAP_KARUTAN
+                // Grass billboards inherit the same sun lighting as the ground
+                // beneath (brightness + tint), so they don't stay flat-lit while
+                // the ground reacts to the sun. We emit the terrain (up) normal so
+                // grass tracks sun elevation like the tile under it; relief isn't
+                // meaningful on thin billboards (grassNrm is usually 0 -> the
+                // shader's no-normal-map branch re-lights flat by the sun).
+                const bool grassShader = ModelLighting::Active();
+                if (grassShader) ModelLighting::BeginTerrain(pBitmap->NormalTextureNumber);
+
                 glBegin(GL_QUADS);
                 glTexCoord2f(TerrainTextureCoord[0][0], TerrainTextureCoord[0][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex1]);
+                glNormal3fv(TerrainNormal[TerrainIndex1]);
                 glVertex3fv(TerrainVertex[0]);
                 glTexCoord2f(TerrainTextureCoord[1][0], TerrainTextureCoord[1][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex2]);
+                glNormal3fv(TerrainNormal[TerrainIndex2]);
                 glVertex3fv(TerrainVertex[1]);
                 glTexCoord2f(TerrainTextureCoord[2][0], TerrainTextureCoord[2][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex3]);
+                glNormal3fv(TerrainNormal[TerrainIndex3]);
                 glVertex3fv(TerrainVertex[2]);
                 glTexCoord2f(TerrainTextureCoord[3][0], TerrainTextureCoord[3][1]);
                 glColor3fv(PrimaryTerrainLight[TerrainIndex4]);
+                glNormal3fv(TerrainNormal[TerrainIndex4]);
                 glVertex3fv(TerrainVertex[3]);
                 glEnd();
+
+                if (grassShader) ModelLighting::EndTerrain();
 
                 if (gMapManager.IsPKField() || IsDoppelGanger2())
                     DisableAlphaBlend();
@@ -2791,6 +2909,17 @@ extern int EnableEvent;
 
 void InitTerrainLight()
 {
+    // Dynamic point lights: finalize the previous frame's collected lights
+    // (pick nearest to the player for this frame's draws), then reset the
+    // collector. Sources re-register via AddTerrainLight during this frame.
+    {
+        float camRef[3] = { 0.f, 0.f, 0.f };
+        if (Hero) { camRef[0] = Hero->Object.Position[0]; camRef[1] = Hero->Object.Position[1]; camRef[2] = Hero->Object.Position[2]; }
+        ModelLighting::SelectActiveLights(camRef);
+        ModelLighting::ClearLights();
+        if (Hero) ModelLighting::AddPlayerLight(camRef[0], camRef[1], camRef[2] + 80.f);
+    }
+
     int xi, yi;
     yi = FrustrumBoundMinY;
     for (; yi <= FrustrumBoundMaxY + 3; yi += 1)
@@ -3159,6 +3288,9 @@ void RenderTerrain(bool EditFlag)
         EnableCullFace();
         RenderPointers();
         EnableDepthTest();
+
+        // Draw the prebuilt water-surface mesh (planar reflection + tint).
+        WaterReflection::DrawSurface();
     }
 }
 

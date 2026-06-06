@@ -8,6 +8,12 @@
 #include "Camera/CameraUtility.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/Shadow/SunShadow.h"
+#include "Render/Water/WaterReflection.h"
+#include "Render/Models/ModelShader.h"
+#include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessPreset.h"
+#include "Network/ServerMapManifest.h"
 #include "Engine/Object/ZzzObject.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "Render/Terrain/ZzzLodTerrain.h"
@@ -344,6 +350,11 @@ void MoveMainScene()
 
     UpdateGameEntities();
 
+    // NOTE: the per-map post-process preset auto-apply moved to
+    // SceneManager::UpdateActiveScene so it runs for EVERY scene (gameplay,
+    // login, character-select), letting presets be saved/applied on the login
+    // and character screens too — not just gameplay.
+
     g_ConsoleDebug->UpdateMainScene();
 }
 
@@ -424,7 +435,11 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     // using WindowWidth/WindowHeight when setting the GL viewport, so the
     // FBO must match the real window pixels — not the reference values.
     SoftShadow::Resize(WindowWidth, WindowHeight);
-    SoftShadow::BeginFrame();
+    // Real-time sun shadows replace the legacy SoftShadow blob system entirely —
+    // skip its per-frame setup/composite so its blur/depth-composite pass can't
+    // interfere with the scene (it was making characters vanish).
+    if (!SunShadow::Enabled())
+        SoftShadow::BeginFrame();
 
     if (IsWaterTerrain() == false && renderTerrain)
     {
@@ -438,12 +453,16 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
             {
                 if ((gMapManager.IsPKField() || IsDoppelGanger2()) && renderStatic)
                 {
+                    ModelLighting::SetReceiveShadow(true);
                     FRAME_PROFILE(Objects); RenderObjects();
                 }
                 { FRAME_PROFILE(Terrain); RenderTerrain(false); }
             }
     }
 
+    // Static world objects RECEIVE the sun shadow (building/tree walls catch the
+    // shadows characters and other objects throw). Characters turn this back off.
+    ModelLighting::SetReceiveShadow(true);
     if (!gMapManager.IsPKField() && !IsDoppelGanger2() && renderStatic)
         { FRAME_PROFILE(Objects); RenderObjects(); }
 
@@ -470,6 +489,9 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
         RenderBoids();
     }
 
+    // Characters/monsters CAST but don't self-receive (one-frame-latent map +
+    // low-poly meshes would acne/flicker). Turn receiving off for their draws.
+    ModelLighting::SetReceiveShadow(false);
     { FRAME_PROFILE(Characters); RenderCharactersClient(); }
 
     if (EditFlag != EDIT_NONE && renderTerrain)
@@ -492,11 +514,16 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
         RenderBoids(true);
 
     if (renderStatic)
+    {
+        ModelLighting::SetReceiveShadow(true);
         { FRAME_PROFILE(Objects); RenderObjects_AfterCharacter(); }
+    }
+    ModelLighting::SetReceiveShadow(false);   // restore default for any later model draws
 
     // All shadow-emitting passes are done. Blur and composite over the
     // back buffer before joints/effects/sprites overlay on top.
-    SoftShadow::Composite();
+    if (!SunShadow::Enabled())
+        SoftShadow::Composite();
 
     RenderJoints(byWaterMap);
 
@@ -517,10 +544,9 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     RenderSprites();
     RenderParticles();
 
-    if (IsWaterTerrain() == false)
-    {
-        RenderPoints(byWaterMap);
-    }
+    // NOTE: damage numbers (RenderPoints) deliberately MOVED out of the captured
+    // scene — they are drawn after the post-process resolve in RenderMainScene so
+    // fog/grade/LUT don't tint the combat text. (Was: RenderPoints here.)
 
     EndSprite();
 
@@ -544,7 +570,8 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
 
         RenderSprites(byWaterMap);
         RenderParticles(byWaterMap);
-        RenderPoints(byWaterMap);
+        // RenderPoints moved post-resolve (see RenderMainScene) — combat text
+        // must not be post-processed.
 
         EndSprite();
         EndOpengl();
@@ -657,7 +684,20 @@ bool RenderMainScene()
         }
     }
 
+    // ── Post-process capture (3D world ONLY) ─────────────────────────────
+    // Begin BEFORE SetupMainSceneViewport so the scene's glClear (inside
+    // ClearScene) and all of RenderGameWorld land in the off-screen RTV.
+    // No-op when the chain is disabled. Resolved further down, right before
+    // RenderMainSceneUI, so the in-game UI/text is never post-processed.
+    PostProcess::Chain::BeginSceneCapture();
+
+    // M1: gate caster collection to the player (BodyOrigin near this target).
+    SunShadow::SetTarget(Hero->Object.Position);
+
     SetupMainSceneViewport(width, height, byWaterMap, cameraPos);
+    // Planar water reflection: render the mirrored world into a texture now (camera
+    // matrices are set), before the world render so water tiles can sample it.
+    WaterReflection::Build();
     RenderGameWorld(byWaterMap, width, height);
 
 #ifdef _EDITOR
@@ -722,10 +762,38 @@ bool RenderMainScene()
     }
 #endif
 
+    // ── Resolve the captured 3D world through the post-process chain ──────
+    // RTV -> (bloom/tonemap/grade/FXAA/sharpen/vignette/grain) -> backbuffer.
+    // No-op when disabled. Done HERE — after the world + editor debug overlays,
+    // before any UI — so RenderMainSceneUI() below draws crisp, unprocessed
+    // HUD / tooltips / floating text straight onto the backbuffer.
+    {
+        const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
+        PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
+    }
+
+    // Damage numbers / floating combat text: world-positioned, but must NOT be
+    // post-processed (fog/grade/LUT would tint them). Drawn HERE, after the
+    // scene resolve, straight onto the backbuffer — the 3D camera matrices set
+    // by SetupMainSceneViewport are still active (EndOpengl pops them below, and
+    // the post passes save/restore the matrix stack), so world->screen projection
+    // is still correct. Runs whether or not post-process is enabled (when off,
+    // the resolve is a no-op and this simply draws onto the direct scene).
+    BeginSprite();
+    RenderPoints(byWaterMap);
+    EndSprite();
+
     RenderMainSceneUI();
 
 
     EndOpengl();
+
+    // FORWARD SHADOW MAP: flush the character verts collected this frame (during
+    // RenderGameWorld's RenderBodyShadow) into the sun depth map, centered on the
+    // hero. Built here at frame end; the model/terrain shaders sample it NEXT
+    // frame (one-frame lag — invisible, and avoids re-issuing characters before
+    // their transforms exist). No-op when shadows are off.
+    SunShadow::BuildFromCollected(Hero->Object.Position);
 
     return true;
 }

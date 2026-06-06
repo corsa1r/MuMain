@@ -32,6 +32,8 @@
 #include "Engine/Object/w_ObjectInfo.h"      // OBJECT, CHARACTER
 #include "Core/Globals/_enum.h"              // MAX_WORLD_OBJECTS
 #include "World/MapInfra/MapManager.h"       // gMapManager, WD_* enum
+#include "Network/ServerMapManifest.h"       // CurrentServerMapNumber (PP preset key)
+#include "Render/Water/WaterReflection.h"    // InvalidateMesh on map load
 #include "CustomMap/CustomWeather.h"         // SetActiveCustomWeather, ClearLiveWeatherParticles
 #include "Core/Globals/CustomWeatherFlags.h" // CW_* bits
 #include "Core/Globals/_enum.h"              // MODEL_BIRD01, MODEL_BAT01, MODEL_BUTTERFLY01
@@ -592,6 +594,16 @@ namespace
         return s;
     }
 
+    // Sibling normal-map name for a disk texture: <base>.OZJ -> <base>_n.OZJ.
+    // Mirrors GlobalBitmap::NormalSibling so per-pixel lighting finds the copied
+    // normal in the custom slot (all base-world tiles were upscaled with normals).
+    std::wstring NormalSiblingName(const std::wstring& diskName)
+    {
+        const auto dot = diskName.find_last_of(L'.');
+        if (dot == std::wstring::npos) return diskName + L"_n";
+        return diskName.substr(0, dot) + L"_n" + diskName.substr(dot);
+    }
+
     // Seeds a custom slot with a chosen classic world's tile bitmaps.
     // Each entry in WORLD_TEXTURE_FILES is a *logical* path
     // (".jpg"/".tga"); the bytes we copy come from the on-disk
@@ -601,7 +613,9 @@ namespace
     // baseWorld is the 1-based World folder index (Data\World<n>\).
     // Falls back to World1 (Lorencia) when the requested directory
     // doesn't exist so a misconfigured manifest can't strand the slot.
-    void CopyWorldAssetsFromTo(int baseWorld, const fs::path& dst)
+    // normalsOnly = backfill mode: copy ONLY missing <base>_n normal maps, never
+    // touching the diffuse tiles (so a hand-edited slot keeps its custom textures).
+    void CopyWorldAssetsFromTo(int baseWorld, const fs::path& dst, bool normalsOnly = false)
     {
         std::error_code ec;
         wchar_t srcDir[32];
@@ -616,7 +630,18 @@ namespace
             const std::wstring diskName = TranslateToDiskFilename(file);
             const fs::path srcFile = src / diskName;
             if (!fs::exists(srcFile, ec)) continue;
-            fs::copy_file(srcFile, dst / diskName,
+            if (!normalsOnly)
+                fs::copy_file(srcFile, dst / diskName,
+                              fs::copy_options::overwrite_existing, ec);
+
+            // Copy the sibling normal map (<base>_n.OZJ/.OZT) so per-pixel lighting /
+            // sun shadows work on the sourced ground textures. In backfill mode skip
+            // ones the slot already has.
+            const std::wstring nrmName = NormalSiblingName(diskName);
+            const fs::path srcNrm = src / nrmName;
+            if (!fs::exists(srcNrm, ec)) continue;
+            if (normalsOnly && fs::exists(dst / nrmName, ec)) continue;
+            fs::copy_file(srcNrm, dst / nrmName,
                           fs::copy_options::overwrite_existing, ec);
         }
     }
@@ -1014,6 +1039,24 @@ namespace MuEditor::CustomMap
         // Used by the editor's "Edit This Map" shortcut so it can auto-
         // select the running slot without prompting the user.
         int s_ActiveCustomSlot = -1;
+
+        // Saved live (online) state captured when entering offline authoring, so
+        // "Return to Live Game" can reload the real world + restore the hero where
+        // the server still has it (we never sent moves while offline).
+        int  s_liveWorld     = -1;    // gMapManager.WorldActive (0-based) before override
+        int  s_liveServerMap = -1;    // ServerMapManifest CurrentServerMapNumber (PP key)
+        int  s_livePosX      = 0;
+        int  s_livePosY      = 0;
+        bool s_haveLiveState  = false;
+
+        // CharactersClient slots that were Live (server-streamed NPCs/monsters/
+        // other players, Hero excluded) at the moment we entered offline
+        // authoring. Going offline only marks them Object.Live=false — it never
+        // frees them (buff/effect systems cache raw OBJECT* into these slots).
+        // The server still considers them in our viewport and will NOT
+        // re-broadcast spawn packets, so the only way they come back on "Return
+        // to Live" is to flip exactly these slots Live again locally.
+        std::vector<int> s_liveCharIndices;
     }
 
     std::wstring GetCustomRootDirectory()
@@ -1407,6 +1450,13 @@ namespace MuEditor::CustomMap
         if (!fs::exists(heightPath, ec)) return false;
         if (!fs::exists(lightPath,  ec)) return false;
 
+        // Key the per-map post-process preset (incl. water) by THIS custom map id.
+        // Online, CMapManager::LoadWorld already sets this to the same value before
+        // calling us; the editor's offline load path does not, so without this the
+        // PP system stayed on the previous map's number (presets saved/applied to
+        // the wrong slot). Pinning it here makes the editor + release client agree.
+        BloodlustMU::ServerMapManifest::Instance().SetCurrentServerMapNumber(mapId);
+
         MarkAllObjectsDead();
         MarkAllNonHeroCharactersDead();
         // Drop any in-flight Leaves[]/Boids[] left over from the previous
@@ -1469,11 +1519,19 @@ namespace MuEditor::CustomMap
         // slot that originally seeded from Tarkan doesn't quietly get
         // re-seeded with Lorencia bitmaps.
         std::error_code ec2;
-        const fs::path probe =
-            fs::path(GetCustomMapDirectory(mapId)) / L"TileGrass01.OZJ";
+        const fs::path slotDir = fs::path(GetCustomMapDirectory(mapId));
+        const fs::path probe    = slotDir / L"TileGrass01.OZJ";
+        const fs::path probeNrm = slotDir / L"TileGrass01_n.OZJ";
         if (!fs::exists(probe, ec2))
         {
             CopyDefaultWorldAssets(mapId, manifest.baseWorld);
+        }
+        else if (!fs::exists(probeNrm, ec2))
+        {
+            // Slot seeded before normal maps were copied: backfill the missing
+            // <base>_n siblings (diffuse tiles untouched) so older custom maps
+            // light correctly without recreating them.
+            CopyWorldAssetsFromTo(manifest.baseWorld, slotDir, /*normalsOnly*/ true);
         }
 
         // Reload tile bitmaps from the slot's own folder so the ground
@@ -1524,6 +1582,12 @@ namespace MuEditor::CustomMap
                 baseOffset);
         }
 
+        // Custom maps pin WorldActive to WD_0LORENCIA, so the water module's
+        // automatic world-change rebuild won't fire on custom->custom loads. Force
+        // it so the new map's water mesh (tiles/level) is rebuilt with this map's
+        // settings, instead of waiting for a Plane Grow slider nudge.
+        WaterReflection::InvalidateMesh();
+
         s_ActiveCustomSlot = mapId;
         return true;
     }
@@ -1531,6 +1595,135 @@ namespace MuEditor::CustomMap
     int GetActiveCustomSlot()
     {
         return s_ActiveCustomSlot;
+    }
+
+    // Place the hero on a specific tile and clear movement state (mirror
+    // ReceiveTeleport + ReceiveMovePosition). Used by the safe-zone warp and the
+    // return-to-live restore.
+    void WarpHeroToTile(int tx, int ty)
+    {
+        if (Hero == nullptr) return;
+        Hero->PositionX = tx;
+        Hero->PositionY = ty;
+        Hero->TargetX   = tx;
+        Hero->TargetY   = ty;
+        Hero->JumpTime  = 0;
+        Hero->Movement  = false;
+        Hero->Path.PathNum          = 0;
+        Hero->Path.CurrentPath      = 0;
+        Hero->Path.CurrentPathFloat = 0;
+
+        OBJECT* o = &Hero->Object;
+        o->Position[0] = ((float)tx + 0.5f) * TERRAIN_SCALE;
+        o->Position[1] = ((float)ty + 0.5f) * TERRAIN_SCALE;
+        o->Position[2] = RequestTerrainHeight(o->Position[0], o->Position[1]);
+
+        SetPlayerStop(Hero);
+    }
+
+    void WarpHeroToSafeZone()
+    {
+        if (Hero == nullptr) return;
+
+        const int N  = TERRAIN_SIZE;        // 256
+        const int cx = N / 2, cy = N / 2;   // map centre = search origin
+
+        auto walkable = [&](int x, int y) -> bool
+        {
+            if (x < 0 || y < 0 || x >= N || y >= N) return false;
+            const WORD w = TerrainWall[TERRAIN_INDEX(x, y)];
+            return (w & (TW_NOMOVE | TW_NOGROUND)) == 0;
+        };
+
+        // Prefer a walkable TW_SAFEZONE tile nearest the centre; else any walkable
+        // tile nearest the centre. One pass tracks the best of each.
+        int  bestSafeX = -1, bestSafeY = -1; long bestSafeD = 0x7fffffff;
+        int  bestWalkX = -1, bestWalkY = -1; long bestWalkD = 0x7fffffff;
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x)
+            {
+                if (!walkable(x, y)) continue;
+                const long dx = x - cx, dy = y - cy;
+                const long d  = dx * dx + dy * dy;
+                if (d < bestWalkD) { bestWalkD = d; bestWalkX = x; bestWalkY = y; }
+                if ((TerrainWall[TERRAIN_INDEX(x, y)] & TW_SAFEZONE) && d < bestSafeD)
+                    { bestSafeD = d; bestSafeX = x; bestSafeY = y; }
+            }
+
+        int tx = (bestSafeX >= 0) ? bestSafeX : bestWalkX;
+        int ty = (bestSafeX >= 0) ? bestSafeY : bestWalkY;
+        if (tx < 0) return;   // no walkable tile at all (degenerate map) — leave hero put
+
+        WarpHeroToTile(tx, ty);
+    }
+
+    void CaptureLiveReturnState()
+    {
+        s_liveWorld     = gMapManager.WorldActive;   // real world, before LoadCustomMap override
+        s_liveServerMap = BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+        if (Hero) { s_livePosX = Hero->PositionX; s_livePosY = Hero->PositionY; }
+
+        // Snapshot the live (server-streamed) characters BEFORE LoadCustomMap
+        // marks them dead, so "Return to Live" can flip exactly these back on.
+        // Captured here (not in ReturnToLiveGame) because by then they're
+        // already Live=false and indistinguishable from empty slots.
+        s_liveCharIndices.clear();
+        for (int i = 0; i < MAX_CHARACTERS_CLIENT; ++i)
+        {
+            CHARACTER* c = &CharactersClient[i];
+            if (c == Hero) continue;
+            if (c->Object.Live) s_liveCharIndices.push_back(i);
+        }
+
+        s_haveLiveState = true;
+    }
+
+    bool ReturnToLiveGame()
+    {
+        if (!s_haveLiveState) return false;
+        // Reload the real world's assets (WorldActive is 0-based; classic folder is
+        // 1-based) and put the hero back where the server still has it. Offline gate
+        // is cleared by the caller, so server viewport/move packets resume.
+        if (!LoadClassicMap(s_liveWorld + 1)) return false;
+        // Restore the PP preset key to the live map (LoadCustomMap pinned it to the
+        // custom slot) so the post-process reverts to the live world's look.
+        BloodlustMU::ServerMapManifest::Instance().SetCurrentServerMapNumber(s_liveServerMap);
+        WarpHeroToTile(s_livePosX, s_livePosY);
+
+        // Re-show the live NPCs/monsters/players we hid on going offline. They
+        // were only marked dead (never freed) and the server still holds them in
+        // our viewport, so it won't re-broadcast spawn packets — flipping these
+        // exact slots Live again is what makes them reappear instantly. (Asking
+        // the server to re-push via SendClientReadyAfterMapChange does nothing
+        // here: from the server's view we never left the live map.) LoadClassicMap
+        // above re-killed them via MarkAllNonHeroCharactersDead, so restore last.
+        // Their positions stayed current — non-Hero move packets kept flowing
+        // while offline; from here normal viewport churn keeps them in sync.
+        for (int idx : s_liveCharIndices)
+        {
+            if (idx < 0 || idx >= MAX_CHARACTERS_CLIENT) continue;
+            CHARACTER* c = &CharactersClient[idx];
+            if (c == Hero) continue;
+            c->Object.Live = true;
+        }
+        s_liveCharIndices.clear();
+
+        s_haveLiveState = false;
+        return true;
+    }
+
+    void DiscardOfflineState()
+    {
+        // The server (not us) just swapped the world via gMapManager.LoadWorld,
+        // which already cleared characters/objects + reset the server map number.
+        // So here we only forget the offline bookkeeping the engine doesn't know
+        // about, and undo the per-map overrides LoadCustomMap applied.
+        s_haveLiveState = false;
+        s_liveCharIndices.clear();
+        s_ActiveCustomSlot = -1;
+        ResetActiveCustomWeather();        // back to WorldActive-driven weather
+        ClearLiveWeatherParticles();       // drop any custom-slot leaves/boids
+        WaterReflection::InvalidateMesh();  // rebuild water for the server-loaded map
     }
 
     bool LoadClassicMap(int worldFolderIndex)
@@ -1611,6 +1804,7 @@ namespace MuEditor::CustomMap
         // Classic load supersedes any prior custom-slot binding.
         s_ActiveCustomSlot = -1;
 
+        WaterReflection::InvalidateMesh();   // rebuild water for the loaded world
         return true;
     }
 

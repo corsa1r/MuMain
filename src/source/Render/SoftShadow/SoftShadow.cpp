@@ -427,6 +427,15 @@ namespace SoftShadow
     void BeginFrame()
     {
         if (!IsAvailable()) return;
+
+        // Capture-agnostic restore: remember whichever framebuffer the scene is
+        // currently rendering into and rebind it after we clear the shadow FBO.
+        // Normally that is 0 (the backbuffer); when the post-process off-screen
+        // capture is active it is the scene RTV. Hard-coding 0 here would yank
+        // subsequent scene draws back to the backbuffer and break capture.
+        GLint prevFBO = 0;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+
         pglBindFramebuffer(GL_FRAMEBUFFER, s_shadowFBO);
         // Force masks fully open so the clear actually touches every channel.
         // Caller code elsewhere may have left colorMask or depthMask off,
@@ -436,7 +445,7 @@ namespace SoftShadow
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClearDepth(1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+        pglBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
     }
 
     void BeginShadowDraw()
@@ -474,6 +483,15 @@ namespace SoftShadow
     void Composite()
     {
         if (!IsAvailable()) return;
+
+        // Remember the framebuffer the scene rendered into so both the scene-
+        // depth blit (read source) and the final composite (draw target) follow
+        // the scene instead of a hard-coded backbuffer. 0 normally; the post-
+        // process scene RTV when off-screen capture is active. This is the only
+        // change needed for SoftShadow to coexist with the post-process chain —
+        // the blur+composite algorithm itself is untouched.
+        GLint prevSceneFBO = 0;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevSceneFBO);
 
         // Snapshot the legacy GL state we touch, restore at the end.
         GLboolean prevBlend     = glIsEnabled(GL_BLEND);
@@ -532,14 +550,15 @@ namespace SoftShadow
         // ── Capture scene depth ──────────────────────────────────────────
         // Blit the default framebuffer's depth into our scene-depth texture
         // so the composite shader can read it as a sampler2D.
-        pglBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        pglBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevSceneFBO));
         pglBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_sceneDepthFBO);
         pglBlitFramebuffer(0, 0, s_width, s_height,
                            0, 0, s_width, s_height,
                            GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 
-        // ── Composite: shadowColor + depth tests → back buffer ───────────
-        pglBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // ── Composite: shadowColor + depth tests → scene target ──────────
+        // (the backbuffer normally, or the post-process scene RTV when active)
+        pglBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevSceneFBO));
         glViewport(0, 0, s_width, s_height);
 
         glEnable(GL_BLEND);

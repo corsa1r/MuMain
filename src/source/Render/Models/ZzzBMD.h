@@ -287,6 +287,12 @@ public:
     void RenderBodyTranslate(int RenderFlag, float Alpha = 1.f, int BlendMesh = -1, float BlendMeshLight = 1.f, float BlendMeshTexCoordU = 0.f, float BlendMeshTexCoordV = 0.f, int HiddenMesh = -1, int Texture = -1);
     void RenderBodyShadow(int blendMesh = -1, int hiddenMesh = -1, int startMeshNumber = -1, int endMeshNumber = -1, void* pClothes = nullptr, int clothesCount = 0);
 
+    // Collect this object's real world-space triangle verts into the sun shadow
+    // map so static world objects (buildings/trees/props) CAST shadows. Range-
+    // culled by the caller (SunShadow::ObjectCastWanted). Reads VertexTransform,
+    // valid after the object's Calc_RenderObject -> Transform.
+    void CollectSunCaster(int blendMesh = -1, int hiddenMesh = -1);
+
     void SetBodyLight(vec3_t right) { VectorCopy(right, BodyLight); }
 
     bool LightMapEnable;

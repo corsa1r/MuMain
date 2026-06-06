@@ -11,8 +11,12 @@
 #include "UI/Legacy/UIWindows.h"
 #include "UI/Legacy/UIManager.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
+#include "Render/Terrain/ZzzLodTerrain.h"   // g_TerrainTilingScale
 #include "Render/Textures/ZzzTexture.h"
 #include "Render/SoftShadow/SoftShadow.h"
+#include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessSettings.h"
+#include "Render/PostProcess/PostProcessPreset.h"
 #include "Engine/Object/ZzzOpenData.h"
 #include "Scenes/SceneCore.h"
 #include "Render/Models/ZzzBMD.h"
@@ -158,6 +162,7 @@ GLvoid KillGLWindow(GLvoid)
 {
     if (g_hRC)
     {
+        PostProcess::Chain::Shutdown();
         SoftShadow::Shutdown();
         wglMakeCurrent(nullptr, nullptr);
         if (!wglDeleteContext(g_hRC))
@@ -555,6 +560,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             OpenglWindowWidth = WindowWidth;
             OpenglWindowHeight = WindowHeight;
 
+            // Keep the off-screen scene RTV + post targets matched to the new
+            // backbuffer size. No-op when the chain is disabled/unavailable.
+            // Reallocating here (rather than leaving targets stale) is part of
+            // the resize/Alt-Tab robustness for the post-process path.
+            PostProcess::Chain::Resize(WindowWidth, WindowHeight);
+
             // Reinitialize fonts and update resolution-dependent systems
             ReinitializeFonts();
             UpdateResolutionDependentSystems();
@@ -914,6 +925,24 @@ MSG MainLoop()
                 // Update editor UI (must be before RenderScene)
                 g_MuEditorCore.Update();
 #endif
+
+                // F8 toggles bloom at runtime for live A/B comparison. (F5/F6/F7
+                // and F9/F11 are taken elsewhere; F8 is free.) Placed OUTSIDE
+                // _EDITOR so it works in normal client builds too.
+                static bool wasF8Pressed = false;
+                if (GetAsyncKeyState(VK_F8) & 0x8000)
+                {
+                    if (!wasF8Pressed)
+                    {
+                        const bool on = PostProcess::Chain::ToggleBloom();
+                        g_ErrorReport.Write(L"> PostProcess bloom: %s\r\n", on ? L"ON" : L"OFF");
+                        wasF8Pressed = true;
+                    }
+                }
+                else
+                {
+                    wasF8Pressed = false;
+                }
 
                 // Render game scene (ImGui rendering happens inside before SwapBuffers)
                 RenderScene(g_hDC);
@@ -1475,6 +1504,130 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
         g_ErrorReport.Write(L"> SoftShadow init failed — falling back to legacy shadows.\r\n");
     }
 
+    // Anisotropic texture filtering — independent of the post-process chain
+    // (it is texture-setup state and works even with PostProcess=0). Set the
+    // global the texture loader (GlobalBitmap LoadJpeg/LoadTga) reads; textures
+    // uploaded after this point pick it up. World/terrain textures load on map
+    // entry (well after this), so they are covered. 1 = off (legacy bilinear).
+    {
+        GameConfig& acfg = GameConfig::GetInstance();
+        g_AnisotropyLevel = acfg.GetAnisotropic()
+            ? static_cast<float>(acfg.GetAnisotropicLevel())
+            : 1.0f;
+        g_TextureLodBias = acfg.GetTextureLodBias();
+        g_TerrainTilingScale = acfg.GetTerrainTiling();
+        g_ErrorReport.Write(L"> Anisotropic filtering: %s (level=%d).\r\n",
+            acfg.GetAnisotropic() ? L"ON" : L"OFF", acfg.GetAnisotropicLevel());
+    }
+
+    // Off-screen scene RTV + modular post-process chain. Created here on the
+    // current GL context, right after SoftShadow so it shares the same proven
+    // FBO/shader entry-point loading convention. Gated by a config flag and
+    // DEFAULTS TO DISABLED: unless [Graphics] PostProcess=1 is set in config.ini
+    // this only allocates resources and never alters the frame — guaranteed
+    // pixel parity with the legacy direct-to-backbuffer path.
+    if (PostProcess::Chain::Init(WindowWidth, WindowHeight))
+    {
+        GameConfig& cfg = GameConfig::GetInstance();
+        const bool enablePost = cfg.GetPostProcess();
+        PostProcess::Chain::SetEnabled(enablePost);
+
+        // Pull every [Graphics] effect knob from config into the neutral
+        // settings struct and apply it to the passes. The chain/passes never
+        // touch the INI layer — they only see this struct.
+        PostProcess::Settings pps;
+        pps.ssao              = cfg.GetSSAO();
+        pps.ssaoRadius        = cfg.GetSSAORadius();
+        pps.ssaoStrength      = cfg.GetSSAOStrength();
+        pps.ssaoPower         = cfg.GetSSAOPower();
+        pps.depthOfField      = cfg.GetDepthOfField();
+        pps.dofFocusDistance  = cfg.GetDofFocusDistance();
+        pps.dofFocusRange     = cfg.GetDofFocusRange();
+        pps.dofBlur           = cfg.GetDofBlur();
+        pps.fog               = cfg.GetFog();
+        pps.fogR              = cfg.GetFogColorR();
+        pps.fogG              = cfg.GetFogColorG();
+        pps.fogB              = cfg.GetFogColorB();
+        pps.fogDensity        = cfg.GetFogDensity();
+        pps.fogStart          = cfg.GetFogStart();
+        pps.fogHeightStrength = cfg.GetFogHeightStrength();
+        pps.fogHeightTop      = cfg.GetFogHeightTop();
+        pps.bloom             = cfg.GetBloom();
+        pps.bloomStrength     = cfg.GetBloomStrength();
+        pps.bloomThreshold    = cfg.GetBloomThreshold();
+        pps.toneMap           = cfg.GetToneMap();
+        pps.exposure          = cfg.GetExposure();
+        pps.colorGrade        = cfg.GetColorGrade();
+        pps.contrast          = cfg.GetContrast();
+        pps.saturation        = cfg.GetSaturation();
+        pps.brightness        = cfg.GetBrightness();
+        pps.temperature       = cfg.GetTemperature();
+        pps.gradeShadows      = cfg.GetGradeShadows();
+        pps.gradeMidtones     = cfg.GetGradeMidtones();
+        pps.gradeHighlights   = cfg.GetGradeHighlights();
+        pps.vignette          = cfg.GetVignette();
+        pps.vignetteStrength  = cfg.GetVignetteStrength();
+        pps.vignetteRadius    = cfg.GetVignetteRadius();
+        pps.msaa              = cfg.GetMSAA();
+        pps.msaaSamples       = cfg.GetMSAASamples();
+        pps.fxaa              = cfg.GetFXAA();
+        pps.sharpen           = cfg.GetSharpen();
+        pps.sharpenStrength   = cfg.GetSharpenStrength();
+        pps.filmGrain         = cfg.GetFilmGrain();
+        pps.filmGrainStrength = cfg.GetFilmGrainStrength();
+        pps.godRays           = cfg.GetGodRays();
+        pps.godRaysLightX     = cfg.GetGodRaysLightX();
+        pps.godRaysLightY     = cfg.GetGodRaysLightY();
+        pps.godRaysSunZ       = cfg.GetGodRaysSunZ();
+        pps.godRaysDensity    = cfg.GetGodRaysDensity();
+        pps.godRaysWeight     = cfg.GetGodRaysWeight();
+        pps.godRaysDecay      = cfg.GetGodRaysDecay();
+        pps.godRaysThreshold  = cfg.GetGodRaysThreshold();
+        pps.godRaysIntensity  = cfg.GetGodRaysIntensity();
+        pps.godRaysSamples    = cfg.GetGodRaysSamples();
+        pps.godRaysR          = cfg.GetGodRaysColorR();
+        pps.godRaysG          = cfg.GetGodRaysColorG();
+        pps.godRaysB          = cfg.GetGodRaysColorB();
+        pps.lut               = cfg.GetLut();
+        {
+            // Config stores the LUT filename as wide; Settings/LutPass use narrow
+            // (the name is ASCII, under Data/PostProcess/). Simple narrowing.
+            const std::wstring wf = cfg.GetLutFile();
+            pps.lutFile.assign(wf.begin(), wf.end());
+        }
+        pps.perPixelLighting  = cfg.GetPerPixelLighting();
+        pps.normalMapStrength = cfg.GetNormalMapStrength();
+        pps.specularStrength  = cfg.GetSpecularStrength();
+        pps.specularPower     = cfg.GetSpecularPower();
+        pps.dynamicLights         = cfg.GetDynamicLights();
+        pps.dynamicLightIntensity = cfg.GetDynamicLightIntensity();
+        pps.dynamicLightFlicker   = cfg.GetDynamicLightFlicker();
+        pps.dynamicLightCount     = cfg.GetDynamicLightCount();
+        pps.playerLight       = cfg.GetPlayerLight();
+        pps.playerLightRadius = cfg.GetPlayerLightRadius();
+        pps.sunShadows          = cfg.GetSunShadows();
+        pps.sunShadowResolution = cfg.GetSunShadowResolution();
+        pps.sunShadowDistance   = cfg.GetSunShadowDistance();
+        pps.sunShadowDarkness   = cfg.GetSunShadowDarkness();
+        pps.sunShadowSoftness   = cfg.GetSunShadowSoftness();
+        pps.sunShadowBias       = cfg.GetSunShadowBias();
+        PostProcess::Chain::ApplySettings(pps);
+
+        // Seed the per-map preset system with this global look + the override
+        // flag. From here, map entry (MoveMainScene) applies per-map presets
+        // (or the global base) via Presets::ApplyForWorld.
+        PostProcess::Presets::Init(pps, cfg.GetPPGlobalOverride());
+
+        g_ErrorReport.Write(
+            L"> PostProcess init (on=%d bloom=%d tonemap=%d grade=%d fxaa=%d sharpen=%d vignette=%d grain=%d).\r\n",
+            enablePost ? 1 : 0, pps.bloom, pps.toneMap, pps.colorGrade,
+            pps.fxaa, pps.sharpen, pps.vignette, pps.filmGrain);
+    }
+    else
+    {
+        g_ErrorReport.Write(L"> PostProcess chain unavailable — rendering direct to backbuffer.\r\n");
+    }
+
     g_ErrorReport.AddSeparator();
     g_ErrorReport.WriteOpenGLInfo();
     g_ErrorReport.AddSeparator();
@@ -1522,8 +1675,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLin
     if (IsVSyncAvailable())
     {
         EnableVSync();
-        SetTargetFps(-1); // unlimited
     }
+    // Apply the persisted frame cap from config.ini ([Window] FPS; -1 = unlimited).
+    // The $fps chat command updates this live AND writes it back for next run.
+    SetTargetFps(GameConfig::GetInstance().GetTargetFps());
 
     CreateNewFonts(CalculateFontSizes());
 

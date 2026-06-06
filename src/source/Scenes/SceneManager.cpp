@@ -28,6 +28,8 @@ FrameTimingState g_frameTiming;
 #include "LoadingScene.h"
 #include "Audio/DSPlaySound.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
+#include "Render/PostProcess/PostProcessChain.h"
+#include "Render/PostProcess/PostProcessPreset.h"
 #include "Engine/Physics/PhysicsManager.h"
 #include "Core/Time/Timer.h"
 #include "Core/Input/Input.h"
@@ -270,6 +272,25 @@ static void UpdateActiveScene()
     case MAIN_SCENE:
         MoveMainScene();
         break;
+    }
+
+    // Per-map post-process preset auto-apply for EVERY scene (gameplay, login,
+    // and character-select), not just gameplay. Watch the server map number
+    // (CMapManager::LoadWorld sets it per scene: login = WD_73NEW_LOGIN_SCENE,
+    // char-select = WD_74NEW_CHARACTER_SCENE) and push that map's preset to the
+    // chain on change. This is what lets the editor's "Save as Map Preset" work
+    // on the login/character scenes too. Custom maps pin WorldActive to 0, so we
+    // key off the true server map id, not WorldActive. (Editor Override toggle
+    // still calls ApplyForWorld directly.)
+    {
+        static int s_lastWorldForPP = -1000;
+        const int curWorld =
+            BloodlustMU::ServerMapManifest::Instance().CurrentServerMapNumber();
+        if (curWorld != s_lastWorldForPP)
+        {
+            s_lastWorldForPP = curWorld;
+            PostProcess::Presets::ApplyForWorld(curWorld);
+        }
     }
 }
 
@@ -1094,13 +1115,21 @@ void MainScene(HDC hDC)
     }
 
     UpdateCoreSystems();
+
     SetWorldClearColor();
 
     bool Success = false;
 
     try
     {
+        // NOTE: the post-process capture/resolve lives INSIDE RenderMainScene
+        // (see RenderMainScene in MainScene.cpp), wrapping ONLY the 3D world —
+        // it begins before the scene clear and resolves just before the in-game
+        // UI is drawn. That keeps HUD / item tooltips / floating text CRISP and
+        // unaffected by bloom/vignette/FXAA, which is why it is not wrapped here
+        // around the whole RenderCurrentScene (that would process the UI too).
         Success = RenderCurrentScene(hDC);
+
         RenderDebugInfo();
         RenderFpsCounter();
         RenderLatencyMeter();

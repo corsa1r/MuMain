@@ -102,22 +102,31 @@ public:
     // server are dropped — so we can paint terrain attributes and walk the
     // new layout without the live world fighting back. Triggered/cleared by
     // the File menu (New / Load Custom set it; Load Classic clears it).
-    // Offline-authoring requires BOTH a bound slot (so we have something to
-    // edit) AND the editor being actively open. Closing the editor reverts
-    // to the normal "online" state — monsters spawn, the server is allowed
-    // to correct the Hero's position, etc. — even though the slot binding
-    // stays remembered for the next session. m_OfflineAuthoringActive is
-    // flipped on by LoadCustomMap and off by DisableAllBrushes+close hooks.
+    // Offline-authoring PERSISTS while a custom slot is loaded — closing the
+    // editor keeps you in the loaded map so you can walk it freely (server
+    // suppressed, no snap-backs). The player rejoins the live world only via the
+    // explicit "Return to Live Game" action (RequestReturnToLiveGame), which
+    // reloads the real world + restores the server-side position.
     bool IsOfflineAuthoring() const {
         return m_OfflineAuthoringActive && m_CurrentCustomMapId >= 0;
     }
-    // Called from the editor-close hooks (X button, Close Editor). Drops
-    // offline mode so the player rejoins the live world, and turns off
-    // any leftover brush so movement isn't gated either.
+    // Called from the editor-close hooks (X button, Close Editor). Only turns off
+    // any leftover brush so movement isn't gated; offline authoring is left ON so
+    // the loaded custom map stays walkable after the editor closes.
     void OnEditorClosed() {
-        m_OfflineAuthoringActive = false;
         DisableAllBrushes();
     }
+
+    // Exit offline authoring: reload the live world + restore the server-side
+    // hero position, then drop the offline gate so server packets resume.
+    void RequestReturnToLiveGame();
+
+    // Drop offline authoring WITHOUT a client-side world reload — for when the
+    // SERVER warps the hero to a live map (ReceiveTeleport map-change). The
+    // engine's LoadWorld already swapped terrain and the hero position is
+    // server-authoritative, so we only clear the gate + custom-slot bookkeeping.
+    // Contrast RequestReturnToLiveGame(), which reloads the world client-side.
+    void ExitOfflineAuthoringForServerWarp();
 
     // Any editor brush is consuming left-clicks this frame — paint,
     // place, or delete. The engine's click-to-move / attack gates swallow

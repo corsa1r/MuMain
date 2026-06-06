@@ -30,6 +30,8 @@
 #include "Engine/Object/ZzzOpenData.h"
 #include "LoginScene.h"
 #include "Camera/CameraProjection.h"
+#include "Render/PostProcess/PostProcessChain.h"
+#include "Render/Shadow/SunShadow.h"
 #ifdef _EDITOR
 #include "Camera/CameraMode.h"
 #include "Camera/FrustumRenderer.h"
@@ -366,6 +368,31 @@ static void RenderCharacterSceneUI()
     EndBitmap();
 }
 
+// Center the sun shadow map on the character group: the selected hero if one is
+// picked, else the first live character, else the scene's reference platform
+// position (~9758,18913). The ortho map is large enough that any clustered
+// character covers the whole row.
+static void GetCharacterSceneShadowFocus(vec3_t out)
+{
+    int idx = -1;
+    if (SelectedHero >= 0 && SelectedHero < MAX_CHARACTERS_PER_ACCOUNT
+        && CharactersClient[SelectedHero].Object.Live)
+        idx = SelectedHero;
+    if (idx < 0)
+    {
+        for (int i = 0; i < MAX_CHARACTERS_PER_ACCOUNT; i++)
+            if (CharactersClient[i].Object.Live) { idx = i; break; }
+    }
+    if (idx >= 0)
+    {
+        VectorCopy(CharactersClient[idx].Object.Position, out);
+    }
+    else
+    {
+        Vector(9758.0f, 18913.0f, 163.0f, out);
+    }
+}
+
 /**
  * @brief Main rendering function for the character selection scene.
  *
@@ -394,7 +421,24 @@ bool NewRenderCharacterScene(HDC hDC)
     FogEnable = true;
 
     int width, height;
+
+    // Post-process capture (3D world ONLY) + sun shadow target — mirrors
+    // RenderMainScene so the character-select screen gets the SAME post FX and
+    // real-time shadows as gameplay. BeginSceneCapture binds the off-screen RTV
+    // BEFORE the viewport setup (whose BeginOpengl then sets the partial
+    // character-scene viewport, rendering into the RTV); resolved just before the
+    // UI so the character frames / text stay crisp. No-op when the chain is off.
+    PostProcess::Chain::BeginSceneCapture();
+
     SetupCharacterSceneViewport(width, height);
+
+    // Character Z is reset to the platform height inside SetupCharacterSceneViewport,
+    // so pick the shadow focus AFTER it. SetTarget before the 3D render (object
+    // caster range-cull keys off it); BuildFromCollected uses the same focus.
+    vec3_t shadowFocus;
+    GetCharacterSceneShadowFocus(shadowFocus);
+    SunShadow::SetTarget(shadowFocus);
+
     ApplySelectedCharacterLighting();
     RenderCharacterScene3D();
     RenderSelectedCharacterEffects();
@@ -407,6 +451,15 @@ bool NewRenderCharacterScene(HDC hDC)
             RenderFrustumWireframe(spectated->GetFrustum());
     }
 #endif
+
+    // Resolve the captured 3D scene through the post-process chain (RTV ->
+    // bloom/tonemap/grade/fog/ssao/god rays/vignette/... -> backbuffer) BEFORE
+    // the UI, so the character frames and text stay crisp/unprocessed. No-op
+    // when the chain is disabled.
+    {
+        const float frameDelta = (FPS > 0.0) ? static_cast<float>(1.0 / FPS) : 0.0f;
+        PostProcess::Chain::EndSceneCaptureAndPresent(frameDelta);
+    }
 
     RenderCharacterSceneUI();
 
@@ -421,6 +474,12 @@ bool NewRenderCharacterScene(HDC hDC)
     }
 
     EndOpengl();
+
+    // Flush the character body verts collected this frame (during
+    // RenderCharactersClient) into the sun depth map, centered on the character
+    // group. The terrain/model shaders sample it next frame. No-op when shadows
+    // are off.
+    SunShadow::BuildFromCollected(shadowFocus);
 
     return true;
 }

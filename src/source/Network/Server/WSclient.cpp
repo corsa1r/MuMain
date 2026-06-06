@@ -42,10 +42,14 @@
 #include "Engine/Physics/PhysicsManager.h"
 
 // Editor offline-authoring gate — see SendCharacterMove in ZzzInterface.cpp.
+// DevEditor_ExitOfflineAuthoring drops the gate when the SERVER warps us to a
+// live map (ReceiveTeleport) so the new viewport spawns aren't silenced.
 #ifdef _EDITOR
 extern "C" bool DevEditor_IsOfflineAuthoring();
+extern "C" void DevEditor_ExitOfflineAuthoring();
 #else
 static inline bool DevEditor_IsOfflineAuthoring() { return false; }
+static inline void DevEditor_ExitOfflineAuthoring() {}
 #endif
 #include "GameLogic/Events/Event.h"
 #include "GameLogic/Items/MixMgr.h"
@@ -124,6 +128,17 @@ BYTE Version[SIZE_PROTOCOLVERSION] = { '2', '0', '4', '0', '4' };
 BYTE Serial[SIZE_PROTOCOLSERIAL + 1] = { "k1Pk2jcET48mxL3b" };
 Connection* SocketClient = nullptr;
 bool EnableSocket = false;
+
+// Ask the server to re-push the player's viewport (NPCs/monsters/players in
+// range). Used when returning to the live game from offline editor authoring:
+// going offline killed the live characters locally, but the server still thinks
+// they were sent, so it won't resend them without this "ready after map change"
+// signal (the same one the normal teleport flow sends).
+void RequestServerViewportResync()
+{
+    if (SocketClient != nullptr && SocketClient->ToGameServer() != nullptr)
+        SocketClient->ToGameServer()->SendClientReadyAfterMapChange();
+}
 
 
 BOOL    g_bGameServerConnected = FALSE;
@@ -1927,6 +1942,12 @@ void ReceiveMoveCharacter(std::span<const BYTE> ReceiveBuffer)
     }
 
     int Key = ((int)(Data->KeyH) << 8) + Data->KeyL;
+
+    // Offline authoring: ignore server moves for Hero (same as ReceiveMovePosition)
+    // so the local hero pathing on the painted TerrainWall is never snapped back.
+    if (Key == HeroKey && DevEditor_IsOfflineAuthoring())
+        return;
+
     CHARACTER* c = &CharactersClient[FindCharacterIndex(Key)];
     OBJECT* o = &c->Object;
 
@@ -2084,6 +2105,15 @@ BOOL ReceiveTeleport(const BYTE* ReceiveBuffer, BOOL bEncrypted)
         if (needsReload2)
         {
             int OldWorld = gMapManager.WorldActive;
+
+            // A server-driven world change means the player deliberately warped
+            // to a LIVE map (warp list / gate / command), even if we were offline
+            // authoring a custom slot. Drop the offline gate now — before the new
+            // map's viewport streams in below — or the spawn handlers keep
+            // silencing its monsters and you take damage from things you can't
+            // see. No-op outside the editor / when not offline.
+            if (DevEditor_IsOfflineAuthoring())
+                DevEditor_ExitOfflineAuthoring();
 
             gMapManager.WorldActive = Data->Map;
             gMapManager.LoadWorld(gMapManager.WorldActive);
@@ -2449,6 +2479,7 @@ void UnRegisterBuff(eBuffState buff, OBJECT* o);
 
 void ReceiveCreatePlayerViewportExtended(std::span<const BYTE> ReceiveBuffer)
 {
+    if (DevEditor_IsOfflineAuthoring()) return;   // offline authoring: no server players
     auto Data = safe_cast<PCREATE_CHARACTER_EXTENDED>(ReceiveBuffer);
     if (Data == nullptr)
     {
@@ -2582,6 +2613,7 @@ void ReceiveCreatePlayerViewportExtended(std::span<const BYTE> ReceiveBuffer)
 
 void ReceiveCreateTransformViewport(std::span<const BYTE> ReceiveBuffer)
 {
+    if (DevEditor_IsOfflineAuthoring()) return;   // offline authoring: no server spawns
     auto Data = safe_cast<PWHEADER_DEFAULT_WORD>(ReceiveBuffer);
     if (Data == nullptr)
     {
@@ -2796,6 +2828,10 @@ void AppearMonster(CHARACTER* c)
 
 void ReceiveCreateMonsterViewport(const BYTE* ReceiveBuffer)
 {
+    // Offline authoring (editor custom-map load): ignore server-streamed
+    // monsters/NPCs so the previous map's creatures don't repopulate the
+    // loaded slot. The gate is false during normal online play.
+    if (DevEditor_IsOfflineAuthoring()) return;
     auto Data = (LPPWHEADER_DEFAULT_WORD)ReceiveBuffer;
     int Offset = sizeof(PWHEADER_DEFAULT_WORD);
     for (int i = 0; i < Data->Value; i++)
@@ -2928,6 +2964,7 @@ void ReceiveCreateMonsterViewport(const BYTE* ReceiveBuffer)
 
 void ReceiveCreateSummonViewport(const BYTE* ReceiveBuffer)
 {
+    if (DevEditor_IsOfflineAuthoring()) return;   // offline authoring: no server spawns
     auto Data = (LPPWHEADER_DEFAULT_WORD)ReceiveBuffer;
     int Offset = sizeof(PWHEADER_DEFAULT_WORD);
     for (int i = 0; i < Data->Value; i++)
@@ -5921,6 +5958,7 @@ void ReceiveCreateMoney(std::span<const BYTE> ReceiveBuffer)
 
 void ReceiveCreateItemViewportExtended(std::span<const BYTE> ReceiveBuffer)
 {
+    if (DevEditor_IsOfflineAuthoring()) return;   // offline authoring: no server item drops
     auto Data = safe_cast<PWHEADER_DEFAULT_WORD>(ReceiveBuffer);
     if (Data == nullptr)
     {

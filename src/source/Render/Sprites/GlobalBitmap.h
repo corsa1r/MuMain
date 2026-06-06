@@ -26,6 +26,7 @@ struct BITMAP_t
     float Height;
     char Components;
     GLuint TextureNumber;
+    GLuint NormalTextureNumber = 0;   // 0 = none; sibling <name>_n.* normal map (per-pixel lighting)
     std::uint8_t Ref;
     bool IsSkin;
     bool IsHair;
@@ -94,8 +95,8 @@ class CGlobalBitmap
 {
     enum
     {
-        MAX_WIDTH = 1024,
-        MAX_HEIGHT = 1024,
+        MAX_WIDTH = 4096,
+        MAX_HEIGHT = 4096,
     };
 
     using BitmapPtr = std::unique_ptr<BITMAP_t>;

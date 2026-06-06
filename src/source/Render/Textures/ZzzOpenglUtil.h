@@ -117,3 +117,13 @@ bool rand_fps_check(int reference_frames);
 
 // Camera zoom level (external, not part of CameraState yet)
 extern short g_shCameraLevel;
+
+// Anisotropic texture filtering level applied in CreateTexture (GlobalBitmap.cpp).
+// 1 = off (legacy bilinear). Set once from [Graphics] Anisotropic* by Winmain
+// after GL init. GLfloat is float; declared as float to keep this header free of
+// GL-type ordering concerns.
+extern float g_AnisotropyLevel;
+// Mip LOD bias for mipmapped (anisotropic) textures: negative = sharper, 0 =
+// neutral. Set from [Graphics] TextureLodBias by Winmain; read in GlobalBitmap's
+// ApplyAnisotropicFiltering. Only affects the mipmapped world/character path.
+extern float g_TextureLodBias;

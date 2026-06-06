@@ -1013,14 +1013,39 @@ void CDevEditorUI::RenderOfflineAuthoringBanner()
     const ImVec4 textColor = ImVec4(1.00f, 0.85f, 0.20f, 1.00f);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, bgColor);
     ImGui::BeginChild("OfflineAuthoringBanner",
-                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2.6f),
+                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.2f),
                       true);
     ImGui::PushStyleColor(ImGuiCol_Text, textColor);
     ImGui::TextWrapped("%s", EDITOR_TEXT("dev_offline_banner_title"));
     ImGui::TextWrapped("%s", EDITOR_TEXT("dev_offline_banner_body"));
     ImGui::PopStyleColor();
+    // Explicit exit: reload the live world + restore the server position, then
+    // re-enable server sync. (Closing the editor keeps you offline on the map.)
+    if (ImGui::Button("Return to Live Game"))
+        RequestReturnToLiveGame();
     ImGui::EndChild();
     ImGui::PopStyleColor();
+}
+
+void CDevEditorUI::RequestReturnToLiveGame()
+{
+    if (MuEditor::CustomMap::ReturnToLiveGame())
+    {
+        m_OfflineAuthoringActive = false;
+        m_CurrentCustomMapId     = -1;
+        DisableAllBrushes();
+    }
+}
+
+void CDevEditorUI::ExitOfflineAuthoringForServerWarp()
+{
+    // No ReturnToLiveGame() here: the server already drove the world swap via
+    // gMapManager.LoadWorld and set the hero position, so we must NOT reload the
+    // world ourselves (that would fight the server). Just clear local state.
+    m_OfflineAuthoringActive = false;
+    m_CurrentCustomMapId     = -1;
+    DisableAllBrushes();
+    MuEditor::CustomMap::DiscardOfflineState();
 }
 
 void CDevEditorUI::RenderFileMenuModals()
@@ -1125,11 +1150,17 @@ void CDevEditorUI::RenderNewMapModal()
     if (ImGui::Button(EDITOR_TEXT("dev_btn_create"), ImVec2(120, 0)))
     {
         const int newId = m_NewMapIdInput;
+        // Capture the live world+position once, on the online->offline transition,
+        // so "Return to Live Game" can restore it later.
+        if (!m_OfflineAuthoringActive) MuEditor::CustomMap::CaptureLiveReturnState();
         if (MuEditor::CustomMap::CreateNewCustomMap(newId, m_NewMapBaseWorld) &&
             MuEditor::CustomMap::LoadCustomMap(newId))
         {
             m_CurrentCustomMapId = newId;
             m_OfflineAuthoringActive = true;
+            // Offline transfer: drop the hero on the new map's safe zone (or a
+            // walkable centre tile) so it isn't stranded at the previous map's coords.
+            MuEditor::CustomMap::WarpHeroToSafeZone();
             // Fresh slots have no weather opted in — clear the editor's
             // checkbox state to match (LoadCustomMap already set the
             // engine's active flag set to zero via the manifest).
@@ -1426,10 +1457,15 @@ void CDevEditorUI::RenderLoadMapModal()
                       mapId + 1, mapId);
         if (ImGui::Button(label, ImVec2(260, 0)))
         {
+            // Capture live world+position on the online->offline transition.
+            if (!m_OfflineAuthoringActive) MuEditor::CustomMap::CaptureLiveReturnState();
             if (MuEditor::CustomMap::LoadCustomMap(mapId))
             {
                 m_CurrentCustomMapId = mapId;
                 m_OfflineAuthoringActive = true;
+                // Offline transfer: drop the hero on the loaded map's safe zone (or a
+                // walkable centre tile) so it isn't stranded at the previous map's coords.
+                MuEditor::CustomMap::WarpHeroToSafeZone();
                 // Hydrate the editor's checkbox state from disk so the
                 // Weather tab reflects the slot's saved selection. The
                 // engine's live flags were already populated by LoadCustomMap.
@@ -4201,6 +4237,16 @@ extern "C" {
         return g_DevEditorUI.IsOfflineAuthoring();
 #else
         return false;
+#endif
+    }
+
+    // Called by the network layer (ReceiveTeleport) when the SERVER warps the
+    // hero to a live map while we were offline authoring — drops the gate so the
+    // new map's viewport spawns aren't silenced.
+    void DevEditor_ExitOfflineAuthoring()
+    {
+#ifdef _EDITOR
+        g_DevEditorUI.ExitOfflineAuthoringForServerWarp();
 #endif
     }
 
