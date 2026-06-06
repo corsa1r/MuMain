@@ -42,6 +42,34 @@ namespace MuEditor::CustomMap
     // 1-based folder number — e.g. 2 for Dungeon, 3 for Devias.
     bool LoadClassicMap(int worldFolderIndex);
 
+    // Teleport the hero onto the currently loaded map's safe zone (TW_SAFEZONE),
+    // falling back to the nearest walkable tile to map centre. Used by the editor
+    // offline Load-Map flow so the hero isn't stranded at the previous map's
+    // coordinates (which may be inside a wall on the new map). Reads TerrainWall,
+    // so call AFTER LoadCustomMap / LoadClassicMap has populated it.
+    void WarpHeroToSafeZone();
+
+    // Place the hero on a specific tile and clear movement state.
+    void WarpHeroToTile(int tileX, int tileY);
+
+    // Capture the live (online) world + hero tile coords when entering offline
+    // authoring, so ReturnToLiveGame() can restore them. Call BEFORE the first
+    // LoadCustomMap of an offline session (i.e. while still online).
+    void CaptureLiveReturnState();
+
+    // Return to the live game: reload the captured real world's assets and put the
+    // hero back where the server still has it. The caller clears the offline flag
+    // so server viewport/move packets resume. Returns false if no state was saved.
+    bool ReturnToLiveGame();
+
+    // Forget all offline-authoring bookkeeping WITHOUT reloading a world or moving
+    // the hero — for when the SERVER warps the hero to a live map (ReceiveTeleport).
+    // The engine's own LoadWorld already swapped terrain, reset the server map
+    // number, and the server set the position; we just drop the return-state, the
+    // active-slot tracker, the custom-weather override, and rebuild water for the
+    // newly loaded map. Distinct from ReturnToLiveGame() (client-driven reload).
+    void DiscardOfflineState();
+
     // Manifest weatherFlags accessor — reads the saved CW_* bitmask
     // without loading the whole slot. Returns 0 if the manifest is
     // missing or the field is absent (older slots).
