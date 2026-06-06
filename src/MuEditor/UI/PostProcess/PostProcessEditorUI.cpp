@@ -490,11 +490,6 @@ void CPostProcessEditorUI::Render()
             }
             ImGui::TextDisabled("Skip water tiles this far from the plane (cliffs). Max = off.");
         }
-
-        // Debug overlay is a transient view aid, not a saved look -> drive directly.
-        static bool wrDebug = WaterReflection::DebugOverlayEnabled();
-        if (ImGui::Checkbox("Debug Overlay##wr", &wrDebug)) WaterReflection::SetDebugOverlay(wrDebug);
-        ImGui::Text("Water level: %.0f", WaterReflection::GetMeasuredLevel());
     }
 
     ImGui::Separator();

@@ -193,6 +193,7 @@ namespace WaterReflection
     void  SetClipDepth(float d) { s_clipDepth = d; }
     void  SetHeightGate(float g) { if (g != s_heightGate) s_meshDirty = true; s_heightGate = g; }
     void  SetEdgeRadius(float t) { if (t != s_edgeRadius) s_meshDirty = true; s_edgeRadius = t; }
+    void  InvalidateMesh() { s_meshDirty = true; }   // force rebuild on the next Build()
     void  SetTint(float r, float g, float b) { s_tintR = r; s_tintG = g; s_tintB = b; }
     void  SetTintOpacity(float o) { s_tintOpacity = o; }
     void  SetDebugOverlay(bool on) { s_showDebug = on; }

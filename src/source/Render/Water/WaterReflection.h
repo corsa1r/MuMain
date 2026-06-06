@@ -43,6 +43,11 @@ namespace WaterReflection
     // outline into a smooth curve. The terrain pass reads this when collecting.
     void SetEdgeRadius(float t);
 
+    // Force a rebuild of the per-map water-surface mesh on the next Build().
+    // Call on map load: custom maps pin WorldActive to 0, so the automatic
+    // world-change rebuild doesn't fire on custom->custom transitions.
+    void InvalidateMesh();
+
     // Water tint laid under the reflection (covers the blocky base-water edge and
     // colors the organic shore extension). Opacity 0 = off.
     void SetTint(float r, float g, float b);

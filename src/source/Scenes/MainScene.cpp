@@ -795,7 +795,5 @@ bool RenderMainScene()
     // their transforms exist). No-op when shadows are off.
     SunShadow::BuildFromCollected(Hero->Object.Position);
 
-    WaterReflection::DebugDraw();   // M1: bottom-left preview of the mirrored world
-
     return true;
 }
