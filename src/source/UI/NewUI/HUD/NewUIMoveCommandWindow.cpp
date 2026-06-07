@@ -42,6 +42,64 @@ namespace
         }
         return false;
     }
+
+    // Warp-window column layout in REFERENCE (640-wide) units. RenderColor/
+    // RenderImage/RenderText scale these up by WindowWidth/640 (ConvertX), while
+    // the text font stays a near-fixed pixel size, so the reference width has to
+    // SHRINK as the resolution grows to keep the columns tight. These are the
+    // historically hand-tuned anchor points (sizeX, and X offsets from m_Pos.x
+    // for the map-name / req-level / req-zen columns).
+    struct MoveCmdLayout { int width, sizeX, mapNameOff, reqLevelOff, reqZenOff; };
+    const MoveCmdLayout kMoveCmdLayouts[] =
+    {
+        {  640, 220, 62, 119, 159 },
+        {  800, 200, 69, 129, 174 },
+        { 1024, 180, 64, 119, 159 },
+        { 1280, 160, 59, 104, 139 },
+        { 1366, 150, 56, 101, 134 },
+        { 1440, 140, 53,  97, 129 },
+        { 1600, 120, 46,  86, 114 },
+        { 1680, 115, 44,  83, 110 },
+        { 1920, 110, 38,  70,  93 },
+    };
+
+    int LerpInt(int a, int b, int num, int den)
+    {
+        if (den <= 0) return a;
+        return a + static_cast<int>(static_cast<long long>(b - a) * num / den);
+    }
+
+    // Resolution-independent layout: clamp outside the tuned range, linearly
+    // interpolate inside it. This replaces a switch whose default branch left the
+    // columns unset (all at 0), which collapsed the window to ~10px and stacked
+    // every column at the same X — the "squashed" warp menu on any non-listed
+    // resolution (2560, 3440, 1536, fullscreen-desktop widths, etc.). The named
+    // resolutions still resolve to their exact historical values.
+    MoveCmdLayout GetMoveCmdLayout(int width)
+    {
+        const int n = static_cast<int>(sizeof(kMoveCmdLayouts) / sizeof(kMoveCmdLayouts[0]));
+        if (width <= kMoveCmdLayouts[0].width)     return kMoveCmdLayouts[0];
+        if (width >= kMoveCmdLayouts[n - 1].width) return kMoveCmdLayouts[n - 1];
+
+        for (int i = 1; i < n; ++i)
+        {
+            if (width <= kMoveCmdLayouts[i].width)
+            {
+                const MoveCmdLayout& lo = kMoveCmdLayouts[i - 1];
+                const MoveCmdLayout& hi = kMoveCmdLayouts[i];
+                const int num = width - lo.width;
+                const int den = hi.width - lo.width;
+                return MoveCmdLayout{
+                    width,
+                    LerpInt(lo.sizeX,       hi.sizeX,       num, den),
+                    LerpInt(lo.mapNameOff,  hi.mapNameOff,  num, den),
+                    LerpInt(lo.reqLevelOff, hi.reqLevelOff, num, den),
+                    LerpInt(lo.reqZenOff,   hi.reqZenOff,   num, den),
+                };
+            }
+        }
+        return kMoveCmdLayouts[n - 1];
+    }
 };
 
 CNewUIMoveCommandWindow::CNewUIMoveCommandWindow()
@@ -113,39 +171,15 @@ void SEASON3B::CNewUIMoveCommandWindow::SetPos(int x, int y)
     m_Pos.y = y;
 
     m_StrifePos.x = m_Pos.x + 20;
-    switch (WindowWidth)
-    {
-    case REFERENCE_WIDTH:
-        m_MapNameUISize.x = 220; m_MapNamePos.x = m_Pos.x + 62; m_ReqLevelPos.x = m_Pos.x + 119; m_ReqZenPos.x = m_Pos.x + 159;
-        break;
-    case 800:
-        m_MapNameUISize.x = 200; m_MapNamePos.x = m_Pos.x + 69; m_ReqLevelPos.x = m_Pos.x + 129; m_ReqZenPos.x = m_Pos.x + 174;
-        break;
-    case 1024:
-        m_MapNameUISize.x = 180; m_MapNamePos.x = m_Pos.x + 64; m_ReqLevelPos.x = m_Pos.x + 119; m_ReqZenPos.x = m_Pos.x + 159;
-        break;
-    case 1280:
-        m_MapNameUISize.x = 160; m_MapNamePos.x = m_Pos.x + 59; m_ReqLevelPos.x = m_Pos.x + 104; m_ReqZenPos.x = m_Pos.x + 139;
-        break;
-    case 1366:
-        m_MapNameUISize.x = 150; m_MapNamePos.x = m_Pos.x + 56; m_ReqLevelPos.x = m_Pos.x + 101; m_ReqZenPos.x = m_Pos.x + 134;
-        break;
-    case 1440:
-        m_MapNameUISize.x = 140; m_MapNamePos.x = m_Pos.x + 53; m_ReqLevelPos.x = m_Pos.x + 97; m_ReqZenPos.x = m_Pos.x + 129;
-        break;
-    case 1600:
-        m_MapNameUISize.x = 120; m_MapNamePos.x = m_Pos.x + 46; m_ReqLevelPos.x = m_Pos.x + 86; m_ReqZenPos.x = m_Pos.x + 114;
-        break;
-    case 1680:
-        m_MapNameUISize.x = 115; m_MapNamePos.x = m_Pos.x + 44; m_ReqLevelPos.x = m_Pos.x + 83; m_ReqZenPos.x = m_Pos.x + 110;
-        break;
-    case 1920:
-        m_MapNameUISize.x = 110; m_MapNamePos.x = m_Pos.x + 38; m_ReqLevelPos.x = m_Pos.x + 70; m_ReqZenPos.x = m_Pos.x + 93;
-        break;
-    default:
-        // handle unsupported resolutions here
-        break;
-    }
+
+    // Interpolated per-resolution layout (see GetMoveCmdLayout). The old switch
+    // had a do-nothing default branch, so any resolution not in its list left the
+    // columns at 0 and squashed the window — this works for every resolution.
+    const MoveCmdLayout layout = GetMoveCmdLayout(static_cast<int>(WindowWidth));
+    m_MapNameUISize.x = layout.sizeX;
+    m_MapNamePos.x    = m_Pos.x + layout.mapNameOff;
+    m_ReqLevelPos.x   = m_Pos.x + layout.reqLevelOff;
+    m_ReqZenPos.x     = m_Pos.x + layout.reqZenOff;
 
     m_MapNameUISize.x += 10;
 

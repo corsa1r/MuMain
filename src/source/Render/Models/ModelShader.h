@@ -91,7 +91,7 @@ namespace ModelLighting
     void SetPlayerLight(bool enabled, float radius);   // always-on hero light
     bool DynamicLightsActive();   // feature on AND program valid
     void ClearLights();
-    void AddLight(float x, float y, float z, float r, float g, float b, float radius);
+    void AddLight(float x, float y, float z, float r, float g, float b, float radius, bool isPlayer = false);
     void AddPlayerLight(float x, float y, float z);     // register the hero light this frame
     void SelectActiveLights(const float camPos[3]);
 }

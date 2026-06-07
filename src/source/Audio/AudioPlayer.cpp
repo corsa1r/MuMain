@@ -77,10 +77,23 @@ namespace AudioPlayer
         if (IsReady())
             return;
 
-        // WASAPI crashes on some Windows configs; use DirectSound which is more stable.
-        // Must be set before SDL_InitSubSystem(SDL_INIT_AUDIO).
+        // Audio driver order: WASAPI first, DirectSound as fallback.
+        //
+        // We previously forced "dsound" because WASAPI was crashing on some configs.
+        // But the dsound backend hard-FREEZES the whole game when the user switches
+        // the Windows default output device: its device thread spins forever on
+        // DSERR_BUFFERLOST hammering IDirectSoundBuffer::Restore() on the dead
+        // endpoint, and since DirectSound calls share a process-global lock, the
+        // game's own DirectSound SFX calls on the main thread (Set3DSoundPosition,
+        // PlayBuffer) block on that lock and never return.
+        //
+        // WASAPI detects the endpoint invalidation and migrates the default device
+        // cleanly, so it doesn't wedge on a device change. Keep "dsound" as a
+        // fallback so configs where WASAPI fails to initialize still get audio
+        // (SDL tries the drivers left-to-right). Must be set before
+        // SDL_InitSubSystem(SDL_INIT_AUDIO).
         if (!GetEnvironmentVariableA("SDL_AUDIODRIVER", nullptr, 0))
-            _putenv_s("SDL_AUDIODRIVER", "dsound");
+            _putenv_s("SDL_AUDIODRIVER", "wasapi,dsound");
 
         if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
             return;

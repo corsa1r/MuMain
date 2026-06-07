@@ -61,6 +61,10 @@ static  int RainPosition = 0;
 
 void CreateBonfire(vec3_t Position, vec3_t Angle)
 {
+    // Stable light anchor BEFORE the per-frame particle jitter. Feeding the jittered
+    // position to AddTerrainLight made the fire's light hop +-8u every frame -> the
+    // lit ground jumped and flickered. Particles still jitter; the light does not.
+    vec3_t Anchor; Anchor[0] = Position[0]; Anchor[1] = Position[1]; Anchor[2] = Position[2];
     Position[0] += Random::RangeFloat(-8, 7);
     Position[1] += Random::RangeFloat(-8, 7);
     Position[2] += Random::RangeFloat(-8, 7);
@@ -76,22 +80,27 @@ void CreateBonfire(vec3_t Position, vec3_t Angle)
     }
     const float Luminosity = Random::RangeFloat(6, 11) * 0.1f;
     Vector(Luminosity, Luminosity * 0.6f, Luminosity * 0.4f, Light);
-    AddTerrainLight(Position[0], Position[1], Light, 4, PrimaryTerrainLight);
+    AddTerrainLight(Anchor[0], Anchor[1], Light, 4, PrimaryTerrainLight);
 }
 
 void CreateFire(int Type, OBJECT* o, float x, float y, float z)
 {
     vec3_t Light;
-    vec3_t p, Position;
+    vec3_t p, Position, Anchor;
     float Luminosity;
     float Matrix[3][4];
     AngleMatrix(o->Angle, Matrix);
     Vector(x, y, z, p);
-    VectorRotate(p, Matrix, Position);
-    VectorAdd(Position, o->Position, Position);
-    Position[0] += Random::RangeFloat(-8, 7);
-    Position[1] += Random::RangeFloat(-8, 7);
-    Position[2] += Random::RangeFloat(-8, 7);
+    VectorRotate(p, Matrix, Anchor);
+    VectorAdd(Anchor, o->Position, Anchor);   // STABLE fire anchor (no per-frame jitter)
+    // The +-8u jitter is for the PARTICLE visuals only. Feeding it to AddTerrainLight
+    // made the torch's cast light hop to a new spot EVERY frame -> the lit ground
+    // jumped and its per-vertex brightness flickered (the "shaking shadow + flicker"
+    // from torches, on every map). The light uses the stable anchor; only the
+    // particle position is jittered.
+    Position[0] = Anchor[0] + Random::RangeFloat(-8, 7);
+    Position[1] = Anchor[1] + Random::RangeFloat(-8, 7);
+    Position[2] = Anchor[2] + Random::RangeFloat(-8, 7);
     switch (Type)
     {
     case 0:
@@ -99,7 +108,7 @@ void CreateFire(int Type, OBJECT* o, float x, float y, float z)
         Vector(Luminosity, Luminosity * 0.6f, Luminosity * 0.4f, Light);
         if (rand_fps_check(2))
             CreateParticle(BITMAP_FIRE, Position, o->Angle, Light, Random::RangeInt(0, 3));
-        AddTerrainLight(Position[0], Position[1], Light, 4, PrimaryTerrainLight);
+        AddTerrainLight(Anchor[0], Anchor[1], Light, 4, PrimaryTerrainLight);
         break;
     case 1:
         if (rand_fps_check(2))

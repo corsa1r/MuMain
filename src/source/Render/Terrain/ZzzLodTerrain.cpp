@@ -950,8 +950,58 @@ void SetTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
     }
 }
 
+// Flicker killer for dynamic terrain lights. The GM map code re-rolls a RANDOM
+// torch color every frame (e.g. Luminosity = (rand()%4+3)*0.1, a 2x brightness
+// swing) and feeds it here every frame; baked into the terrain/object lighting it
+// reads as a fast flicker, and the dark gaps between lit vertices read as a jumping
+// "shadow". We low-pass each light's color BY POSITION: a stationary torch (same
+// cell every frame) converges to its steady mean -> no flicker; a MOVING light
+// (skill/projectile, new cell each frame) is seeded raw -> stays responsive. One
+// place -> covers every map AND both the per-pixel and legacy terrain-light paths.
+static void StabilizeDynamicLight(float xf, float yf, vec3_t Light)
+{
+    struct Entry { int gx, gy; float col[3]; int count; unsigned int tick; bool used; };
+    static Entry s_tab[128] = {};
+    const int gx = (int)(xf / 50.0f);     // ~half-tile cells; fixed torches map stably
+    const int gy = (int)(yf / 50.0f);
+    const unsigned int now = GetTickCount();
+
+    int match = -1, freeSlot = -1, lru = -1;
+    for (int i = 0; i < 128; ++i)
+    {
+        if (s_tab[i].used && s_tab[i].gx == gx && s_tab[i].gy == gy) { match = i; break; }
+        if (!s_tab[i].used) { if (freeSlot < 0) freeSlot = i; }
+        else if (lru < 0 || s_tab[i].tick < s_tab[lru].tick) lru = i;
+    }
+    const int idx = (match >= 0) ? match : (freeSlot >= 0 ? freeSlot : lru);
+    Entry& e = s_tab[idx];
+    if (match < 0)   // new/evicted slot: seed with the current sample (raw this frame)
+    {
+        e.used = true; e.gx = gx; e.gy = gy; e.count = 0;
+        e.col[0] = Light[0]; e.col[1] = Light[1]; e.col[2] = Light[2];
+    }
+    e.tick = now;
+    if (e.count < 200) e.count++;
+    const float a = 1.0f / (float)e.count;   // running mean: converges fast, then holds steady
+    for (int i = 0; i < 3; ++i) e.col[i] += (Light[i] - e.col[i]) * a;
+
+    // Gentle, slow, organic flicker so torches feel ALIVE without the violent
+    // per-frame rand (which read as flicker + a jumping light). Two summed slow
+    // sines = a soft, non-repetitive pulse; desynced per torch by position so they
+    // don't all beat in unison. ~+-9% over a few seconds -> "soft movement".
+    const float ph   = (float)(gx * 13 + gy * 7);
+    const float tt   = (float)now * 0.0016f;     // slow: base period ~4s
+    const float soft = 1.0f + 0.06f * sinf(tt + ph) + 0.03f * sinf(tt * 2.7f + ph * 1.7f);
+    for (int i = 0; i < 3; ++i) Light[i] = e.col[i] * soft;
+}
+
 void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    // Steady the per-frame rand() flicker the GM code bakes into dynamic torch
+    // colors (covers the legacy vertex path below AND the per-pixel redirect).
+    if (Buffer == PrimaryTerrainLight)
+        StabilizeDynamicLight(xf, yf, Light);
+
     // Dynamic point lights: redirect dynamic-buffer light sources (torches,
     // lanterns, candles, lava, skills, auras) into the per-pixel light list
     // instead of the coarse terrain-vertex glow. Editor light-painting (which
@@ -997,6 +1047,9 @@ void AddTerrainLight(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer
 
 void AddTerrainLightClip(float xf, float yf, vec3_t Light, int Range, vec3_t* Buffer)
 {
+    if (Buffer == PrimaryTerrainLight)
+        StabilizeDynamicLight(xf, yf, Light);   // kill the per-frame rand() torch flicker
+
     if (Buffer == PrimaryTerrainLight && ModelLighting::DynamicLightsActive())
     {
         const float z = RequestTerrainHeight(xf, yf) + 130.f;   // toward the flame height

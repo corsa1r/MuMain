@@ -81,7 +81,7 @@ namespace ModelLighting
         // frames by position match). Lights present a while (torches/lanterns) are
         // "persistent" and outrank brand-new transient skill flames when the budget
         // is exceeded, so an AoE skill (e.g. Inferno) can't evict the town torches.
-        struct PointLight { float pos[3]; float color[3]; float radius; unsigned int seenTick; };
+        struct PointLight { float pos[3]; float color[3]; float radius; unsigned int seenTick; bool isPlayer; };
 
         bool  s_dynLights       = false;   // feature on/off (live)
         float s_dynIntensity    = 1.0f;    // global scale
@@ -197,9 +197,16 @@ namespace ModelLighting
             "    if (sc.w <= 0.0001) return 1.0;\n"
             "    vec3 pc = sc.xyz / sc.w;\n"
             "    if (pc.x<0.0||pc.x>1.0||pc.y<0.0||pc.y>1.0||pc.z>1.0||pc.z<0.0) return 1.0;\n"
-            // Same darkness as the sun shadow so light shadows aren't pitch-black.
-            "    float sh = (pc.z - 0.0025 > texture2D(s, pc.xy).r) ? 1.0 : 0.0;\n"
-            "    return 1.0 - sh * uShadowDarkness;\n"
+            // 3x3 PCF on the cone map. A SINGLE hard sample at low res made the torch
+            // shadow edge crawl/flicker texel-by-texel every frame (and jump as you
+            // move) -- the "shaking/jumping" torch shadow. Averaging 9 taps softens
+            // and stabilizes the edge, like the sun shadow's PCF. (Same darkness so
+            // the shadow isn't pitch-black.)
+            "    float t = 1.0/512.0;\n"
+            "    float sh = 0.0;\n"
+            "    for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++)\n"
+            "        sh += (pc.z - 0.0025 > texture2D(s, pc.xy+vec2(float(x),float(y))*t).r) ? 1.0 : 0.0;\n"
+            "    return 1.0 - (sh/9.0) * uShadowDarkness;\n"
             "}\n"
             "float lsPick(int i, vec3 wp){\n"
             "    if (i==0) return lsS(uLSMap0, uLSMat[0], wp);\n"
@@ -241,6 +248,7 @@ namespace ModelLighting
             "void main(){\n"
             "    vec4 texColor = texture2D(uDiffuse, vUv);\n"
             "    vec3 N = normalize(vNormalEye);\n"
+            "    vec3 Ngeo = N;\n"   // smooth geometric normal (pre-bump): steady point lights
             "    if (uHasNormalMap == 1){\n"
             "        vec3 nTex = texture2D(uNormalTex, vUv).xyz * 2.0 - 1.0;\n"
             "        nTex.xy *= uNormalStrength;\n"
@@ -267,7 +275,7 @@ namespace ModelLighting
             "    color *= sunShadow(ndl);\n"
             // Dynamic point lights add on top, illuminating the albedo with the
             // same (normal-mapped) normal as the sun.
-            "    color += texColor.rgb * pointLights(N, vEyePos);\n"
+            "    color += texColor.rgb * pointLights(Ngeo, vEyePos);\n"   // smooth normal -> steady point-light shading (no flickery bump relief)
             "    gl_FragColor = vec4(color, texColor.a * uAlpha);\n"
             "}\n";
 
@@ -353,9 +361,16 @@ namespace ModelLighting
             "    if (sc.w <= 0.0001) return 1.0;\n"
             "    vec3 pc = sc.xyz / sc.w;\n"
             "    if (pc.x<0.0||pc.x>1.0||pc.y<0.0||pc.y>1.0||pc.z>1.0||pc.z<0.0) return 1.0;\n"
-            // Same darkness as the sun shadow so light shadows aren't pitch-black.
-            "    float sh = (pc.z - 0.0025 > texture2D(s, pc.xy).r) ? 1.0 : 0.0;\n"
-            "    return 1.0 - sh * uShadowDarkness;\n"
+            // 3x3 PCF on the cone map. A SINGLE hard sample at low res made the torch
+            // shadow edge crawl/flicker texel-by-texel every frame (and jump as you
+            // move) -- the "shaking/jumping" torch shadow. Averaging 9 taps softens
+            // and stabilizes the edge, like the sun shadow's PCF. (Same darkness so
+            // the shadow isn't pitch-black.)
+            "    float t = 1.0/512.0;\n"
+            "    float sh = 0.0;\n"
+            "    for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++)\n"
+            "        sh += (pc.z - 0.0025 > texture2D(s, pc.xy+vec2(float(x),float(y))*t).r) ? 1.0 : 0.0;\n"
+            "    return 1.0 - (sh/9.0) * uShadowDarkness;\n"
             "}\n"
             "float lsPick(int i, vec3 wp){\n"
             "    if (i==0) return lsS(uLSMap0, uLSMat[0], wp);\n"
@@ -441,7 +456,12 @@ namespace ModelLighting
             "    float spec = pow(max(dot(Nb, H), 0.0), uSpecPower) * uSpecStrength * 0.5 * ndl;\n"
             "    vec3 color = lit + uSunColor * spec;\n"
             "    color *= sunShadow(ndl);\n"
-            "    color += texColor.rgb * pointLights(Nb, vEyePos);\n"
+            // Dynamic point lights use the SMOOTH geometric normal (Nmacro), not the
+            // bump-mapped Nb. Per-pixel bump relief from a torch carves high-frequency
+            // dark patches into the ground that shimmer/"jump" with any sub-pixel
+            // change every frame -- the "shadow + flicker" the torch light produces.
+            // Smooth falloff is stable. (Sun light above still uses Nb for relief.)
+            "    color += texColor.rgb * pointLights(Nmacro, vEyePos);\n"
             "    gl_FragColor = vec4(color, outA);\n"
             "}\n";
 
@@ -791,7 +811,7 @@ namespace ModelLighting
         s_collectCount = 0;
     }
 
-    void AddLight(float x, float y, float z, float r, float g, float b, float radius)
+    void AddLight(float x, float y, float z, float r, float g, float b, float radius, bool isPlayer)
     {
         if (!s_dynLights) return;
         // The water-reflection mirror pass re-runs RenderObjects, which would
@@ -813,6 +833,9 @@ namespace ModelLighting
                 if (g > s_collect[i].color[1]) s_collect[i].color[1] = g;
                 if (b > s_collect[i].color[2]) s_collect[i].color[2] = b;
                 if (radius > s_collect[i].radius) s_collect[i].radius = radius;
+                // A merged cluster that includes the hero glow inherits the flag, so
+                // standing on a torch can't turn the merged light into a cone caster.
+                s_collect[i].isPlayer = s_collect[i].isPlayer || isPlayer;
                 return;
             }
         }
@@ -822,6 +845,7 @@ namespace ModelLighting
         L.color[0] = r; L.color[1] = g; L.color[2] = b;
         L.radius = radius;
         L.seenTick = 0;   // assigned (aged) in SelectActiveLights via position match
+        L.isPlayer = isPlayer;
     }
 
     void SetPlayerLight(bool enabled, float radius)
@@ -837,7 +861,7 @@ namespace ModelLighting
     {
         if (!s_dynLights || !s_playerLight) return;
         const float inv = (s_dynIntensity > 0.01f) ? (1.0f / s_dynIntensity) : 1.0f;
-        AddLight(x, y, z, 1.0f * inv, 0.95f * inv, 0.85f * inv, s_playerRadius);
+        AddLight(x, y, z, 1.0f * inv, 0.95f * inv, 0.85f * inv, s_playerRadius, /*isPlayer=*/true);
     }
 
     // Pick the nearest MAX_LIGHTS to camPos from the collected set (called once
@@ -852,7 +876,7 @@ namespace ModelLighting
         // the area with flame lights and blows past the light budget.
         const unsigned int nowTick = GetTickCount();
         const float        kMatch2 = 50.0f * 50.0f;       // "same source" position tolerance
-        const unsigned int kPersistMs   = 1500;           // seen this long -> world light
+        const unsigned int kPersistMs   = 250;            // seen this long -> world light (low so torch shadows appear ~instantly on map entry / toggle)
         const float        kTransientPenalty = 4.0f;      // treat new flames as 2x farther
         for (int i = 0; i < s_collectCount; i++)
         {
@@ -862,7 +886,23 @@ namespace ModelLighting
                 const float dx = s_collect[i].pos[0] - s_prevCollect[j].pos[0];
                 const float dy = s_collect[i].pos[1] - s_prevCollect[j].pos[1];
                 const float dz = s_collect[i].pos[2] - s_prevCollect[j].pos[2];
-                if (dx*dx + dy*dy + dz*dz < kMatch2) { seen = s_prevCollect[j].seenTick; break; }
+                if (dx*dx + dy*dy + dz*dz < kMatch2)
+                {
+                    seen = s_prevCollect[j].seenTick;
+                    // STEADY lights (no flicker): heavily low-pass each light's color
+                    // toward last frame's. Done HERE in the collect phase -- every
+                    // in-range light, before selection -- so it's robust to the
+                    // active-set churn that made the old post-selection smoothing pop
+                    // (a light leaving/re-entering the nearest-N reset its history ->
+                    // visible flicker). The map fire code re-rolls a big per-frame
+                    // rand() (torch Luminosity 0.3..0.6); this converges it to its
+                    // steady mean. s_prevCollect below is the SMOOTHED set, so it chains.
+                    const float fa = 0.02f;
+                    for (int c = 0; c < 3; ++c)
+                        s_collect[i].color[c] = s_prevCollect[j].color[c]
+                            + (s_collect[i].color[c] - s_prevCollect[j].color[c]) * fa;
+                    break;
+                }
             }
             s_collect[i].seenTick = seen;
         }
@@ -925,32 +965,10 @@ namespace ModelLighting
             if (best != i) { PointLight t = s_active[i]; s_active[i] = s_active[best]; s_active[best] = t; }
         }
 
-        // Temporal flicker smoothing: ease each light's color toward its value
-        // from last frame (matched by position), so the source rand() flicker is
-        // damped. response a: flicker=1 -> raw (a=1), flicker=0 -> very steady.
-        const float a = 0.06f + 0.94f * (s_dynFlicker < 0.f ? 0.f : (s_dynFlicker > 1.f ? 1.f : s_dynFlicker));
-        if (a < 0.999f)
-        {
-            for (int i = 0; i < s_activeCount; i++)
-            {
-                int best = -1; float bestD = 60.f * 60.f;   // match radius (world units)
-                for (int j = 0; j < s_prevActiveCount; j++)
-                {
-                    float dx = s_active[i].pos[0] - s_prevActive[j].pos[0];
-                    float dy = s_active[i].pos[1] - s_prevActive[j].pos[1];
-                    float dz = s_active[i].pos[2] - s_prevActive[j].pos[2];
-                    float d = dx*dx + dy*dy + dz*dz;
-                    if (d < bestD) { bestD = d; best = j; }
-                }
-                if (best >= 0)
-                    for (int c = 0; c < 3; c++)
-                        s_active[i].color[c] = s_prevActive[best].color[c]
-                            + (s_active[i].color[c] - s_prevActive[best].color[c]) * a;
-            }
-        }
-        // Save the (smoothed) set for next frame's matching.
-        s_prevActiveCount = s_activeCount;
-        for (int i = 0; i < s_activeCount; i++) s_prevActive[i] = s_active[i];
+        // (Color smoothing now happens in the COLLECT phase above, which is robust
+        // to the active-set churn. The old per-active post-pass here re-smoothed
+        // against a set whose membership changes frame to frame, so a light entering
+        // or leaving the nearest-N popped its brightness -- that was the flicker.)
 
         // Build the dynamic-light CONE shadow casters with STABLE SLOT identity.
         // Each persistent world light (torch/lantern) is pinned to a fixed cone-map
@@ -961,7 +979,7 @@ namespace ModelLighting
         // flames (Inferno) are never casters. Slot count bounded by the Max Dynamic
         // Lights slider and the cone-map cap.
         const int NS = SunShadow::LightShadowCap();        // 8 cone-map slots
-        SunShadow::SetLightShadowParams(NS, 512);
+        SunShadow::SetLightShadowParams(NS, 512);           // 512 + PCF; rebuilt per frame for soft shadow sway
         for (int i = 0; i < MAX_LIGHTS; ++i) s_activeShadowSlot[i] = -1;
         {
             static float s_slotPos[8][3] = {};
@@ -989,6 +1007,11 @@ namespace ModelLighting
             for (int i = 0; i < s_activeCount && candN < MAX_LIGHTS; ++i)
             {
                 if ((nowTick - s_active[i].seenTick) < kPersistMs) break;  // transient -> stop
+                // The hero glow follows the player and sits right on top of him, so a
+                // cone shadow from it just projects its square frustum onto the ground
+                // under the character (the "square shadow" that appears when standing
+                // still). It's a glow, not a caster -- skip it (it still illuminates).
+                if (s_active[i].isPlayer) continue;
                 const float dx = s_active[i].pos[0] - camPos[0];
                 const float dy = s_active[i].pos[1] - camPos[1];
                 const float dz = s_active[i].pos[2] - camPos[2];

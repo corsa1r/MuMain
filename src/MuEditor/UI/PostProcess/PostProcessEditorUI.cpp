@@ -278,12 +278,10 @@ void CPostProcessEditorUI::Render()
 
         changed |= ImGui::Checkbox("Dynamic Lights##ppl", &m_settings.dynamicLights);
         changed |= ImGui::SliderFloat("Light Intensity##ppl", &m_settings.dynamicLightIntensity, 0.0f, 4.0f, "%.2f");
-        changed |= ImGui::SliderFloat("Flicker##ppl", &m_settings.dynamicLightFlicker, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::SliderInt("Max Lights##ppl", &m_settings.dynamicLightCount, 1, 24);
         changed |= ImGui::Checkbox("Player Light##ppl", &m_settings.playerLight);
         changed |= ImGui::SliderFloat("Player Radius##ppl", &m_settings.playerLightRadius, 100.0f, 1500.0f, "%.0f");
-        ImGui::TextDisabled("Torches/lanterns/lava/skills cast real per-pixel light.");
-        ImGui::TextDisabled("Flicker: 0 = steady, 1 = raw. Requires Per-Pixel Lighting.");
+        ImGui::TextDisabled("Torches/lanterns/lava/skills cast real per-pixel light (steady, no flicker).");
         ImGui::TextDisabled("Player Light: always-on glow following your character.");
     }
 
