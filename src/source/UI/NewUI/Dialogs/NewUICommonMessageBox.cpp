@@ -23,6 +23,7 @@
 #include "UI/NewUI/NewUISystem.h"
 #include "GameLogic/Skills/SkillManager.h"
 #include "Engine/Object/ZzzInterface.h"
+#include "Network/DungeonEnterPrompt.h"
 
 using namespace SEASON3B;
 
@@ -1285,6 +1286,50 @@ CALLBACK_RESULT CMapEnterGateKeeperMsgBoxLayout::OkBtnDown(class CNewUIMessageBo
 {
     SocketClient->ToGameServer()->SendEnterOnGatekeeperRequest();
 
+    PlayBuffer(SOUND_CLICK01);
+    g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+
+    return CALLBACK_BREAK;
+}
+
+bool CDungeonEnterMsgBoxLayout::SetLayout()
+{
+    CNewUICommonMessageBox* pMsgBox = GetMsgBox();
+    if (0 == pMsgBox)
+        return false;
+    if (false == pMsgBox->Create(MSGBOX_COMMON_TYPE_OKCANCEL))
+        return false;
+
+    pMsgBox->SetPos((int)((SCREEN_WIDTH / 2) - (MSGBOX_WIDTH / 2)), 50);
+
+    const std::wstring& dungeonName = BloodlustMU::DungeonEnterPrompt::Instance().GetDungeonName();
+    std::wstring prompt = L"Are you sure you want to enter ";
+    prompt += dungeonName;
+    prompt += L"?";
+    pMsgBox->AddMsg(prompt, 0xFF49B0FF, MSGBOX_FONT_BOLD);
+
+    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::OkBtnDown, MSGBOX_EVENT_USER_COMMON_OK);
+    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::CancelBtnDown, MSGBOX_EVENT_USER_COMMON_CANCEL);
+    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::CancelBtnDown, MSGBOX_EVENT_PRESSKEY_ESC);
+    return true;
+}
+
+CALLBACK_RESULT CDungeonEnterMsgBoxLayout::OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+{
+    const int warpIndex = BloodlustMU::DungeonEnterPrompt::Instance().GetWarpIndex();
+    if (warpIndex >= 0)
+    {
+        SocketClient->ToGameServer()->SendEnterDungeonConfirm((short)warpIndex);
+    }
+
+    PlayBuffer(SOUND_CLICK01);
+    g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+
+    return CALLBACK_BREAK;
+}
+
+CALLBACK_RESULT CDungeonEnterMsgBoxLayout::CancelBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+{
     PlayBuffer(SOUND_CLICK01);
     g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
 

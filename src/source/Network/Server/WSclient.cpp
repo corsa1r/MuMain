@@ -21,6 +21,7 @@
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
 #include "Network/ServerMapManifest.h"
+#include "Network/DungeonEnterPrompt.h"
 #include "Network/MoveCommandData.h"
 #include "GameLogic/Skills/SkillComboStore.h"
 #include "Network/Server/Heartbeat.h"
@@ -1099,8 +1100,15 @@ BOOL ReceiveJoinMapServer(std::span<const BYTE> ReceiveBuffer)
     if (gMapManager.WorldActive >= WD_65DOPPLEGANGER1 && gMapManager.WorldActive <= WD_68DOPPLEGANGER4);
     else
     {
+        // Custom maps pin WorldActive to WD_0LORENCIA for the renderer, so GetMapName(WorldActive)
+        // would say "Lorencia". Use the server-authoritative name from the manifest when on a custom map.
+        auto& mapManifest = BloodlustMU::ServerMapManifest::Instance();
+        const wchar_t* welcomeMapName = mapManifest.IsCurrentlyInCustomMap()
+            ? mapManifest.CurrentMapDisplayName()
+            : gMapManager.GetMapName(gMapManager.WorldActive);
+
         wchar_t Text[256];
-        mu_swprintf(Text, L"%ls%ls", GlobalText[484], gMapManager.GetMapName(gMapManager.WorldActive));
+        mu_swprintf(Text, L"%ls%ls", GlobalText[484], welcomeMapName);
 
         g_pSystemLogBox->AddText(Text, SEASON3B::TYPE_SYSTEM_MESSAGE);
     }
@@ -9039,18 +9047,40 @@ void ReceiveDuelRound(const BYTE* ReceiveBuffer)
     }
 }
 
-static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element)
+static void SpawnDetonationEffect(uint16_t targetId, EPrimeElement element, BYTE posX, BYTE posY)
 {
-    const CHARACTER* c = FindCharacterByKey(static_cast<int>(targetId));
-    if (c == nullptr || !c->Object.Live)
+    // Prefer the client object's exact position + light if we still have it. We look it up by key WITHOUT
+    // the Object.Live filter (the global FindCharacterByKey() skips dead objects). A detonation frequently
+    // kills the target, and the server sends the kill packet before this detonation packet — so by the
+    // time we get here the target is already dead, and in dungeons (one-shot kills) the corpse is often
+    // despawned entirely. When the object is gone, fall back to the tile position the server sent so the
+    // blast + sound still play at the right spot rather than being silently dropped.
+    const CHARACTER* c = nullptr;
+    for (int i = 0; i < MAX_CHARACTERS_CLIENT; ++i)
     {
-        return;
+        if (CharactersClient[i].Key == static_cast<int>(targetId))
+        {
+            c = &CharactersClient[i];
+            break;
+        }
     }
 
     vec3_t pos, angle, light;
-    VectorCopy(c->Object.Position, pos);
-    VectorCopy(c->Object.Angle, angle);
-    VectorCopy(c->Object.Light, light);
+    if (c != nullptr)
+    {
+        VectorCopy(c->Object.Position, pos);
+        VectorCopy(c->Object.Angle, angle);
+        VectorCopy(c->Object.Light, light);
+    }
+    else
+    {
+        // Same tile→world convention the engine uses for characters (see Hero placement).
+        pos[0] = ((float)posX + 0.5f) * TERRAIN_SCALE;
+        pos[1] = ((float)posY + 0.5f) * TERRAIN_SCALE;
+        pos[2] = RequestTerrainHeight(pos[0], pos[1]);
+        angle[0] = angle[1] = angle[2] = 0.f;
+        light[0] = light[1] = light[2] = 1.f;
+    }
 
     switch (element)
     {
@@ -9082,7 +9112,7 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
 {
     constexpr int32_t kAppliedSize       = 12;
     constexpr int32_t kClearedSize       = 7;
-    constexpr int32_t kDetonatedSize     = 8;
+    constexpr int32_t kDetonatedSize     = 10;
     constexpr int32_t kComboConfigHeader = 5;
     constexpr int32_t kComboConfigEntry  = 4;
     constexpr BYTE    kSubOpApplied       = 0x01;
@@ -9112,7 +9142,11 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     {
         const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
         const auto element  = static_cast<EPrimeElement>(buf[6]);
-        SpawnDetonationEffect(targetId, element);
+        // buf[7] is the detonation radius (unused client-side); buf[8]/buf[9] are the target tile X/Y,
+        // used to place the blast when the target object is already gone (one-shot kills).
+        const BYTE posX     = buf[8];
+        const BYTE posY     = buf[9];
+        SpawnDetonationEffect(targetId, element, posX, posY);
     }
     else if (subOp == kSubOpSkillCombo && size >= kComboConfigHeader)
     {
@@ -14782,6 +14816,15 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
                 // Repopulate the Move List UI cache so the in-game Move window matches
                 // the server's current warp list (replaces the static BMD source).
                 SEASON3B::CMoveCommandData::GetInstance()->RebuildFromServerManifest();
+            }
+        }
+        else if (sub == 0x02)
+        {
+            // Dungeon enter confirmation request. Store the pending dungeon and show the
+            // OK/Cancel prompt; OK echoes the warp index back via SendEnterDungeonConfirm.
+            if (BloodlustMU::DungeonEnterPrompt::Instance().ApplyFromPacket(ReceiveBuffer, Size))
+            {
+                SEASON3B::CreateMessageBox(MSGBOX_LAYOUT_CLASS(SEASON3B::CDungeonEnterMsgBoxLayout));
             }
         }
         break;

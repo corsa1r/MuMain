@@ -290,6 +290,16 @@ namespace SEASON3B
         static CALLBACK_RESULT OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
     };
 
+    // Confirmation prompt for entering a dungeon instance (/dungeon N). OK echoes the
+    // pending warp index back to the server via SendEnterDungeonConfirm; Cancel closes.
+    class CDungeonEnterMsgBoxLayout : public TMsgBoxLayout<CNewUICommonMessageBox>
+    {
+    public:
+        bool SetLayout();
+        static CALLBACK_RESULT OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+        static CALLBACK_RESULT CancelBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+    };
+
     class CPartyMsgBoxLayout : public TMsgBoxLayout<CNewUICommonMessageBox>
     {
     public:

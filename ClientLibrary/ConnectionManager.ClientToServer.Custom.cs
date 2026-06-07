@@ -70,4 +70,42 @@ public unsafe partial class ConnectionManager
             // Log exception
         }
     }
+
+    /// <summary>
+    /// Sends the dungeon-enter confirmation to the game server (custom opcode 0xCE).
+    /// </summary>
+    /// <param name="handle">The handle of the connection.</param>
+    /// <param name="warpIndex">The warp list index of the dungeon the player confirmed entering.</param>
+    /// <remarks>
+    /// Is sent by the client when: the player clicks OK on the dungeon-entry confirmation prompt.
+    /// Causes reaction on server side: the server re-validates and creates the private dungeon instance.
+    /// Packet: <c>C1 05 CE [warpIndex:int16 LE]</c>.
+    /// </remarks>
+    [UnmanagedCallersOnly(EntryPoint = "ConnectionManager_SendEnterDungeonConfirm")]
+    public static void SendEnterDungeonConfirm(int handle, short warpIndex)
+    {
+        if (!Connections.TryGetValue(handle, out var connection))
+        {
+            return;
+        }
+
+        try
+        {
+            connection.CreateAndSend(pipeWriter =>
+            {
+                const int length = 5;
+                var span = pipeWriter.GetSpan(length)[..length];
+                span[0] = 0xC1;
+                span[1] = length;
+                span[2] = 0xCE;
+                span[3] = (byte)(warpIndex & 0xFF);
+                span[4] = (byte)((warpIndex >> 8) & 0xFF);
+                return length;
+            });
+        }
+        catch
+        {
+            // Log exception
+        }
+    }
 }

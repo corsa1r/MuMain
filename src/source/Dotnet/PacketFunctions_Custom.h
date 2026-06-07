@@ -55,6 +55,16 @@ public:
     /// Causes reaction on server side: The server is authenticating the sent login name and password. If it's correct, the state of the player is proceeding to be logged in.
     /// </remarks>
     void SendLogin(const wchar_t* username, const wchar_t* password, const BYTE* clientVersion, const BYTE* clientSerial);
+
+    /// <summary>
+    /// Sends the dungeon-enter confirmation to the game server (custom opcode 0xCE).
+    /// </summary>
+    /// <param name="warpIndex">The warp list index of the dungeon the player confirmed entering.</param>
+    /// <remarks>
+    /// Is sent by the client when: the player clicks OK on the dungeon-entry confirmation prompt.
+    /// Causes reaction on server side: the server re-validates and creates the private dungeon instance.
+    /// </remarks>
+    void SendEnterDungeonConfirm(short warpIndex);
 };
 
 /// <summary>
