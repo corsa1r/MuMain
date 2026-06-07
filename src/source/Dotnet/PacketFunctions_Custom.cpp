@@ -23,12 +23,17 @@ void PacketFunctions_ClientToServer_Custom::SendLogin(const wchar_t* username, c
     dotnet_SendLogin(this->GetHandle(), username, password, GetTickCount(), clientVersion, clientSerial);
 }
 
-typedef void(CORECLR_DELEGATE_CALLTYPE* SendEnterDungeonConfirm)(int32_t, int16_t);
-inline SendEnterDungeonConfirm dotnet_SendEnterDungeonConfirm = reinterpret_cast<SendEnterDungeonConfirm>(symLoad(munique_client_library_handle, "ConnectionManager_SendEnterDungeonConfirm"));
+typedef void(CORECLR_DELEGATE_CALLTYPE* SendDungeonReadyAction)(int32_t, BYTE);
+inline SendDungeonReadyAction dotnet_SendDungeonReadyAction = reinterpret_cast<SendDungeonReadyAction>(symLoad(munique_client_library_handle, "ConnectionManager_SendDungeonReadyAction"));
 
-void PacketFunctions_ClientToServer_Custom::SendEnterDungeonConfirm(short warpIndex)
+void PacketFunctions_ClientToServer_Custom::SendDungeonReadyToggle()
 {
-    dotnet_SendEnterDungeonConfirm(this->GetHandle(), warpIndex);
+    dotnet_SendDungeonReadyAction(this->GetHandle(), 0);
+}
+
+void PacketFunctions_ClientToServer_Custom::SendDungeonReadyCancel()
+{
+    dotnet_SendDungeonReadyAction(this->GetHandle(), 1);
 }
 
 typedef void(CORECLR_DELEGATE_CALLTYPE* SendAuthenticateExt)(int32_t, uint16_t, uint32_t);

@@ -1487,6 +1487,13 @@ enum
     MODEL_MULTI_SHOT3,
     MODEL_MASK_HELM = (MODEL_MULTI_SHOT3 + MAX_QUEST_ITEM),
     MAX_MODELS = (MODEL_MASK_HELM + MAX_ITEM_INDEX),
+
+    // BloodlustMU: dedicated, always-loaded slot for the Devias warp-portal model (the spinning swirl,
+    // Devias world object 100 = Data\Object3\Object101.bmd), loaded once via OpenNpc and rendered as the
+    // dungeon entrance NPC (MONSTER_DUNGEON_PORTAL / DungeonPortalNpcPlugIn). Lives in the 1024-slot
+    // headroom above MAX_MODELS (past the 960 slots the editor source banks use) so it never collides
+    // with per-world object slots and shows on any map.
+    MODEL_DUNGEON_PORTAL = MAX_MODELS + 1000,
 };
 //object end
 
@@ -4580,6 +4587,7 @@ enum EMonsterType : int
     MONSTER_SENIOR = 223,
     MONSTER_GUARDSMAN = 224,
     MONSTER_PET_TRAINER = 226,
+    MONSTER_DUNGEON_PORTAL = 800, // BloodlustMU: dungeon entrance portal NPC (renders as MODEL_DUNGEON_PORTAL)
     MONSTER_MARLON = 229,
     MONSTER_ALEX = 230,
     MONSTER_THOMPSON_THE_MERCHANT = 231,

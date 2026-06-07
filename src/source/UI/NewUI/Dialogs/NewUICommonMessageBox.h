@@ -290,14 +290,26 @@ namespace SEASON3B
         static CALLBACK_RESULT OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
     };
 
-    // Confirmation prompt for entering a dungeon instance (/dungeon N). OK echoes the
-    // pending warp index back to the server via SendEnterDungeonConfirm; Cancel closes.
-    class CDungeonEnterMsgBoxLayout : public TMsgBoxLayout<CNewUICommonMessageBox>
+    // Dungeon ready-check window (/dungeon N). Shows the live "Players ready (X/N)" count with a Ready
+    // toggle button (reflects the player's ready state) and a Cancel button. It reads its data live from
+    // BloodlustMU::DungeonReadyCheckState, so the count updates without recreating the box, and closes
+    // itself when the server dismisses the check.
+    class CNewUIDungeonReadyCheckBox : public CNewUIMessageBoxBase
     {
     public:
-        bool SetLayout();
-        static CALLBACK_RESULT OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
-        static CALLBACK_RESULT CancelBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+        bool Create(float fPriority = 3.f);
+
+        bool Update();
+        bool Render();
+
+        static CALLBACK_RESULT LButtonUp(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+
+    private:
+        void RenderFrame();
+        void RenderTexts();
+
+        CNewUIMessageBoxButton m_BtnReady;
+        CNewUIMessageBoxButton m_BtnCancel;
     };
 
     class CPartyMsgBoxLayout : public TMsgBoxLayout<CNewUICommonMessageBox>

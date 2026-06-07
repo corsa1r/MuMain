@@ -72,17 +72,17 @@ public unsafe partial class ConnectionManager
     }
 
     /// <summary>
-    /// Sends the dungeon-enter confirmation to the game server (custom opcode 0xCE).
+    /// Sends a dungeon ready-check action to the game server (custom opcode 0xCE).
     /// </summary>
     /// <param name="handle">The handle of the connection.</param>
-    /// <param name="warpIndex">The warp list index of the dungeon the player confirmed entering.</param>
+    /// <param name="action">The ready-check action: 0 = toggle ready, 1 = cancel.</param>
     /// <remarks>
-    /// Is sent by the client when: the player clicks OK on the dungeon-entry confirmation prompt.
-    /// Causes reaction on server side: the server re-validates and creates the private dungeon instance.
-    /// Packet: <c>C1 05 CE [warpIndex:int16 LE]</c>.
+    /// Is sent by the client when: the player clicks Ready (toggle) or Cancel on the dungeon ready-check
+    /// window. Causes reaction on server side: the server updates / cancels the player's pending ready
+    /// check (and creates the instance once everyone is ready). Packet: <c>C1 04 CE [action:byte]</c>.
     /// </remarks>
-    [UnmanagedCallersOnly(EntryPoint = "ConnectionManager_SendEnterDungeonConfirm")]
-    public static void SendEnterDungeonConfirm(int handle, short warpIndex)
+    [UnmanagedCallersOnly(EntryPoint = "ConnectionManager_SendDungeonReadyAction")]
+    public static void SendDungeonReadyAction(int handle, byte action)
     {
         if (!Connections.TryGetValue(handle, out var connection))
         {
@@ -93,13 +93,12 @@ public unsafe partial class ConnectionManager
         {
             connection.CreateAndSend(pipeWriter =>
             {
-                const int length = 5;
+                const int length = 4;
                 var span = pipeWriter.GetSpan(length)[..length];
                 span[0] = 0xC1;
                 span[1] = length;
                 span[2] = 0xCE;
-                span[3] = (byte)(warpIndex & 0xFF);
-                span[4] = (byte)((warpIndex >> 8) & 0xFF);
+                span[3] = action;
                 return length;
             });
         }

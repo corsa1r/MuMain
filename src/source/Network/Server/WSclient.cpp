@@ -21,7 +21,7 @@
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
 #include "Network/ServerMapManifest.h"
-#include "Network/DungeonEnterPrompt.h"
+#include "Network/DungeonReadyCheckState.h"
 #include "Network/MoveCommandData.h"
 #include "GameLogic/Skills/SkillComboStore.h"
 #include "Network/Server/Heartbeat.h"
@@ -14820,12 +14820,27 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
         }
         else if (sub == 0x02)
         {
-            // Dungeon enter confirmation request. Store the pending dungeon and show the
-            // OK/Cancel prompt; OK echoes the warp index back via SendEnterDungeonConfirm.
-            if (BloodlustMU::DungeonEnterPrompt::Instance().ApplyFromPacket(ReceiveBuffer, Size))
+            // Dungeon ready-check show/update. Store the live state; open the ready-check window the
+            // first time (it then reads the state live, so later count updates don't recreate it).
+            auto& readyState = BloodlustMU::DungeonReadyCheckState::Instance();
+            const bool wasActive = readyState.IsActive();
+            if (readyState.ApplyShowPacket(ReceiveBuffer, Size) && !wasActive)
             {
-                SEASON3B::CreateMessageBox(MSGBOX_LAYOUT_CLASS(SEASON3B::CDungeonEnterMsgBoxLayout));
+                auto* pBox = g_MessageBox->NewMessageBox(MSGBOX_CLASS(SEASON3B::CNewUIDungeonReadyCheckBox));
+                if (pBox)
+                {
+                    pBox->Create();
+                }
+
+                // Audible cue when the ready-check window first opens (not on later count updates).
+                PlayBuffer(SOUND_DUNGEON_READY_CHECK);
             }
+        }
+        else if (sub == 0x03)
+        {
+            // Dungeon ready-check dismissed (entered / cancelled / timed out). The open window closes
+            // itself on its next Update once the state is no longer active.
+            BloodlustMU::DungeonReadyCheckState::Instance().ApplyDismissPacket(ReceiveBuffer, Size);
         }
         break;
     }

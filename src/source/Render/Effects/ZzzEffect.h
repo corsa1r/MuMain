@@ -87,6 +87,7 @@ void TerminateOwnerEffectObject(int iOwnerObjectType = -1);
 
 bool DeleteEffect(int Type, OBJECT* Owner, int iSubType = -1);
 bool SearchEffect(int iType, OBJECT* pOwner, int iSubType = -1);
+OBJECT* FindEffectByOwner(int iType, OBJECT* pOwner, int iSubType = -1);
 
 void CreateBomb(vec3_t p, bool Exp, int SubType = 0);
 void CreateBomb2(vec3_t p, bool Exp, int SubType = 0, float Scale = 0.0f);

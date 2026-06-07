@@ -994,6 +994,8 @@ enum ESound
     SOUND_KARUTAN_KARDAMAHAL_ENV,						// Kardamahal_entrance_env.wav
 #endif	// ASG_ADD_MAP_KARUTAN
 
+    SOUND_DUNGEON_READY_CHECK,							// iDuel_Begin.wav — plays when the dungeon ready-check opens
+
     MAX_BUFFER
 };
 

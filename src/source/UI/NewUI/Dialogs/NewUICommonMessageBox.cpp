@@ -23,7 +23,7 @@
 #include "UI/NewUI/NewUISystem.h"
 #include "GameLogic/Skills/SkillManager.h"
 #include "Engine/Object/ZzzInterface.h"
-#include "Network/DungeonEnterPrompt.h"
+#include "Network/DungeonReadyCheckState.h"
 
 using namespace SEASON3B;
 
@@ -1292,48 +1292,144 @@ CALLBACK_RESULT CMapEnterGateKeeperMsgBoxLayout::OkBtnDown(class CNewUIMessageBo
     return CALLBACK_BREAK;
 }
 
-bool CDungeonEnterMsgBoxLayout::SetLayout()
+namespace
 {
-    CNewUICommonMessageBox* pMsgBox = GetMsgBox();
-    if (0 == pMsgBox)
+    // Number of msgbox "middle" tiles between the top and bottom frame images — sized to fit the four
+    // ready-check text lines plus the button row.
+    constexpr int kReadyCheckMiddleTiles = 4;
+
+    void RenderReadyCheckLine(float centerX, float y, const wchar_t* text, DWORD color, BYTE font)
+    {
+        g_pRenderText->SetTextColor(color);
+        g_pRenderText->SetBgColor(0, 0, 0, 0);
+        g_pRenderText->SetFont(font == MSGBOX_FONT_BOLD ? g_hFontBold : g_hFont);
+
+        SIZE textSize;
+        GetTextExtentPoint32(g_pRenderText->GetFontDC(), text, (int)wcslen(text), &textSize);
+        const size_t width = (size_t)(textSize.cx / g_fScreenRate_x);
+        g_pRenderText->RenderText((int)(centerX - width / 2), (int)y, text);
+    }
+}
+
+bool CNewUIDungeonReadyCheckBox::Create(float fPriority)
+{
+    AddCallbackFunc(CNewUIDungeonReadyCheckBox::LButtonUp, MSGBOX_EVENT_MOUSE_LBUTTON_UP);
+
+    const int x = (int)((SCREEN_WIDTH / 2) - (MSGBOX_WIDTH / 2));
+    const int y = 120;
+    const int width = (int)MSGBOX_WIDTH;
+    const int height = (int)(MSGBOX_TOP_HEIGHT + kReadyCheckMiddleTiles * MSGBOX_MIDDLE_HEIGHT + MSGBOX_BOTTOM_HEIGHT);
+
+    if (!CNewUIMessageBoxBase::Create(x, y, width, height, fPriority))
         return false;
-    if (false == pMsgBox->Create(MSGBOX_COMMON_TYPE_OKCANCEL))
-        return false;
 
-    pMsgBox->SetPos((int)((SCREEN_WIDTH / 2) - (MSGBOX_WIDTH / 2)), 50);
+    const float btnW = MSGBOX_BTN_EMPTY_SMALL_WIDTH;
+    const float btnH = MSGBOX_BTN_EMPTY_HEIGHT;
+    const float btnY = GetPos().y + GetSize().cy - (btnH + MSGBOX_BTN_BOTTOM_BLANK);
+    const float readyX = GetPos().x + 28.f;
+    const float cancelX = GetPos().x + GetSize().cx - 28.f - btnW;
 
-    const std::wstring& dungeonName = BloodlustMU::DungeonEnterPrompt::Instance().GetDungeonName();
-    std::wstring prompt = L"Are you sure you want to enter ";
-    prompt += dungeonName;
-    prompt += L"?";
-    pMsgBox->AddMsg(prompt, 0xFF49B0FF, MSGBOX_FONT_BOLD);
+    m_BtnReady.SetInfo(CNewUIMessageBoxMng::IMAGE_MSGBOX_BTN_EMPTY_SMALL, readyX, btnY, btnW, btnH, CNewUIMessageBoxButton::MSGBOX_BTN_SIZE_EMPTY_SMALL);
+    m_BtnReady.SetText(L"Ready");
+    m_BtnCancel.SetInfo(CNewUIMessageBoxMng::IMAGE_MSGBOX_BTN_EMPTY_SMALL, cancelX, btnY, btnW, btnH, CNewUIMessageBoxButton::MSGBOX_BTN_SIZE_EMPTY_SMALL);
+    m_BtnCancel.SetText(L"Cancel");
 
-    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::OkBtnDown, MSGBOX_EVENT_USER_COMMON_OK);
-    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::CancelBtnDown, MSGBOX_EVENT_USER_COMMON_CANCEL);
-    pMsgBox->AddCallbackFunc(CDungeonEnterMsgBoxLayout::CancelBtnDown, MSGBOX_EVENT_PRESSKEY_ESC);
     return true;
 }
 
-CALLBACK_RESULT CDungeonEnterMsgBoxLayout::OkBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+bool CNewUIDungeonReadyCheckBox::Update()
 {
-    const int warpIndex = BloodlustMU::DungeonEnterPrompt::Instance().GetWarpIndex();
-    if (warpIndex >= 0)
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    if (!state.IsActive())
     {
-        SocketClient->ToGameServer()->SendEnterDungeonConfirm((short)warpIndex);
+        // The server dismissed the ready check (everyone ready / cancelled / timed out): close ourselves.
+        g_MessageBox->SendEvent(this, MSGBOX_EVENT_DESTROY);
+        return true;
     }
 
-    PlayBuffer(SOUND_CLICK01);
-    g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
-
-    return CALLBACK_BREAK;
+    // The Ready button doubles as the "Unready" button when this player is already ready.
+    m_BtnReady.SetText(state.IsThisPlayerReady() ? L"Unready" : L"Ready");
+    m_BtnReady.Update();
+    m_BtnCancel.Update();
+    return true;
 }
 
-CALLBACK_RESULT CDungeonEnterMsgBoxLayout::CancelBtnDown(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+bool CNewUIDungeonReadyCheckBox::Render()
 {
-    PlayBuffer(SOUND_CLICK01);
-    g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+    EnableAlphaTest();
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    RenderFrame();
+    RenderTexts();
+    m_BtnReady.Render();
+    m_BtnCancel.Render();
+    DisableAlphaBlend();
+    return true;
+}
 
-    return CALLBACK_BREAK;
+void CNewUIDungeonReadyCheckBox::RenderFrame()
+{
+    float x = GetPos().x;
+    float y = GetPos().y + 2.f;
+    float width = GetSize().cx - MSGBOX_BACK_BLANK_WIDTH;
+    float height = GetSize().cy - MSGBOX_BACK_BLANK_HEIGHT;
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_BACK, x, y, width, height);
+
+    x = GetPos().x; y = GetPos().y; width = MSGBOX_WIDTH; height = MSGBOX_TOP_HEIGHT;
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_TOP, x, y, width, height);
+
+    y += MSGBOX_TOP_HEIGHT;
+    height = MSGBOX_MIDDLE_HEIGHT;
+    for (int i = 0; i < kReadyCheckMiddleTiles; ++i)
+    {
+        RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_MIDDLE, x, y, width, height);
+        y += height;
+    }
+
+    height = MSGBOX_BOTTOM_HEIGHT;
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_BOTTOM, x, y, width, height);
+}
+
+void CNewUIDungeonReadyCheckBox::RenderTexts()
+{
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+
+    wchar_t dungeonLine[160];
+    mu_swprintf(dungeonLine, L"Dungeon: %ls", state.GetDungeonName().c_str());
+    wchar_t readyLine[64];
+    mu_swprintf(readyLine, L"Players ready (%d/%d)", state.GetReadyCount(), state.GetTotalPlayers());
+    const wchar_t* hintLine = state.IsThisPlayerReady() ? L"You are READY" : L"Click Ready when prepared";
+
+    const float centerX = GetPos().x + (MSGBOX_WIDTH / 2);
+    float y = GetPos().y + MSGBOX_TEXT_TOP_BLANK;
+    RenderReadyCheckLine(centerX, y, L"Ready check!", 0xFF49B0FF, MSGBOX_FONT_BOLD);
+    y += 22.f;
+    RenderReadyCheckLine(centerX, y, dungeonLine, CLRDW_WHITE, MSGBOX_FONT_NORMAL);
+    y += 20.f;
+    RenderReadyCheckLine(centerX, y, readyLine, 0xFF61F191, MSGBOX_FONT_BOLD);
+    y += 22.f;
+    RenderReadyCheckLine(centerX, y, hintLine, CLRDW_WHITE, MSGBOX_FONT_NORMAL);
+}
+
+CALLBACK_RESULT CNewUIDungeonReadyCheckBox::LButtonUp(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+{
+    auto* pBox = (CNewUIDungeonReadyCheckBox*)pOwner;
+
+    if (pBox->m_BtnReady.IsMouseIn())
+    {
+        SocketClient->ToGameServer()->SendDungeonReadyToggle();
+        PlayBuffer(SOUND_CLICK01);
+        return CALLBACK_BREAK;
+    }
+
+    if (pBox->m_BtnCancel.IsMouseIn())
+    {
+        SocketClient->ToGameServer()->SendDungeonReadyCancel();
+        PlayBuffer(SOUND_CLICK01);
+        g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+        return CALLBACK_BREAK;
+    }
+
+    return CALLBACK_CONTINUE;
 }
 
 bool SEASON3B::CPartyMsgBoxLayout::SetLayout()

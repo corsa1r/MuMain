@@ -6428,6 +6428,47 @@ void MoveCharacterClient(CHARACTER* cc)
         MoveCharacter(cc, co);
         MoveCharacterVisual(cc, co);
 
+        if (cc->MonsterIndex == MONSTER_DUNGEON_PORTAL)
+        {
+            // Dungeon entrance: the spinning swirl is the three layered warp effects (same as Devias'
+            // MoveObject WD_2DEVIAS / MODEL_WARP path). Pin the portal a fixed height above the ground (the
+            // warp model's origin is centred, so at terrain level it half-sinks) — absolute set, not +=, so
+            // it can't accumulate. HiddenMesh = -2 suppresses the solid warp base mesh (the "donut", which
+            // in Devias is just buried underground) in Draw_RenderObject, while the mouse-over edge
+            // highlight (Calc_RenderObject's RenderPartObjectEdge) and the click box still work. The warp
+            // effects loop forever, so emit each layer only when it isn't already alive (SearchEffect)
+            // instead of every frame, otherwise they stack into a bright blob; owned by this NPC.
+            co->Position[2] = RequestTerrainHeight(co->Position[0], co->Position[1]) + 150.f;
+            co->HiddenMesh = -2;
+            if (co->Visible)
+            {
+                // For each warp layer: if it already exists for this NPC, just move it to the NPC's
+                // current position (so it follows when the spawn is relocated); otherwise create it.
+                // Owned by this NPC so it's cleaned up (in the warp effect update) when the NPC is removed.
+                vec3_t pos, light;
+                Vector(1.f, 1.f, 1.f, light);
+
+                VectorCopy(co->Position, pos);
+                {
+                    OBJECT* e = FindEffectByOwner(MODEL_WARP, co, 1);
+                    if (e) { VectorCopy(pos, e->Position); }
+                    else { CreateEffect(MODEL_WARP, pos, co->Angle, light, 1, co); }
+                }
+                pos[1] = co->Position[1] + 4.0f;
+                {
+                    OBJECT* e = FindEffectByOwner(MODEL_WARP2, co, 1);
+                    if (e) { VectorCopy(pos, e->Position); }
+                    else { CreateEffect(MODEL_WARP2, pos, co->Angle, light, 1, co); }
+                }
+                pos[1] = co->Position[1] + 20.0f;
+                {
+                    OBJECT* e = FindEffectByOwner(MODEL_WARP3, co, 1);
+                    if (e) { VectorCopy(pos, e->Position); }
+                    else { CreateEffect(MODEL_WARP3, pos, co->Angle, light, 1, co); }
+                }
+            }
+        }
+
         battleCastle::MoveBattleCastleMonster(cc, co);
     }
 }
@@ -12984,8 +13025,9 @@ namespace
         }
 
         // Explicit NPC overrides.
-        if (rawType == 368 || rawType == 369 || rawType == 370 || IsForcedNpcMonsterType(type))
+        if (rawType == 368 || rawType == 369 || rawType == 370 || rawType == MONSTER_DUNGEON_PORTAL || IsForcedNpcMonsterType(type))
         {
+            // Dungeon Portal (800) is a non-combat NPC: KIND_NPC so it's talkable and shows no health bar.
             return KIND_NPC;
         }
 
@@ -14178,6 +14220,16 @@ CHARACTER* CreateMonster(EMonsterType Type, int PositionX, int PositionY, int Ke
         OpenNpc(MODEL_NPC_BREEDER);
         c = CreateCharacter(Key, MODEL_NPC_BREEDER, PositionX, PositionY);
         wcscpy(c->ID, L"조련사 NPC");
+        break;
+
+    case MONSTER_DUNGEON_PORTAL:
+        // Dungeon entrance (server NPC 800, DungeonPortalNpcPlugIn). The visible spinning portal is the
+        // animated warp swirl emitted per-frame in MoveCharacterClient; the character itself just provides
+        // the click target + hover box, so its static base mesh is hidden (HiddenMesh = -2). Clicking it
+        // (normal NPC talk) requests dungeon entry.
+        OpenNpc(MODEL_DUNGEON_PORTAL);
+        c = CreateCharacter(Key, MODEL_DUNGEON_PORTAL, PositionX, PositionY);
+        wcscpy(c->ID, L"Dungeon Portal");
         break;
 
 #ifdef _PVP_MURDERER_HERO_ITEM

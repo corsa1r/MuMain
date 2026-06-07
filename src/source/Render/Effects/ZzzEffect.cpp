@@ -222,6 +222,20 @@ bool SearchEffect(int iType, OBJECT* pOwner, int iSubType)
     return false;
 }
 
+OBJECT* FindEffectByOwner(int iType, OBJECT* pOwner, int iSubType)
+{
+    for (int i = 0; i < MAX_EFFECTS; ++i)
+    {
+        OBJECT* o = &Effects[i];
+        if (o->Live && o->Type == iType && o->Owner == pOwner && (iSubType == -1 || o->SubType == iSubType))
+        {
+            return o;
+        }
+    }
+
+    return NULL;
+}
+
 BOOL FindSameEffectOfSameOwner(int iType, OBJECT* pOwner)
 {
     for (int i = 0; i < MAX_EFFECTS; i++)
@@ -7177,6 +7191,14 @@ void MoveEffect(OBJECT* o, int iIndex)
     case MODEL_WARP5:
     case MODEL_WARP4:
     {
+        // Warp swirls owned by an NPC (e.g. the dungeon portal) die with it, so they don't linger at the
+        // old spot when the NPC despawns or is relocated. The Devias map warp passes no owner (NULL), so
+        // it is unaffected and persists for the map session.
+        if (o->Owner != NULL && !o->Owner->Live)
+        {
+            o->Live = false;
+            break;
+        }
         if (o->SubType == 0)
         {
             float fTemp1 = sinf(WorldTime * 0.0011f) * 0.2f;

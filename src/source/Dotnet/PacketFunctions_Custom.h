@@ -57,14 +57,14 @@ public:
     void SendLogin(const wchar_t* username, const wchar_t* password, const BYTE* clientVersion, const BYTE* clientSerial);
 
     /// <summary>
-    /// Sends the dungeon-enter confirmation to the game server (custom opcode 0xCE).
+    /// Sends a dungeon ready-check toggle (Ready button) to the game server (custom opcode 0xCE, action 0).
     /// </summary>
-    /// <param name="warpIndex">The warp list index of the dungeon the player confirmed entering.</param>
-    /// <remarks>
-    /// Is sent by the client when: the player clicks OK on the dungeon-entry confirmation prompt.
-    /// Causes reaction on server side: the server re-validates and creates the private dungeon instance.
-    /// </remarks>
-    void SendEnterDungeonConfirm(short warpIndex);
+    void SendDungeonReadyToggle();
+
+    /// <summary>
+    /// Sends a dungeon ready-check cancel (Cancel button) to the game server (custom opcode 0xCE, action 1).
+    /// </summary>
+    void SendDungeonReadyCancel();
 };
 
 /// <summary>

@@ -1829,6 +1829,20 @@ void OpenNpc(int Type)
 
     switch (Type)
     {
+    case MODEL_DUNGEON_PORTAL:
+        // The dungeon-entrance portal renders the animated Devias warp swirl. The swirl is not the static
+        // warp01 mesh but the three layered warp EFFECTS the Devias map emits (MoveObject's
+        // WD_2DEVIAS/MODEL_WARP path) — MODEL_DUNGEON_PORTAL gives the NPC a hidden base mesh + click box,
+        // while MODEL_WARP/2/3 are loaded here so MoveCharacterClient can emit the same effects on any map.
+        gLoadData.AccessModel(MODEL_DUNGEON_PORTAL, L"Data\\Npc\\", L"warp01");
+        gLoadData.OpenTexture(MODEL_DUNGEON_PORTAL, L"Npc\\");
+        gLoadData.AccessModel(MODEL_WARP, L"Data\\Npc\\", L"warp01");
+        gLoadData.AccessModel(MODEL_WARP2, L"Data\\Npc\\", L"warp02");
+        gLoadData.AccessModel(MODEL_WARP3, L"Data\\Npc\\", L"warp03");
+        gLoadData.OpenTexture(MODEL_WARP, L"Npc\\");
+        gLoadData.OpenTexture(MODEL_WARP2, L"Npc\\");
+        gLoadData.OpenTexture(MODEL_WARP3, L"Npc\\");
+        break;
     case MODEL_MERCHANT_FEMALE:
         gLoadData.AccessModel(MODEL_MERCHANT_FEMALE, L"Data\\Npc\\", L"Female", 1);
 
@@ -5409,6 +5423,7 @@ void OpenBasicData(HDC hDC)
     LoadWaveFile(SOUND_CLICK01, L"Data\\Sound\\iButtonClick.wav", 1);
     LoadWaveFile(SOUND_ERROR01, L"Data\\Sound\\iButtonError.wav", 1);
     LoadWaveFile(SOUND_INTERFACE01, L"Data\\Sound\\iCreateWindow.wav", 1);
+    LoadWaveFile(SOUND_DUNGEON_READY_CHECK, L"Data\\Sound\\iDuel_Begin.wav", 1);
 
     LoadWaveFile(SOUND_REPAIR, L"Data\\Sound\\iRepair.wav", 1);
     LoadWaveFile(SOUND_WHISPER, L"Data\\Sound\\iWhisper.wav", 1);

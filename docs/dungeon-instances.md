@@ -1,8 +1,9 @@
 # Dungeon Instances
 
-Dungeon instances are **private, single-player copies** of a custom map. A player enters with
-`/dungeon N`, clears every monster, gets a reward, and is sent back to town. Each player who enters
-gets their **own** copy of the map — players never see each other inside a dungeon.
+Dungeon instances are **private, per-party copies** of a custom map. A party member enters with
+`/dungeon N`; after a ready check, the whole party is warped into a shared private instance, clears
+every monster, and is rewarded. A solo player runs the same flow as a party of one. Each party gets
+its **own** copy of the map — other parties running the same dungeon never see each other.
 
 This feature is built on top of the [custom map pipeline](dev-editor.md): you author a map in the
 editor, import it to the server, then flag its warp as a dungeon.
@@ -14,53 +15,63 @@ editor, import it to the server, then flag its warp as a dungeon.
 2. In the **warp list** (admin panel → game configuration → warps), find or create the warp entry
    that targets the map, and tick **`IsDungeon`**.
 3. Set the warp's **`LevelRequirement`** to the minimum character level for the dungeon.
-4. On the **map definition**, set **`SafezoneMap`** to a town (e.g. Lorencia). This is what the player
-   respawns to if they die inside, which is how a death ends the run (see rules below). Make sure the
-   map has at least one **spawn gate** exit (`IsSpawnGate`) — that's where the player lands.
+4. On the **map definition**, set **`SafezoneMap`** to a town (e.g. Lorencia) — this is where members
+   are sent when the run ends. Make sure the map has at least one **spawn gate** exit (`IsSpawnGate`),
+   which is where members land and where they respawn after dying (while lives remain).
 
 A warp flagged `IsDungeon` is **removed from the player Move List** (it is excluded from the
 server-pushed map manifest), so it can only be entered with the `/dungeon` command.
 
-The `N` in `/dungeon N` is the warp list **Index**. For "Old Maze" we use index `102` to match its
-custom world folder, so the command is `/dungeon 102` — but any warp index works.
+The `N` in `/dungeon N` is the warp list **Index** (not the map number/world folder). Use the actual
+warp index — e.g. `/dungeon 50`.
 
 ## For players — entering a dungeon
 
-1. Type `/dungeon N` (e.g. `/dungeon 102`).
-2. The server checks you meet the level requirement and have a **Devil's Key** in your inventory. If
-   not, you get a message explaining why and nothing else happens.
-3. If the checks pass, a confirmation prompt appears: *"Are you sure you want to enter this dungeon
-   instance (name)?"* with **OK / Cancel**.
-   - **Cancel** closes the prompt; nothing changes.
-   - **OK** consumes **one Devil's Key**, creates your private instance, and teleports you into the
-     dungeon's safe zone.
+1. A party member types `/dungeon N`.
+2. The server validates: the **whole party must be online**, **every member** must meet the level
+   requirement, and the **initiator** must hold a **Devil's Key**. If a member is under-level you get
+   `"{name} does not meet the requirements of (level Y)"`; if anyone is offline or the initiator has no
+   key, you're told why and nothing happens.
+3. A **ready-check window** opens for every party member:
 
-## Rules (v1)
+   ```
+   Ready check!
+   Dungeon: Old Maze
+   Players ready (0/3)
+   [ Ready ]   [ Cancel ]
+   ```
 
-These are the rules the dungeon system enforces, and why:
+   - Clicking **Ready** marks you ready (the button becomes **Unready**); the count updates live for
+     everyone. Click again to un-ready.
+   - Any member clicking **Cancel** closes the window for everyone with
+     `"{name} canceled the ready check"`. (The check also auto-cancels if a member disconnects or after
+     a timeout.)
+   - When **all** members are ready, the initiator's Devil's Key is consumed and the whole party is
+     warped into one shared instance safe zone.
 
-- **Per-player isolation.** Each player gets a separate instance of the map (its own server-side
-  `GameMap`), so multiple players can run the same dungeon at once without seeing each other.
-- **Entry cost: one Devil's Key.** The key is required *and consumed* on entry (re-running the dungeon
-  needs another key). The existing Devil's Key item is reused (item group 14, number 18).
-- **Monsters spawn once and never respawn.** Every monster spawn area on the map is spawned a single
-  time when the instance is created; killing a monster does not respawn it — regardless of how the
-  spawn was authored in the editor. This is deliberate: a dungeon is a finite clear, not a farm.
-- **All spawns are one group.** A dungeon can have many spawn points; they are counted together as a
-  single pool. The dungeon is **completed** when the *last* monster across *all* spawn areas dies.
-- **Completion reward: 1,000,000 Zen.** On completion the Zen is added directly to your inventory
-  Zen (not dropped). If your Zen is already at the cap, you get a message and no reward is granted.
-- **Return countdown: 60 seconds.** After completion a one-second-interval countdown is shown as
-  system messages (`Returning to Lorencia in 59…`, `58…`, …). When it reaches zero you are teleported
-  to **Lorencia** and the instance is torn down.
-- **Leaving ends the run.** Warping away, disconnecting, or **dying** (you respawn at the map's
-  `SafezoneMap` town) removes you from the instance, which immediately closes and disposes it. A run
-  abandoned this way gives no reward, and re-entry costs another key.
+## Rules
 
-## Notes / limitations (v1)
+- **Per-party isolation.** Each party gets a separate `GameMap` instance; other parties don't see it.
+- **Entry cost: one Devil's Key** (item group 14 / number 18), consumed from the **initiator** only.
+- **Monsters spawn once, never respawn, and drop nothing.** Every spawn area is spawned a single time
+  with drops disabled (focus on the fight). All spawns count as **one group**; clearing the *last*
+  monster completes the run.
+- **Shared lives (5).** The party shares 5 lives. When a member dies, a life is spent and they respawn
+  at the dungeon safe zone **inside the same instance**. When a member dies while **0 lives remain**,
+  the run ends — everyone is sent to town (no reward) and the instance is deleted.
+- **Completion reward: 1,000,000 Zen to each present member**, then a 60-second countdown
+  (`Returning to Lorencia in 59…`, …) before everyone is teleported to **Lorencia**.
+- **Disconnect / reconnect.** Disconnecting doesn't end the run for the others. While the instance is
+  still alive (at least one member present), a reconnecting member **rejoins** it; if the instance was
+  already deleted, they spawn in town instead.
+- **Empty instance is deleted.** Once every member has left (warped out or disconnected) the instance
+  is torn down. (A server restart deletes all instances; members then log back into town.)
 
-- Dungeon tuning (reward amount, countdown length, the key item) is hardcoded as named constants in
-  `DungeonInstanceContext`. A future version may move these to a per-dungeon configuration entity.
-- No party support yet — instances are one-per-player.
+## Notes / limitations
+
+- Lives (5), reward (1,000,000 Zen per present member) and the ready-check timeout are hardcoded
+  constants in `DungeonInstanceContext` / `DungeonReadyCheck`. A future version may move these to a
+  per-dungeon configuration entity.
+- The reward is granted to each present member in full (not split).
 - The instance framework (`GameInstanceContext`) is intentionally generic so future **arena** /
-  **battleground** PvP instances can reuse the same lifecycle, map-isolation and registry.
+  **battleground** PvP instances can reuse the same lifecycle, member tracking and registry.
