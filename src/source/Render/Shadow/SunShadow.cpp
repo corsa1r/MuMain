@@ -188,11 +188,18 @@ namespace SunShadow
         // enable state. Called from BuildFromCollected while s_verts is still valid.
         void BuildLightShadows()
         {
+            // Cone maps rebuild every frame from a gently-SWAYED light position so the
+            // cast shadows have soft, slow movement (a flickering torch makes shadows
+            // dance). s_hasMap only guards the rare empty-occluder frame -- keep the
+            // last map rather than blinking the shadow off.
+            static bool  s_hasMap[MAX_LIGHT_SHADOWS] = {};
+            const unsigned int nowMs = GetTickCount();
+
             for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s) s_lightSlotValid[s] = false;
             s_lightBuiltCount = 0;
             int usedSlots = 0;
             for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s) if (s_lightInUsed[s]) ++usedSlots;
-            if (usedSlots <= 0 || s_objVerts.empty()) return;   // static objects only
+            if (usedSlots <= 0) { for (int s = 0; s < MAX_LIGHT_SHADOWS; ++s) s_hasMap[s] = false; return; }
             if (!EnsureLightFbos(s_lightShadowRes, MAX_LIGHT_SHADOWS)) return;
 
             const PostProcess::GLProcs& gl = PostProcess::GL();
@@ -205,38 +212,52 @@ namespace SunShadow
 
             for (int i = 0; i < MAX_LIGHT_SHADOWS; ++i)
             {
-                if (!s_lightInUsed[i]) continue;        // build only occupied slots
+                if (!s_lightInUsed[i]) { s_hasMap[i] = false; continue; }
                 const float* L = s_lightInPos[i];
                 float radius = s_lightInRadius[i]; if (radius < 50.0f) radius = 50.0f;
 
-                float eye[3] = { L[0], L[1], L[2] };
-                float ctr[3] = { L[0], L[1], L[2] - 1.0f };   // look straight down (up = Z)
+                // Gentle, slow sway of the shadow-casting position (not the
+                // illumination) so the cast shadows softly dance like a real torch.
+                // Two summed slow sines, desynced per light by position; small (~+-6u).
+                const float tt = (float)nowMs * 0.0068f;             // sway speed (base period ~0.9s)
+                const float ph = L[0] * 0.017f + L[1] * 0.013f;
+                const float sx = 4.0f * sinf(tt + ph)        + 2.0f * sinf(tt * 2.3f + ph * 1.7f);
+                const float sy = 4.0f * cosf(tt * 1.1f + ph) + 2.0f * sinf(tt * 1.9f + ph * 1.3f);
+
+                float eye[3] = { L[0] + sx, L[1] + sy, L[2] };
+                float ctr[3] = { eye[0], eye[1], eye[2] - 1.0f };   // look straight down (up = Z)
                 float up[3]  = { 0.0f, 1.0f, 0.0f };
                 float view[16]; lookAt(eye, ctr, up, view);
                 float proj[16]; perspective(120.0f, 1.0f, radius * 0.05f + 1.0f, radius * 1.6f, proj);
                 float pv[16];   mat4mul(proj, view, pv);
-                mat4mul(B, pv, s_lightMatrix[i]);
+                mat4mul(B, pv, s_lightMatrix[i]);   // matrix matches the depth rendered below
 
-                gl.BindFramebuffer(GL_FRAMEBUFFER, s_lightFbo[i]);
-                glViewport(0, 0, s_lightBuiltRes, s_lightBuiltRes);
-                glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadMatrixf(proj);
-                glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadMatrixf(view);
+                // Rebuild each frame from the swayed position so the shadow moves
+                // smoothly. On a frame with no occluders, keep the last map (s_hasMap).
+                if (!s_objVerts.empty())
+                {
+                    gl.BindFramebuffer(GL_FRAMEBUFFER, s_lightFbo[i]);
+                    glViewport(0, 0, s_lightBuiltRes, s_lightBuiltRes);
+                    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadMatrixf(proj);
+                    glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadMatrixf(view);
 
-                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glDepthFunc(GL_LESS);
-                glDisable(GL_CULL_FACE); glDisable(GL_BLEND); glDisable(GL_TEXTURE_2D);
-                glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1.6f, 3.0f);
-                glClearDepth(1.0); glClear(GL_DEPTH_BUFFER_BIT);
+                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                    glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glDepthFunc(GL_LESS);
+                    glDisable(GL_CULL_FACE); glDisable(GL_BLEND); glDisable(GL_TEXTURE_2D);
+                    glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1.6f, 3.0f);
+                    glClearDepth(1.0); glClear(GL_DEPTH_BUFFER_BIT);
 
-                glEnableClientState(GL_VERTEX_ARRAY);
-                glVertexPointer(3, GL_FLOAT, 0, s_objVerts.data());
-                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(s_objVerts.size() / 3));
-                glDisableClientState(GL_VERTEX_ARRAY);
+                    glEnableClientState(GL_VERTEX_ARRAY);
+                    glVertexPointer(3, GL_FLOAT, 0, s_objVerts.data());
+                    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(s_objVerts.size() / 3));
+                    glDisableClientState(GL_VERTEX_ARRAY);
 
-                glMatrixMode(GL_PROJECTION); glPopMatrix();
-                glMatrixMode(GL_MODELVIEW);  glPopMatrix();
-                s_lightSlotValid[i] = true;
-                s_lightBuiltCount = i + 1;
+                    glMatrixMode(GL_PROJECTION); glPopMatrix();
+                    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+
+                    s_hasMap[i] = true;
+                }
+                if (s_hasMap[i]) { s_lightSlotValid[i] = true; s_lightBuiltCount = i + 1; }
             }
 
             glPopAttrib();
