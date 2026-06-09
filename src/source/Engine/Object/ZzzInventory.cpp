@@ -10536,6 +10536,16 @@ void RenderObjectScreen(int Type, int ItemLevel, int excellentFlags, int ancient
     RenderPartObject(o, Type, NULL, Light, alpha, ItemLevel, excellentFlags, ancientDiscriminator, true, true, true);
 }
 
+bool IsItemModelLoaded(int itemType)
+{
+    // itemType is Group*MAX_ITEM_INDEX + Index. Guard the range, then check the BMD actually has meshes
+    // (== was loaded). Rendering an unloaded/missing item model corrupts memory and crashes, which can
+    // happen for reward-preview items the client has never instantiated.
+    if (itemType < 0 || itemType >= MAX_ITEM)
+        return false;
+    return Models[MODEL_ITEM + itemType].NumMeshs > 0;
+}
+
 void RenderItem3D(float sx, float sy, float Width, float Height, int Type, int Level, int excellentFlags, int ancientDiscriminator, bool PickUp)
 {
     bool Success = false;
