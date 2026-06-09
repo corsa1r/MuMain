@@ -6429,6 +6429,26 @@ void MoveCharacterClient(CHARACTER* cc)
         MoveCharacter(cc, co);
         MoveCharacterVisual(cc, co);
 
+        // Elite monsters render larger so they stand out: +20% / +40% / +60% by tier. We capture the
+        // model's intrinsic scale once (set at creation), then apply the per-tier factor every frame so it
+        // doesn't compound and tracks the monster's own size. Scaling co->Scale (not just the body) keeps
+        // the bounding box, nameplate height and ground aura all proportional.
+        if (IsMonster(cc))
+        {
+            if (cc->EliteBaseScale <= 0.f)
+                cc->EliteBaseScale = co->Scale;
+
+            GameLogic::EliteMonster::Info eliteInfo;
+            float eliteFactor = 1.f;
+            if (GameLogic::EliteMonster::Get(static_cast<uint16_t>(cc->Key), eliteInfo))
+            {
+                const int rank = eliteInfo.rank < 1 ? 1 : (eliteInfo.rank > 3 ? 3 : eliteInfo.rank);
+                eliteFactor = 1.f + 0.2f * static_cast<float>(rank); // rank 1/2/3 -> 1.2 / 1.4 / 1.6
+            }
+
+            co->Scale = cc->EliteBaseScale * eliteFactor;
+        }
+
         if (cc->MonsterIndex == MONSTER_DUNGEON_PORTAL)
         {
             // Dungeon entrance: the spinning swirl is the three layered warp effects (same as Devias'
@@ -11345,8 +11365,10 @@ static void RenderEliteAuras()
             drew = true;
         }
 
-        // Disc half-size grows a little per tier so rarer elites read as bigger/scarier.
-        const float halfSize = 90.f + 35.f * (float)info.rank;
+        // Disc half-size grows a little per tier so rarer elites read as bigger/scarier, and scales with the
+        // monster's render size (o->Scale already includes the elite tier size multiplier) so the aura always
+        // matches the monster's footprint.
+        const float halfSize = (75.f + 25.f * (float)info.rank) * o->Scale;
         const float cx = o->Position[0];
         const float cy = o->Position[1];
         const float zOff = 8.f;
@@ -13121,6 +13143,10 @@ namespace
 void Setting_Monster(CHARACTER* c, EMonsterType Type, int PositionX, int PositionY)
 {
     OBJECT* o;
+
+    // Slot may be recycled for a different monster (different intrinsic scale); clear the captured base so
+    // MoveCharacterClient re-captures this monster's own scale before applying any elite size multiplier.
+    c->EliteBaseScale = 0.f;
 
     int nCastle = BLOODCASTLE_NUM + (gMapManager.WorldActive - WD_11BLOODCASTLE_END);
     if (nCastle > 0 && nCastle <= BLOODCASTLE_NUM)

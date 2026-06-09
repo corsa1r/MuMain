@@ -218,6 +218,7 @@ public:
     float       ShieldStatus;
     int         HpCurrent;
     int         HpMax;
+    float       EliteBaseScale; // captured model scale before the elite tier size multiplier is applied (0 = not captured)
 
     vec3_t		TargetPosition;
     vec3_t      Light;
