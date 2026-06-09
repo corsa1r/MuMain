@@ -218,7 +218,8 @@ public:
     float       ShieldStatus;
     int         HpCurrent;
     int         HpMax;
-    float       EliteBaseScale; // captured model scale before the elite tier size multiplier is applied (0 = not captured)
+    float       EliteBaseScale;  // captured model scale before the elite tier size multiplier is applied (0 = not captured)
+    float       EliteEnrageScale; // animated enrage size multiplier (1.0 normal, eases to 1.1 while enraged)
 
     vec3_t		TargetPosition;
     vec3_t      Light;

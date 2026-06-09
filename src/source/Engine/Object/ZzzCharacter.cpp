@@ -6440,13 +6440,35 @@ void MoveCharacterClient(CHARACTER* cc)
 
             GameLogic::EliteMonster::Info eliteInfo;
             float eliteFactor = 1.f;
+            bool  enraged = false;
             if (GameLogic::EliteMonster::Get(static_cast<uint16_t>(cc->Key), eliteInfo))
             {
                 const int rank = eliteInfo.rank < 1 ? 1 : (eliteInfo.rank > 3 ? 3 : eliteInfo.rank);
                 eliteFactor = 1.f + 0.2f * static_cast<float>(rank); // rank 1/2/3 -> 1.2 / 1.4 / 1.6
+                enraged = eliteInfo.enraged;
             }
 
-            co->Scale = cc->EliteBaseScale * eliteFactor;
+            // Enrage adds another +10% size, eased in (not popped) over ~0.5s so the monster visibly
+            // swells when it enrages and shrinks back if it ever calms. EliteEnrageScale lerps toward its
+            // target at 0.2/sec (0.1 span / 0.5s). Guard zero-initialized memory at 1.0.
+            if (cc->EliteEnrageScale <= 0.f)
+                cc->EliteEnrageScale = 1.f;
+            const float enrageTarget = enraged ? 1.1f : 1.f;
+            const float enrageStep = 0.2f * (FPS_ANIMATION_FACTOR / 25.f); // per-frame span, REFERENCE_FPS = 25
+            if (cc->EliteEnrageScale < enrageTarget)
+            {
+                cc->EliteEnrageScale += enrageStep;
+                if (cc->EliteEnrageScale > enrageTarget)
+                    cc->EliteEnrageScale = enrageTarget;
+            }
+            else if (cc->EliteEnrageScale > enrageTarget)
+            {
+                cc->EliteEnrageScale -= enrageStep;
+                if (cc->EliteEnrageScale < enrageTarget)
+                    cc->EliteEnrageScale = enrageTarget;
+            }
+
+            co->Scale = cc->EliteBaseScale * eliteFactor * cc->EliteEnrageScale;
         }
 
         if (cc->MonsterIndex == MONSTER_DUNGEON_PORTAL)
@@ -13147,6 +13169,7 @@ void Setting_Monster(CHARACTER* c, EMonsterType Type, int PositionX, int Positio
     // Slot may be recycled for a different monster (different intrinsic scale); clear the captured base so
     // MoveCharacterClient re-captures this monster's own scale before applying any elite size multiplier.
     c->EliteBaseScale = 0.f;
+    c->EliteEnrageScale = 1.f; // start at neutral size; enrage eases this up in MoveCharacterClient.
 
     int nCastle = BLOODCASTLE_NUM + (gMapManager.WorldActive - WD_11BLOODCASTLE_END);
     if (nCastle > 0 && nCastle <= BLOODCASTLE_NUM)

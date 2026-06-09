@@ -233,20 +233,18 @@ void CEnemyHealthBar::RenderAll() const
             EnableAlphaBlend3();
         }
 
-        // Enrage pip — a small orange-red status icon centred below the bar while the elite is enraged.
+        // Enraged status — an orange-red "(Enraged)" label centred below the bar while the elite is enraged.
         if (e.enraged)
         {
-            const float pipSize   = 8.f;
-            const float pipBorder = 1.f;
-            const float pipX = e.refX - pipSize * 0.5f;
-            const float pipY = top + kBarHeight + kBorderSize + 2.f;
-
-            DisableAlphaBlend();
-            glColor3f(0.f, 0.f, 0.f);
-            RenderColor(pipX - pipBorder, pipY - pipBorder, pipSize + pipBorder * 2.f, pipSize + pipBorder * 2.f);
-            glColor3f(1.f, 0.25f, 0.f);
-            RenderColor(pipX, pipY, pipSize, pipSize);
-            EnableAlphaBlend3();
+            const int enragedY = static_cast<int>(top + kBarHeight + kBorderSize + 2.f);
+            g_pRenderText->SetTextColor(255, 64, 0, 255);
+            g_pRenderText->RenderText(
+                static_cast<int>(left),
+                enragedY,
+                L"(Enraged)",
+                static_cast<int>(kBarWidth),
+                0,
+                RT3_SORT_CENTER);
         }
     }
 
