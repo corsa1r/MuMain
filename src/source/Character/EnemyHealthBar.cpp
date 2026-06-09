@@ -8,6 +8,7 @@
 #include "Camera/CameraProjection.h"
 #include "Engine/Object/ZzzCharacter.h"
 #include "GameLogic/Combat/PrimeStatusStore.h"
+#include "GameLogic/Combat/EliteMonsterStore.h"
 #include "UI/Legacy/UIControls.h"
 
 namespace
@@ -27,10 +28,13 @@ namespace
         float            refX, refY;
         float            fillRatio;
         int              hpCurrent, hpMax;
-        // Holds either "Name" or "(level) Name" — the +12 chars give room
-        // for the worst-case 5-digit level + parens + space + null.
-        wchar_t          label[MAX_MONSTER_NAME + 12];
+        // Holds "Name", "(level) Name" or, for elites, "** (level) Name" — the +20 chars give room
+        // for the worst-case 5-digit level + parens + space + tier marker + null.
+        wchar_t          label[MAX_MONSTER_NAME + 20];
         PrimeElementMask primeMask;
+        bool             isElite;
+        bool             enraged;
+        unsigned char    eliteR, eliteG, eliteB;
     };
 
     struct ElementDef
@@ -80,7 +84,12 @@ void CEnemyHealthBar::RenderAll() const
             continue;
         if (!IsMonster(c))
             continue;
-        if (c->HealthStatus == 0.f)
+
+        GameLogic::EliteMonster::Info eliteInfo;
+        const bool isElite = GameLogic::EliteMonster::Get(static_cast<uint16_t>(c->Key), eliteInfo);
+
+        // Elites always show their bar so they're identifiable even before being engaged.
+        if (c->HealthStatus == 0.f && !isElite)
             continue;
 
         float refX, refY;
@@ -104,18 +113,39 @@ void CEnemyHealthBar::RenderAll() const
         e.hpCurrent = c->HpCurrent;
         e.hpMax     = c->HpMax;
         e.primeMask = GameLogic::PrimeStatus::GetMask(static_cast<uint16_t>(c->Key));
-        // Prefix the configured server-side monster level so players can
-        // gauge a fight at a glance — "(13) Death Tree" instead of just
-        // "Death Tree". MonsterLevel == 0 means the script entry didn't
-        // populate one (or this isn't a script-defined monster), in which
-        // case render the plain name.
+        e.isElite = isElite;
+        e.enraged = isElite && eliteInfo.enraged;
+        e.eliteR  = isElite ? eliteInfo.r : 255;
+        e.eliteG  = isElite ? eliteInfo.g : 255;
+        e.eliteB  = isElite ? eliteInfo.b : 255;
+
+        // Elites get a tier marker (one '*' per rank, capped at 3) and use their unique name when
+        // the server assigned one (e.g. a Champion). Otherwise fall back to the definition name.
+        wchar_t marker[5] = { 0 };
+        if (isElite)
+        {
+            const int stars = eliteInfo.rank > 3 ? 3 : (eliteInfo.rank < 1 ? 1 : eliteInfo.rank);
+            for (int s = 0; s < stars; ++s)
+                marker[s] = L'*';
+        }
+
+        const wchar_t* displayName = (isElite && eliteInfo.name[0] != L'\0') ? eliteInfo.name : c->ID;
+
+        // Prefix the configured server-side monster level so players can gauge a fight at a glance —
+        // "(13) Death Tree". MonsterLevel == 0 means the script didn't populate one; render plainly.
         if (c->MonsterLevel > 0)
         {
-            mu_swprintf(e.label, L"(%u) %s", c->MonsterLevel, c->ID);
+            if (isElite)
+                mu_swprintf(e.label, L"%s (%u) %s", marker, c->MonsterLevel, displayName);
+            else
+                mu_swprintf(e.label, L"(%u) %s", c->MonsterLevel, displayName);
         }
         else
         {
-            wcscpy_s(e.label, MAX_MONSTER_NAME + 12, c->ID);
+            if (isElite)
+                mu_swprintf(e.label, L"%s %s", marker, displayName);
+            else
+                wcscpy_s(e.label, MAX_MONSTER_NAME + 20, displayName);
         }
     }
 
@@ -131,7 +161,11 @@ void CEnemyHealthBar::RenderAll() const
         // Bar geometry — solid, no blending
         DisableAlphaBlend();
 
-        glColor3f(0.f, 0.f, 0.f);
+        // Border: same width as normal; black normally, tier-colored for elites.
+        if (e.isElite)
+            glColor3f(e.eliteR / 255.f, e.eliteG / 255.f, e.eliteB / 255.f);
+        else
+            glColor3f(0.f, 0.f, 0.f);
         RenderColor(left - kBorderSize, top - kBorderSize,
                     kBarWidth + kBorderSize * 2.f, kBarHeight + kBorderSize * 2.f);
 
@@ -149,8 +183,11 @@ void CEnemyHealthBar::RenderAll() const
         glColor4f(1.f, 1.f, 1.f, 1.f);
         g_pRenderText->SetBgColor(0);
 
-        // Monster name above the bar — always white, never modified
-        g_pRenderText->SetTextColor(255, 255, 255, 255);
+        // Monster name above the bar — white normally, tier-colored for elites.
+        if (e.isElite)
+            g_pRenderText->SetTextColor(e.eliteR, e.eliteG, e.eliteB, 255);
+        else
+            g_pRenderText->SetTextColor(255, 255, 255, 255);
         g_pRenderText->RenderText(
             static_cast<int>(left),
             static_cast<int>(top - kNameOffset),
@@ -193,6 +230,22 @@ void CEnemyHealthBar::RenderAll() const
                 iconX += kSquareSize + kSquareGap;
             }
 
+            EnableAlphaBlend3();
+        }
+
+        // Enrage pip — a small orange-red status icon centred below the bar while the elite is enraged.
+        if (e.enraged)
+        {
+            const float pipSize   = 8.f;
+            const float pipBorder = 1.f;
+            const float pipX = e.refX - pipSize * 0.5f;
+            const float pipY = top + kBarHeight + kBorderSize + 2.f;
+
+            DisableAlphaBlend();
+            glColor3f(0.f, 0.f, 0.f);
+            RenderColor(pipX - pipBorder, pipY - pipBorder, pipSize + pipBorder * 2.f, pipSize + pipBorder * 2.f);
+            glColor3f(1.f, 0.25f, 0.f);
+            RenderColor(pipX, pipY, pipSize, pipSize);
             EnableAlphaBlend3();
         }
     }

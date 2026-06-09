@@ -20,6 +20,7 @@
 #include "Audio/DSPlaySound.h"
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
+#include "GameLogic/Combat/EliteMonsterStore.h"
 #include "Network/ServerMapManifest.h"
 #include "Network/DungeonReadyCheckState.h"
 #include "Network/MoveCommandData.h"
@@ -9123,6 +9124,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     constexpr int32_t kMonsterLevelSize   = 8;
     constexpr BYTE    kSubOpHeartbeatPong = 0x07;
     constexpr int32_t kHeartbeatPongSize  = 6;
+    constexpr BYTE    kSubOpEliteInfo     = 0x08;
+    constexpr int32_t kEliteInfoMinSize   = 12;
 
     const BYTE subOp = buf[3];
 
@@ -9182,6 +9185,44 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
         // resets the no-response timer that detects frozen servers.
         const auto sequence = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
         Heartbeat::OnPong(sequence);
+    }
+    else if (subOp == kSubOpEliteInfo && size >= kEliteInfoMinSize)
+    {
+        // Elite monster info: tier rank, aura/nameplate color, enrage status and optional unique name.
+        // Stored keyed by target id; drives the ground aura disc (RenderCharactersClient) and the styled
+        // nameplate (EnemyHealthBar). Re-sent on scope-in, on a respawn re-roll and on enrage toggle.
+        // A rank of 0 means "not elite" — clear any stored state (a monster respawned as a normal one).
+        const auto targetId = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const uint8_t rank    = buf[6];
+        const uint8_t r       = buf[7];
+        const uint8_t g       = buf[8];
+        const uint8_t b       = buf[9];
+        const uint8_t status  = buf[10];
+        const uint8_t nameLen = buf[11];
+
+        if (rank == 0)
+        {
+            GameLogic::EliteMonster::Reset(targetId);
+        }
+        else
+        {
+            wchar_t name[33] = { 0 };
+            if (nameLen > 0 && size >= kEliteInfoMinSize + nameLen)
+            {
+                char utf8[64] = { 0 };
+                const int copyLen = nameLen < 63 ? nameLen : 63;
+                memcpy(utf8, buf + kEliteInfoMinSize, copyLen);
+                CMultiLanguage::ConvertFromUtf8(name, utf8, 32);
+            }
+
+            const bool enraged = (status & 0x01) != 0;
+            const bool isNew = GameLogic::EliteMonster::Set(targetId, rank, r, g, b, enraged, name);
+            if (isNew && rank >= 2)
+            {
+                // Rare / Champion spawn cue: a soft chime the first time it comes into view.
+                PlayBuffer(SOUND_RING_EVENT_READY);
+            }
+        }
     }
 }
 

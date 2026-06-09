@@ -8,6 +8,7 @@
 #include "stdafx.h"
 #include "Core/Globals/_enum.h"
 #include "GameLogic/Combat/PrimeStatusStore.h"
+#include "GameLogic/Combat/EliteMonsterStore.h"
 #include <eh.h>
 #include "UI/Legacy/UIManager.h"
 #include "Guild/GuildCache.h"
@@ -11313,11 +11314,64 @@ void RenderCharacter(CHARACTER* c, OBJECT* o, int Select)
     }
 }
 
+// Renders a soft, pulsing, tier-colored glow disc on the ground under every visible elite monster.
+// Additive blend (GL_ONE, GL_ONE) with depth-write off so it lies on the terrain without z-fighting and
+// the monster draws over it. Mirrors the in-world immediate-mode quad idiom used elsewhere in the engine.
+static void RenderEliteAuras()
+{
+    const float pulse = 0.65f + 0.35f * (float)sin(WorldTime * 0.005);
+
+    bool drew = false;
+    for (int i = 0; i < MAX_CHARACTERS_CLIENT; ++i)
+    {
+        CHARACTER* c = &CharactersClient[i];
+        OBJECT* o = &c->Object;
+        if (!o->Live || !o->Visible)
+            continue;
+        if (!IsMonster(c))
+            continue;
+
+        GameLogic::EliteMonster::Info info;
+        if (!GameLogic::EliteMonster::Get(static_cast<uint16_t>(c->Key), info))
+            continue;
+
+        if (!drew)
+        {
+            EnableAlphaBlend();   // additive (GL_ONE, GL_ONE), depth-write off
+            BindTexture(BITMAP_LIGHT);
+            // Modulate the glow texture by glColor so the tier color actually tints it (the env mode
+            // can be left as GL_ADD/REPLACE by the terrain/effect passes that ran before us).
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+            drew = true;
+        }
+
+        // Disc half-size grows a little per tier so rarer elites read as bigger/scarier.
+        const float halfSize = 90.f + 35.f * (float)info.rank;
+        const float cx = o->Position[0];
+        const float cy = o->Position[1];
+        const float zOff = 8.f;
+
+        glColor4f(info.r / 255.f * pulse, info.g / 255.f * pulse, info.b / 255.f * pulse, 1.f);
+
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.f, 0.f); glVertex3f(cx - halfSize, cy - halfSize, RequestTerrainHeight(cx - halfSize, cy - halfSize) + zOff);
+        glTexCoord2f(1.f, 0.f); glVertex3f(cx + halfSize, cy - halfSize, RequestTerrainHeight(cx + halfSize, cy - halfSize) + zOff);
+        glTexCoord2f(1.f, 1.f); glVertex3f(cx + halfSize, cy + halfSize, RequestTerrainHeight(cx + halfSize, cy + halfSize) + zOff);
+        glTexCoord2f(0.f, 1.f); glVertex3f(cx - halfSize, cy + halfSize, RequestTerrainHeight(cx - halfSize, cy + halfSize) + zOff);
+        glEnd();
+    }
+
+    if (drew)
+        DisableAlphaBlend();   // restore depth-write / cull for the character pass
+}
+
 void RenderCharactersClient()
 {
 #ifdef _EDITOR
     s_bShowCharacterPickBoxes = DevEditor_ShouldShowCharacterPickBoxes();
 #endif
+
+    RenderEliteAuras();
 
     for (int i = 0; i < MAX_CHARACTERS_CLIENT; ++i)
     {
@@ -11446,6 +11500,7 @@ void DeleteCharacter(int Key)
         if (o->Live && c->Key == Key)
         {
             GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(c->Key));
+            GameLogic::EliteMonster::Reset(static_cast<uint16_t>(c->Key));
             o->Live = false;
 
             BoneManager::UnregisterBone(c);
@@ -11467,6 +11522,7 @@ void DeleteCharacter(int Key)
 void DeleteCharacter(CHARACTER* c, OBJECT* o)
 {
     GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(c->Key));
+    GameLogic::EliteMonster::Reset(static_cast<uint16_t>(c->Key));
     o->Live = false;
 
     BoneManager::UnregisterBone(c);
@@ -11989,6 +12045,7 @@ CHARACTER* CreateCharacter(int Key, int Type, unsigned char PositionX, unsigned 
     // cheap and the mask never resurrects for the same player twice in a row
     // since live primes are pushed by the server.
     GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(Key));
+    GameLogic::EliteMonster::Reset(static_cast<uint16_t>(Key));
 
     for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
     {
@@ -13107,6 +13164,7 @@ CHARACTER* CreateMonster(EMonsterType Type, int PositionX, int PositionY, int Ke
     // packet (e.g. player walked far away), and the prime mask is indexed
     // by raw ID, so a new monster would otherwise inherit ghost prime icons.
     GameLogic::PrimeStatus::Reset(static_cast<uint16_t>(Key));
+    GameLogic::EliteMonster::Reset(static_cast<uint16_t>(Key));
 
     c = g_CursedTemple->CreateCharacters(Type, PositionX, PositionY, Key);
     if (c != NULL)
