@@ -36,6 +36,14 @@ void PacketFunctions_ClientToServer_Custom::SendDungeonReadyCancel()
     dotnet_SendDungeonReadyAction(this->GetHandle(), 1);
 }
 
+typedef void(CORECLR_DELEGATE_CALLTYPE* SendDungeonDifficultyChosen)(int32_t, BYTE);
+inline SendDungeonDifficultyChosen dotnet_SendDungeonDifficultyChosen = reinterpret_cast<SendDungeonDifficultyChosen>(symLoad(munique_client_library_handle, "ConnectionManager_SendDungeonDifficultyChosen"));
+
+void PacketFunctions_ClientToServer_Custom::SendDungeonDifficultyChosen(BYTE order)
+{
+    dotnet_SendDungeonDifficultyChosen(this->GetHandle(), order);
+}
+
 typedef void(CORECLR_DELEGATE_CALLTYPE* SendAuthenticateExt)(int32_t, uint16_t, uint32_t);
 inline SendAuthenticateExt dotnet_SendAuthenticateExt = reinterpret_cast<SendAuthenticateExt>(symLoad(munique_client_library_handle, "ConnectionManager_SendAuthenticateExt"));
 

@@ -14883,6 +14883,23 @@ static void ProcessPacket(const BYTE* ReceiveBuffer, int32_t Size)
             // itself on its next Update once the state is no longer active.
             BloodlustMU::DungeonReadyCheckState::Instance().ApplyDismissPacket(ReceiveBuffer, Size);
         }
+        else if (sub == 0x04)
+        {
+            // Dungeon difficulty options (leader-only, on portal talk). Store the tier list and open the
+            // difficulty-selection window the first time (it reads the list live afterwards).
+            auto& diffState = BloodlustMU::DungeonReadyCheckState::Instance();
+            const bool wasActive = diffState.IsDifficultyActive();
+            if (diffState.ApplyDifficultyPacket(ReceiveBuffer, Size) && !wasActive)
+            {
+                auto* pBox = g_MessageBox->NewMessageBox(MSGBOX_CLASS(SEASON3B::CNewUIDungeonDifficultySelectBox));
+                if (pBox)
+                {
+                    pBox->Create();
+                }
+
+                PlayBuffer(SOUND_DUNGEON_READY_CHECK);
+            }
+        }
         break;
     }
     default:

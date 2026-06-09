@@ -24,6 +24,8 @@
 #include "GameLogic/Skills/SkillManager.h"
 #include "Engine/Object/ZzzInterface.h"
 #include "Network/DungeonReadyCheckState.h"
+#include "UI/NewUI/Quests/NewUIQuestProgress.h"
+#include "Render/Textures/ZzzTexture.h"
 
 using namespace SEASON3B;
 
@@ -1294,9 +1296,9 @@ CALLBACK_RESULT CMapEnterGateKeeperMsgBoxLayout::OkBtnDown(class CNewUIMessageBo
 
 namespace
 {
-    // Number of msgbox "middle" tiles between the top and bottom frame images — sized to fit the four
-    // ready-check text lines plus the button row.
-    constexpr int kReadyCheckMiddleTiles = 4;
+    // Number of msgbox "middle" tiles between the top and bottom frame images — sized to fit the
+    // ready-check text lines (incl. the optional difficulty line) plus the button row.
+    constexpr int kReadyCheckMiddleTiles = 5;
 
     void RenderReadyCheckLine(float centerX, float y, const wchar_t* text, DWORD color, BYTE font)
     {
@@ -1405,6 +1407,17 @@ void CNewUIDungeonReadyCheckBox::RenderTexts()
     y += 22.f;
     RenderReadyCheckLine(centerX, y, dungeonLine, CLRDW_WHITE, MSGBOX_FONT_NORMAL);
     y += 20.f;
+    if (state.HasTier())
+    {
+        uint8_t tr, tg, tb;
+        state.GetTierColor(tr, tg, tb);
+        const DWORD tierColor = 0xFF000000 | ((DWORD)tr << 16) | ((DWORD)tg << 8) | (DWORD)tb;
+        wchar_t diffLine[96];
+        mu_swprintf(diffLine, L"Difficulty: %ls", state.GetTierName().c_str());
+        RenderReadyCheckLine(centerX, y, diffLine, tierColor, MSGBOX_FONT_BOLD);
+        y += 20.f;
+    }
+
     RenderReadyCheckLine(centerX, y, readyLine, 0xFF61F191, MSGBOX_FONT_BOLD);
     y += 22.f;
     RenderReadyCheckLine(centerX, y, hintLine, CLRDW_WHITE, MSGBOX_FONT_NORMAL);
@@ -1426,6 +1439,343 @@ CALLBACK_RESULT CNewUIDungeonReadyCheckBox::LButtonUp(class CNewUIMessageBoxBase
         SocketClient->ToGameServer()->SendDungeonReadyCancel();
         PlayBuffer(SOUND_CLICK01);
         g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+        return CALLBACK_BREAK;
+    }
+
+    return CALLBACK_CONTINUE;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Dungeon difficulty-selection window
+//////////////////////////////////////////////////////////////////////////
+
+CNewUIDungeonDifficultySelectBox::~CNewUIDungeonDifficultySelectBox()
+{
+    Release();
+}
+
+bool CNewUIDungeonDifficultySelectBox::GetLootIconRect(int lootCount, int k, float& x, float& y, float& w, float& h)
+{
+    if (lootCount <= 0 || k < 0 || k >= lootCount)
+        return false;
+    const float gap = 4.f;
+    const float totalW = lootCount * (kLootIcon + gap) - gap;
+    const float startX = (float)GetPos().x + (MSGBOX_WIDTH - totalW) / 2.f;
+    x = startX + k * (kLootIcon + gap);
+    y = (float)GetPos().y + 152.f;
+    w = kLootIcon;
+    h = kLootIcon;
+    return true;
+}
+
+bool CNewUIDungeonDifficultySelectBox::Create(float fPriority)
+{
+    AddCallbackFunc(CNewUIDungeonDifficultySelectBox::LButtonUp, MSGBOX_EVENT_MOUSE_LBUTTON_UP);
+    AddCallbackFunc(CNewUIDungeonDifficultySelectBox::EscCancel, MSGBOX_EVENT_PRESSKEY_ESC);
+
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    const auto& tiers = state.GetTiers();
+    const int tierCount = (int)tiers.size();
+
+    // Compact window: top + N middle tiles + bottom, sized to one tier's worth of content.
+    const float middleSpan = kContentHeight - MSGBOX_TOP_HEIGHT - MSGBOX_BOTTOM_HEIGHT;
+    m_middleTiles = (int)((middleSpan + MSGBOX_MIDDLE_HEIGHT - 1.f) / MSGBOX_MIDDLE_HEIGHT);
+    if (m_middleTiles < 1)
+        m_middleTiles = 1;
+
+    const int width = (int)MSGBOX_WIDTH;
+    const int height = (int)(MSGBOX_TOP_HEIGHT + m_middleTiles * MSGBOX_MIDDLE_HEIGHT + MSGBOX_BOTTOM_HEIGHT);
+    int x = (int)((SCREEN_WIDTH / 2) - (width / 2));
+    int y = (int)((SCREEN_HEIGHT / 2) - (height / 2));
+    if (y < 20)
+        y = 20;
+
+    if (!CNewUIMessageBoxBase::Create(x, y, width, height, fPriority))
+        return false;
+
+    // Open on the first affordable tier (else the first one).
+    m_selected = tierCount > 0 ? 0 : -1;
+    for (int i = 0; i < tierCount; ++i)
+    {
+        if (tiers[i].affordable) { m_selected = i; break; }
+    }
+
+    const float btnW = MSGBOX_BTN_EMPTY_SMALL_WIDTH;
+    const float btnH = MSGBOX_BTN_EMPTY_HEIGHT;
+    const float btnY = GetPos().y + GetSize().cy - (btnH + MSGBOX_BTN_BOTTOM_BLANK);
+    const float enterX = GetPos().x + 28.f;
+    const float cancelX = GetPos().x + GetSize().cx - 28.f - btnW;
+    m_BtnEnter.SetInfo(CNewUIMessageBoxMng::IMAGE_MSGBOX_BTN_EMPTY_SMALL, enterX, btnY, btnW, btnH, CNewUIMessageBoxButton::MSGBOX_BTN_SIZE_EMPTY_SMALL);
+    m_BtnEnter.SetText(L"Enter");
+    m_BtnCancel.SetInfo(CNewUIMessageBoxMng::IMAGE_MSGBOX_BTN_EMPTY_SMALL, cancelX, btnY, btnW, btnH, CNewUIMessageBoxButton::MSGBOX_BTN_SIZE_EMPTY_SMALL);
+    m_BtnCancel.SetText(L"Cancel");
+
+    // Reuse the quest dialogue's left/right arrow textures for the paging arrows (ref-counted, so loading
+    // a slot another UI already holds just bumps the ref; Release balances it). CNewUIButton renders one
+    // texture state and handles the hover/pressed states for us.
+    LoadBitmap(L"Interface\\Quest_bt_L.tga", CNewUIQuestProgress::IMAGE_QP_BTN_L, GL_LINEAR);
+    LoadBitmap(L"Interface\\Quest_bt_R.tga", CNewUIQuestProgress::IMAGE_QP_BTN_R, GL_LINEAR);
+    m_arrowsLoaded = true;
+
+    const int arrowY = (int)GetPos().y + 41;
+    m_btnPrev.ChangeButtonImgState(true, CNewUIQuestProgress::IMAGE_QP_BTN_L);
+    m_btnPrev.ChangeButtonInfo((int)GetPos().x + 26, arrowY, kArrowW, kArrowH);
+    m_btnNext.ChangeButtonImgState(true, CNewUIQuestProgress::IMAGE_QP_BTN_R);
+    m_btnNext.ChangeButtonInfo((int)GetPos().x + (int)MSGBOX_WIDTH - 26 - kArrowW, arrowY, kArrowW, kArrowH);
+
+    if (g_pNewUI3DRenderMng)
+        g_pNewUI3DRenderMng->Add3DRenderObj(this);
+
+    return true;
+}
+
+void CNewUIDungeonDifficultySelectBox::Release()
+{
+    CNewUIMessageBoxBase::Release();
+    if (g_pNewUI3DRenderMng)
+        g_pNewUI3DRenderMng->Remove3DRenderObj(this);
+
+    // Guard against a double Release so we don't over-decrement the shared arrow textures' ref count.
+    if (m_arrowsLoaded)
+    {
+        DeleteBitmap(CNewUIQuestProgress::IMAGE_QP_BTN_L);
+        DeleteBitmap(CNewUIQuestProgress::IMAGE_QP_BTN_R);
+        m_arrowsLoaded = false;
+    }
+}
+
+void CNewUIDungeonDifficultySelectBox::Cancel()
+{
+    BloodlustMU::DungeonReadyCheckState::Instance().CloseDifficulty();
+    PlayBuffer(SOUND_CLICK01);
+    g_MessageBox->SendEvent(this, MSGBOX_EVENT_DESTROY);
+}
+
+bool CNewUIDungeonDifficultySelectBox::Update()
+{
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    if (!state.IsDifficultyActive())
+    {
+        // The selection was closed (picked / cancelled): close ourselves.
+        g_MessageBox->SendEvent(this, MSGBOX_EVENT_DESTROY);
+        return true;
+    }
+
+    // Paging arrow buttons (hover/press handled by the widget; UpdateMouseEvent returns true on click).
+    const int n = (int)state.GetTiers().size();
+    if (n > 1)
+    {
+        const bool next = m_btnNext.UpdateMouseEvent();
+        const bool prev = m_btnPrev.UpdateMouseEvent();
+        if (next)
+        {
+            m_selected = (m_selected + 1) % n;
+            PlayBuffer(SOUND_CLICK01);
+        }
+        else if (prev)
+        {
+            m_selected = (m_selected - 1 + n) % n;
+            PlayBuffer(SOUND_CLICK01);
+        }
+    }
+
+    m_BtnEnter.Update();
+    m_BtnCancel.Update();
+    return true;
+}
+
+bool CNewUIDungeonDifficultySelectBox::Render()
+{
+    EnableAlphaTest();
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    RenderFrame();
+
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    const auto& tiers = state.GetTiers();
+    const int tierCount = (int)tiers.size();
+    const float centerX = GetPos().x + (MSGBOX_WIDTH / 2);
+
+    wchar_t title[64];
+    if (tierCount > 0 && m_selected >= 0)
+        mu_swprintf(title, L"Choose Difficulty  (%d/%d)", m_selected + 1, tierCount);
+    else
+        mu_swprintf(title, L"Choose Difficulty");
+    RenderReadyCheckLine(centerX, GetPos().y + 13.f, title, 0xFF49B0FF, MSGBOX_FONT_BOLD);
+    RenderReadyCheckLine(centerX, GetPos().y + 29.f, state.GetDifficultyDungeonName().c_str(), CLRDW_WHITE, MSGBOX_FONT_NORMAL);
+
+    if (m_selected < 0 || m_selected >= tierCount)
+    {
+        m_BtnEnter.Render();
+        m_BtnCancel.Render();
+        DisableAlphaBlend();
+        return true;
+    }
+
+    const auto& t = tiers[m_selected];
+    const DWORD tierColor = 0xFF000000 | ((DWORD)t.r << 16) | ((DWORD)t.g << 8) | (DWORD)t.b;
+    wchar_t line[192];
+
+    // Tier name + paging arrow buttons (in-game quest dialogue arrow icons; hidden when solo).
+    RenderReadyCheckLine(centerX, GetPos().y + 49.f, t.name.c_str(), tierColor, MSGBOX_FONT_BOLD);
+    if (tierCount > 1)
+    {
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        m_btnPrev.Render();
+        m_btnNext.Render();
+    }
+
+    mu_swprintf(line, L"Monster stats %d%%", (int)(t.monsterStatMult * 100.f + 0.5f));
+    RenderReadyCheckLine(centerX, GetPos().y + 71.f, line, 0xFFB8B8B8, MSGBOX_FONT_NORMAL);
+    mu_swprintf(line, L"Elite spawn %d%%", (int)(t.eliteChanceBonus * 100.f + 0.5f));
+    RenderReadyCheckLine(centerX, GetPos().y + 86.f, line, 0xFFB8B8B8, MSGBOX_FONT_NORMAL);
+    mu_swprintf(line, L"Experience %d%%", (int)(t.expMult * 100.f + 0.5f));
+    RenderReadyCheckLine(centerX, GetPos().y + 101.f, line, 0xFFB8B8B8, MSGBOX_FONT_NORMAL);
+    mu_swprintf(line, L"%d lives%ls", t.startingLives, t.guaranteedChampion ? L"   Champion" : L"");
+    RenderReadyCheckLine(centerX, GetPos().y + 116.f, line, 0xFFB8B8B8, MSGBOX_FONT_NORMAL);
+
+    if (t.requirements.empty())
+    {
+        RenderReadyCheckLine(centerX, GetPos().y + 134.f, L"Entry: free", CLRDW_WHITE, MSGBOX_FONT_NORMAL);
+    }
+    else
+    {
+        std::wstring req;
+        for (size_t k = 0; k < t.requirements.size(); ++k)
+        {
+            if (k > 0)
+                req += L"  +  ";
+            wchar_t one[96];
+            mu_swprintf(one, L"%dx %ls (%d)", t.requirements[k].count, t.requirements[k].itemName.c_str(), t.requirements[k].available);
+            req += one;
+        }
+        RenderReadyCheckLine(centerX, GetPos().y + 134.f, req.c_str(), t.affordable ? 0xFF61F191 : 0xFFFF6060, MSGBOX_FONT_NORMAL);
+    }
+
+    // Loot icons render in Render3D; find which one the mouse is over so its full item tooltip can be
+    // drawn last (on top of everything else).
+    int hoveredLoot = -1;
+    const int lootCount = (int)t.loot.size();
+    for (int k = 0; k < lootCount; ++k)
+    {
+        float ix, iy, iw, ih;
+        if (GetLootIconRect(lootCount, k, ix, iy, iw, ih) && SEASON3B::CheckMouseIn((int)ix, (int)iy, (int)iw, (int)ih))
+        {
+            hoveredLoot = k;
+            break;
+        }
+    }
+
+    m_BtnEnter.Render();
+    m_BtnCancel.Render();
+
+    if (hoveredLoot >= 0)
+    {
+        const int type = t.loot[hoveredLoot].itemGroup * MAX_ITEM_INDEX + t.loot[hoveredLoot].itemNumber;
+        if (IsItemModelLoaded(type))
+        {
+            float ix, iy, iw, ih;
+            GetLootIconRect(lootCount, hoveredLoot, ix, iy, iw, ih);
+            ITEM item;
+            ZeroMemory(&item, sizeof(item));
+            item.Type = (short)type;
+            item.Level = t.loot[hoveredLoot].level;
+            RenderItemInfo((int)(ix + iw / 2.f), (int)(iy + ih / 2.f), &item, false);
+        }
+    }
+
+    DisableAlphaBlend();
+    return true;
+}
+
+void CNewUIDungeonDifficultySelectBox::Render3D()
+{
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    if (!state.IsDifficultyActive())
+        return;
+
+    const auto& tiers = state.GetTiers();
+    if (m_selected < 0 || m_selected >= (int)tiers.size())
+        return;
+
+    const auto& t = tiers[m_selected];
+    const int lootCount = (int)t.loot.size();
+    for (int k = 0; k < lootCount; ++k)
+    {
+        float ix, iy, iw, ih;
+        if (!GetLootIconRect(lootCount, k, ix, iy, iw, ih))
+            continue;
+        const int type = t.loot[k].itemGroup * MAX_ITEM_INDEX + t.loot[k].itemNumber;
+        if (!IsItemModelLoaded(type))
+            continue; // reward item whose 3D model isn't loaded — skip to avoid crashing the item renderer
+        RenderItem3D(ix, iy, kLootIcon, kLootIcon, type, t.loot[k].level, 0, 0, false);
+    }
+}
+
+bool CNewUIDungeonDifficultySelectBox::IsVisible() const
+{
+    return true;
+}
+
+void CNewUIDungeonDifficultySelectBox::RenderFrame()
+{
+    float x = GetPos().x;
+    float y = GetPos().y + 2.f;
+    float width = GetSize().cx - MSGBOX_BACK_BLANK_WIDTH;
+    float height = GetSize().cy - MSGBOX_BACK_BLANK_HEIGHT;
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_BACK, x, y, width, height);
+
+    x = GetPos().x; y = GetPos().y; width = MSGBOX_WIDTH;
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_TOP, x, y, width, MSGBOX_TOP_HEIGHT);
+
+    y += MSGBOX_TOP_HEIGHT;
+    for (int i = 0; i < m_middleTiles; ++i)
+    {
+        RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_MIDDLE, x, y, width, MSGBOX_MIDDLE_HEIGHT);
+        y += MSGBOX_MIDDLE_HEIGHT;
+    }
+
+    RenderImage(CNewUIMessageBoxMng::IMAGE_MSGBOX_BOTTOM, x, y, width, MSGBOX_BOTTOM_HEIGHT);
+}
+
+CALLBACK_RESULT CNewUIDungeonDifficultySelectBox::EscCancel(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+{
+    ((CNewUIDungeonDifficultySelectBox*)pOwner)->Cancel();
+    return CALLBACK_BREAK;
+}
+
+CALLBACK_RESULT CNewUIDungeonDifficultySelectBox::LButtonUp(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam)
+{
+    auto* pBox = (CNewUIDungeonDifficultySelectBox*)pOwner;
+    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
+    const auto& tiers = state.GetTiers();
+    const int n = (int)tiers.size();
+    if (n <= 0)
+        return CALLBACK_CONTINUE;
+
+    // (Paging arrows are handled by the arrow button widgets in Update.)
+    if (pBox->m_BtnEnter.IsMouseIn())
+    {
+        if (pBox->m_selected >= 0 && pBox->m_selected < n)
+        {
+            const auto& t = tiers[pBox->m_selected];
+            if (!t.affordable)
+            {
+                // Can't afford this tier — keep the window open (the red requirement line shows why).
+                PlayBuffer(SOUND_CLICK01);
+                return CALLBACK_BREAK;
+            }
+
+            SocketClient->ToGameServer()->SendDungeonDifficultyChosen(t.order);
+            state.CloseDifficulty();
+            PlayBuffer(SOUND_CLICK01);
+            g_MessageBox->SendEvent(pOwner, MSGBOX_EVENT_DESTROY);
+        }
+        return CALLBACK_BREAK;
+    }
+
+    if (pBox->m_BtnCancel.IsMouseIn())
+    {
+        pBox->Cancel();
         return CALLBACK_BREAK;
     }
 

@@ -65,6 +65,12 @@ public:
     /// Sends a dungeon ready-check cancel (Cancel button) to the game server (custom opcode 0xCE, action 1).
     /// </summary>
     void SendDungeonReadyCancel();
+
+    /// <summary>
+    /// Sends the chosen dungeon difficulty tier to the game server (custom opcode 0xCD).
+    /// </summary>
+    /// <param name="order">The chosen difficulty tier's Order.</param>
+    void SendDungeonDifficultyChosen(BYTE order);
 };
 
 /// <summary>

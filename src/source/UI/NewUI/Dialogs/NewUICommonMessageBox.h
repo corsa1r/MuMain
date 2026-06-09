@@ -9,6 +9,7 @@
 
 #include "UI/NewUI/Dialogs/NewUIMessageBox.h"
 #include "UI/NewUI/NewUI3DRenderMng.h"
+#include "UI/NewUI/Widgets/NewUIButton.h"
 
 namespace SEASON3B
 {
@@ -310,6 +311,46 @@ namespace SEASON3B
 
         CNewUIMessageBoxButton m_BtnReady;
         CNewUIMessageBoxButton m_BtnCancel;
+    };
+
+    // Dungeon difficulty-selection window (shown to the leader on portal talk). Shows ONE difficulty tier
+    // at a time — its scaling, entry requirements (green/red depending on whether the player holds them)
+    // and an inventory-style loot preview (3D item icons via Render3D, with a name tooltip on hover). Left
+    // / right arrows page between tiers; Enter sends the chosen tier (0xCD) which starts the ready check;
+    // Cancel or Escape closes it. Reads its tier list live from BloodlustMU::DungeonReadyCheckState.
+    class CNewUIDungeonDifficultySelectBox : public CNewUIMessageBoxBase, public INewUI3DRenderObj
+    {
+    public:
+        ~CNewUIDungeonDifficultySelectBox();
+
+        bool Create(float fPriority = 3.f);
+        void Release();
+
+        bool Update();
+        bool Render();
+        void Render3D();
+        bool IsVisible() const;
+
+        static CALLBACK_RESULT LButtonUp(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+        static CALLBACK_RESULT EscCancel(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
+
+    private:
+        static constexpr float kLootIcon = 20.f;
+        static constexpr int   kArrowW = 17; // native size of the quest arrow button state
+        static constexpr int   kArrowH = 18;
+        static constexpr float kContentHeight = 250.f;
+
+        void RenderFrame();
+        bool GetLootIconRect(int lootCount, int k, float& x, float& y, float& w, float& h);
+        void Cancel();
+
+        CNewUIMessageBoxButton m_BtnEnter;
+        CNewUIMessageBoxButton m_BtnCancel;
+        CNewUIButton m_btnPrev;
+        CNewUIButton m_btnNext;
+        int m_selected = -1;
+        int m_middleTiles = 1;
+        bool m_arrowsLoaded = false;
     };
 
     class CPartyMsgBoxLayout : public TMsgBoxLayout<CNewUICommonMessageBox>

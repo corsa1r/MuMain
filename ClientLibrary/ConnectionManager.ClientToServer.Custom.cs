@@ -107,4 +107,41 @@ public unsafe partial class ConnectionManager
             // Log exception
         }
     }
+
+    /// <summary>
+    /// Sends the chosen dungeon difficulty to the game server (custom opcode 0xCD).
+    /// </summary>
+    /// <param name="handle">The handle of the connection.</param>
+    /// <param name="order">The chosen difficulty tier's Order.</param>
+    /// <remarks>
+    /// Is sent by the client when: the leader picks a difficulty in the dungeon difficulty-selection
+    /// window. Causes reaction on server side: the server resolves the pending dungeon + chosen tier and
+    /// starts the (tier-aware) ready check. Packet: <c>C1 04 CD [order:byte]</c>.
+    /// </remarks>
+    [UnmanagedCallersOnly(EntryPoint = "ConnectionManager_SendDungeonDifficultyChosen")]
+    public static void SendDungeonDifficultyChosen(int handle, byte order)
+    {
+        if (!Connections.TryGetValue(handle, out var connection))
+        {
+            return;
+        }
+
+        try
+        {
+            connection.CreateAndSend(pipeWriter =>
+            {
+                const int length = 4;
+                var span = pipeWriter.GetSpan(length)[..length];
+                span[0] = 0xC1;
+                span[1] = length;
+                span[2] = 0xCD;
+                span[3] = order;
+                return length;
+            });
+        }
+        catch
+        {
+            // Log exception
+        }
+    }
 }
