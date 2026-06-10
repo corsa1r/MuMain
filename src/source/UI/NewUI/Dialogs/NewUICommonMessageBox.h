@@ -335,13 +335,11 @@ namespace SEASON3B
         static CALLBACK_RESULT EscCancel(class CNewUIMessageBoxBase* pOwner, const leaf::xstreambuf& xParam);
 
     private:
-        static constexpr float kLootIcon = 20.f;
         static constexpr int   kArrowW = 17; // native size of the quest arrow button state
         static constexpr int   kArrowH = 18;
         static constexpr float kContentHeight = 250.f;
 
         void RenderFrame();
-        bool GetLootIconRect(int lootCount, int k, float& x, float& y, float& w, float& h);
         void Cancel();
 
         CNewUIMessageBoxButton m_BtnEnter;

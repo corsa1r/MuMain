@@ -21,6 +21,7 @@
 
 #include "GameLogic/Combat/PrimeStatusStore.h"
 #include "GameLogic/Combat/EliteMonsterStore.h"
+#include "GameLogic/Combat/DropOwnerStore.h"
 #include "Network/ServerMapManifest.h"
 #include "Network/DungeonReadyCheckState.h"
 #include "Network/MoveCommandData.h"
@@ -6023,6 +6024,7 @@ void ReceiveDeleteItemViewport(const BYTE* ReceiveBuffer)
         if (Key < 0 || Key >= MAX_ITEMS)
             Key = 0;
         Items[Key].Object.Live = false;
+        GameLogic::DropOwner::Reset(static_cast<uint16_t>(Key));
         Offset += sizeof(PDELETE_CHARACTER);
 
         MUHelper::g_MuHelper.DeleteItem(Key);
@@ -9126,6 +9128,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     constexpr int32_t kHeartbeatPongSize  = 6;
     constexpr BYTE    kSubOpEliteInfo     = 0x08;
     constexpr int32_t kEliteInfoMinSize   = 12;
+    constexpr BYTE    kSubOpDropOwner     = 0x09;
+    constexpr int32_t kDropOwnerMinSize   = 9;
 
     const BYTE subOp = buf[3];
 
@@ -9223,6 +9227,25 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
                 PlayBuffer(SOUND_RING_EVENT_READY);
             }
         }
+    }
+    else if (subOp == kSubOpDropOwner && size >= kDropOwnerMinSize)
+    {
+        // Dropped-item owner tag: binds a ground drop to a player for a short window so its label renders
+        // "(Owner's) …" until the bind expires (see GameLogic::DropOwner / RenderItemName).
+        const auto dropId      = static_cast<uint16_t>((buf[4] << 8) | buf[5]);
+        const auto bindSeconds = static_cast<uint16_t>((buf[6] << 8) | buf[7]);
+        const uint8_t nameLen  = buf[8];
+
+        wchar_t name[33] = { 0 };
+        if (nameLen > 0 && size >= kDropOwnerMinSize + nameLen)
+        {
+            char utf8[64] = { 0 };
+            const int copyLen = nameLen < 63 ? nameLen : 63;
+            memcpy(utf8, buf + kDropOwnerMinSize, copyLen);
+            CMultiLanguage::ConvertFromUtf8(name, utf8, 32);
+        }
+
+        GameLogic::DropOwner::Set(dropId, name, bindSeconds);
     }
 }
 

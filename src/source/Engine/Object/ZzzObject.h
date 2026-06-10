@@ -70,6 +70,7 @@ void RenderPartObjectEdge2(BMD* b, OBJECT* o, int Flag, bool Translate, float Sc
 void RenderPartObjectEdgeLight(BMD* b, OBJECT* o, int Flag, bool Translate, float Scale);
 
 void RenderItems();
+void RenderItemLootBeams();
 void MoveItems();
 int SelectItem();
 int GetScreenWidth();

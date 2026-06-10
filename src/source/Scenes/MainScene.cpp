@@ -499,7 +499,7 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
         FRAME_PROFILE(Terrain); RenderTerrain(true);
     }
     if (!g_Camera.TopViewEnable && renderDroppedItems)
-        { FRAME_PROFILE(Items); RenderItems(); }
+        { FRAME_PROFILE(Items); RenderItems(); RenderItemLootBeams(); }
 
     RenderFishs();
     RenderMount();

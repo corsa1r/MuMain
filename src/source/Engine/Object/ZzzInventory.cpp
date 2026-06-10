@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 #include "GameLogic/Skills/SkillComboStore.h"
+#include "GameLogic/Combat/DropOwnerStore.h"
 #include "UI/Legacy/UIManager.h"
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Models/ZzzBMD.h"
@@ -7494,6 +7495,36 @@ bool RenderGroundItemLabelCached(OBJECT* o, ITEM* ip)
 
     return false;
 }
+
+// Prepends the owner prefix to a ground-item label name, e.g. "Jewel of Bless" -> "(Vladimir's) Jewel of Bless".
+void PrependGroundItemOwnerName(wchar_t* name, size_t cap, const wchar_t* ownerName)
+{
+    if (name == nullptr || ownerName == nullptr || cap == 0)
+    {
+        return;
+    }
+
+    wchar_t combined[128] = { 0 };
+    mu_swprintf(combined, L"(%ls's) %ls", ownerName, name);
+    wcsncpy_s(name, cap, combined, _TRUNCATE);
+}
+
+// Renders an owner-tagged drop label at the item's world position. Reward drops are bound to one player for a
+// short window, so the prefix is per-drop and time-limited and can't share the attribute-keyed texture cache —
+// we build a one-off texture each frame (there are only a handful of bound drops at a time).
+void RenderGroundItemLabelOwned(OBJECT* o, ITEM* ip, const wchar_t* ownerName)
+{
+    GroundItemLabelDescriptor descriptor;
+    BuildGroundItemLabelDescriptor(o, ip, descriptor);
+    PrependGroundItemOwnerName(descriptor.Name, _countof(descriptor.Name), ownerName);
+
+    GroundItemLabelCacheEntry entry;
+    if (CreateGroundItemLabelTexture(descriptor, entry))
+    {
+        RenderGroundItemLabelTexture(o, entry);
+        DeleteGroundItemLabelTexture(entry.TextureId);
+    }
+}
 }
 
 void SetGroundItemLabelBuildBudget(int buildBudget)
@@ -7516,14 +7547,27 @@ void SetGroundItemLabelBuildBudget(int buildBudget)
 
 void RenderItemName(int i, OBJECT* o, ITEM* ip, bool Sort)
 {
-    (void)i;
+    // Reward drops are bound to a player for a short window; while bound, prefix the label "(Owner's) …".
+    wchar_t ownerName[33] = { 0 };
+    const bool owned = (i >= 0)
+        && GameLogic::DropOwner::Get(static_cast<uint16_t>(i), ownerName, _countof(ownerName))
+        && ownerName[0] != L'\0';
 
     if (!Sort)
     {
         GroundItemLabelDescriptor descriptor;
         BuildGroundItemLabelDescriptor(o, ip, descriptor);
+        if (owned)
+        {
+            PrependGroundItemOwnerName(descriptor.Name, _countof(descriptor.Name), ownerName);
+        }
+
         ApplyGroundItemLabelDescriptor(descriptor);
         g_pRenderText->RenderText(MouseX, MouseY - 15, descriptor.Name, 0, 0, RT3_WRITE_CENTER);
+    }
+    else if (owned)
+    {
+        RenderGroundItemLabelOwned(o, ip, ownerName);
     }
     else
     {

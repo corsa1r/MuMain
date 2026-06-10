@@ -6320,9 +6320,11 @@ static void HandleItemFalling(OBJECT* o)
 // Helper: Handle item on ground (set angle and camera rotation)
 static void HandleItemOnGround(OBJECT* o)
 {
-    o->Position[2] = RequestTerrainHeight(o->Position[0], o->Position[1]) + 30.f;
+    // Rest height above the terrain. Kept small so dropped items sit ON the ground instead of hovering
+    // (a tiny lift avoids z-fighting with the floor; weapons get a touch more as they lie flat).
+    o->Position[2] = RequestTerrainHeight(o->Position[0], o->Position[1]) + 8.f;
     if (o->Type >= MODEL_SWORD && o->Type < MODEL_STAFF + MAX_ITEM_INDEX)
-        o->Position[2] += 40.f;
+        o->Position[2] += 8.f;
 
     // Set default item angle
     ItemAngle(o);
@@ -6339,6 +6341,12 @@ static void HandleItemOnGround(OBJECT* o)
     }
 }
 
+// World-space centre of each Excellent dropped item's actually-rendered mesh, captured in RenderItems (where
+// the bone transform is fresh) and consumed by RenderItemLootBeams in the same frame. Equipment pieces are
+// drawn on a player skeleton with a per-type BodyHeight offset, so this — not o->Position — is where the
+// visible model is.
+static vec3_t g_LootBeamAnchor[MAX_ITEMS];
+
 void MoveItems()
 {
     for (int i = 0; i < MAX_ITEMS; i++)
@@ -6350,10 +6358,10 @@ void MoveItems()
             o->Position[2] += o->Gravity * FPS_ANIMATION_FACTOR;
             o->Gravity -= 6.f;
 
-            // Calculate ground height
-            float groundHeight = RequestTerrainHeight(o->Position[0], o->Position[1]) + 30.f;
+            // Calculate ground height (must match the rest height in HandleItemOnGround).
+            float groundHeight = RequestTerrainHeight(o->Position[0], o->Position[1]) + 8.f;
             if (o->Type >= MODEL_SWORD && o->Type < MODEL_STAFF + MAX_ITEM_INDEX)
-                groundHeight += 40.f;
+                groundHeight += 8.f;
 
             // Check if item is on ground or still falling
             if (o->Position[2] <= groundHeight)
@@ -6363,6 +6371,15 @@ void MoveItems()
             else
             {
                 HandleItemFalling(o);
+            }
+
+            // Excellent items cast a soft green dynamic light on the surrounding terrain/objects (matches the
+            // loot beam). Deposited here in the update pass so it's in the light grid before the terrain
+            // renders; with per-pixel Dynamic Lights on, AddTerrainLight redirects this to a real point light.
+            if (Items[i].Item.ExcellentFlags != 0)
+            {
+                vec3_t glow = { 0.20f, 0.60f, 0.30f };
+                AddTerrainLight(o->Position[0], o->Position[1], glow, 2, PrimaryTerrainLight);
             }
 
             // Create shiny particle effect
@@ -6489,6 +6506,22 @@ void RenderItems()
                 if (o->Type >= MODEL_HELM && o->Type < MODEL_BOOTS + MAX_ITEM_INDEX)
                     Type = o->Type;
                 b = &Models[Type];
+
+                // For Excellent items, capture the real on-screen mesh centre so the loot beam rises from the
+                // rendered model (not the drop point / tooltip anchor). EditFlag==2 makes Transform fill the
+                // OBB from the bone-transformed vertices; its centre is the visible piece's centre.
+                if (Items[i].Item.ExcellentFlags != 0)
+                {
+                    OBB_t beamObb;
+                    VectorCopy(o->Position, b->BodyOrigin);
+                    int savedEditFlag = EditFlag;
+                    EditFlag = 2;
+                    b->Transform(BoneTransform, o->BoundingBoxMin, o->BoundingBoxMax, &beamObb, true);
+                    EditFlag = savedEditFlag;
+                    for (int k = 0; k < 3; ++k)
+                        g_LootBeamAnchor[i][k] = beamObb.StartPos[k] + 0.5f * (beamObb.XAxis[k] + beamObb.YAxis[k] + beamObb.ZAxis[k]);
+                }
+
                 vec3_t Light;
                 RequestTerrainLight(o->Position[0], o->Position[1], Light);
                 VectorAdd(Light, o->Light, Light);
@@ -6540,6 +6573,96 @@ void RenderItems()
             }
         }
     }
+}
+
+// Draws an additive vertical light column whose BASE sits at worldBase (the item on the ground), rising
+// 'height' units and fading from full colour at the base to nearly nothing at the top. It works in camera
+// space (like RenderSprite), so the caller must have MODELVIEW = identity (BeginSprite).
+static void RenderLootBeamColumn(vec3_t worldBase, float width, float height, float r, float g, float b)
+{
+    vec3_t cam;
+    VectorTransform(worldBase, g_Camera.Matrix, cam); // base, in camera space
+    const float x  = cam[0];
+    const float yb = cam[1];
+    const float z  = cam[2];
+    const float hw = width * 0.5f;
+    const float vMid = 0.5f; // sample the flare's bright horizontal centre-line, stretched up the column
+
+    // Two stacked quads: the lower part stays at full colour, the upper part fades smoothly to nothing, so
+    // the column reads as solid at the item and dissolves at the top instead of ending on a hard edge.
+    const float yMid = yb + height * 0.45f;
+    const float yTop = yb + height;
+
+    BindTexture(BITMAP_LIGHT);
+    glBegin(GL_QUADS);
+
+    // Lower (solid).
+    glColor3f(r, g, b);
+    glTexCoord2f(0.f, vMid); glVertex3f(x - hw, yb,   z);
+    glTexCoord2f(1.f, vMid); glVertex3f(x + hw, yb,   z);
+    glTexCoord2f(1.f, vMid); glVertex3f(x + hw, yMid, z);
+    glTexCoord2f(0.f, vMid); glVertex3f(x - hw, yMid, z);
+
+    // Upper (fade to zero).
+    glColor3f(r, g, b);
+    glTexCoord2f(0.f, vMid); glVertex3f(x - hw, yMid, z);
+    glTexCoord2f(1.f, vMid); glVertex3f(x + hw, yMid, z);
+    glColor3f(0.f, 0.f, 0.f);
+    glTexCoord2f(1.f, vMid); glVertex3f(x + hw, yTop, z);
+    glTexCoord2f(0.f, vMid); glVertex3f(x - hw, yTop, z);
+
+    glEnd();
+}
+
+// Renders a Diablo-style vertical light column rising out of each Excellent item dropped on the ground, so
+// valuable loot is easy to spot. Additive and depth-tested (walls/terrain in front occlude it) but writes no
+// depth. Call right after RenderItems() so the beams sit on top of the item models in the same world pass.
+void RenderItemLootBeams()
+{
+    // Tunables: a soft wide outer column + a brighter narrow core, anchored at the item.
+    constexpr float kBeamHeight = 320.f;
+    constexpr float kOuterWidth = 90.f;
+    constexpr float kCoreWidth  = 34.f;
+    constexpr float kBaseZ      = 15.f; // small lift above the ground so the column emerges from the item
+
+    EnableAlphaBlend();   // additive (GL_ONE, GL_ONE)
+    EnableDepthTest();
+    DisableDepthMask();   // a glow shouldn't write into the depth buffer
+    DisableCullFace();    // the column quad isn't wound for back-face culling
+
+    // Camera-space draws require MODELVIEW = identity (they pre-multiply by g_Camera.Matrix); RenderItems
+    // leaves MODELVIEW in world space, so wrap the draws like the other sprite passes do.
+    BeginSprite();
+
+    for (int i = 0; i < MAX_ITEMS; i++)
+    {
+        OBJECT* o = &Items[i].Object;
+        if (!o->Live || !o->Visible)
+            continue;
+        if (Items[i].Item.ExcellentFlags == 0)
+            continue; // only Excellent items get a beam (for now)
+
+        // Gentle out-of-phase pulse so multiple beams don't throb in unison.
+        const float pulse = 0.70f + 0.30f * sinf((float)(WorldTime + i * 211) * 0.005f);
+
+        // Anchor under the rendered mesh's centre (captured in RenderItems), on the ground: the X/Y follows the
+        // visible model, and grounding Z to the terrain keeps it from parallaxing off as the camera moves.
+        vec3_t base;
+        base[0] = g_LootBeamAnchor[i][0];
+        base[1] = g_LootBeamAnchor[i][1];
+        base[2] = RequestTerrainHeight(g_LootBeamAnchor[i][0], g_LootBeamAnchor[i][1]) + kBaseZ;
+
+        // Excellent = green. Two layers: a soft wide column + a brighter narrow core.
+        RenderLootBeamColumn(base, kOuterWidth, kBeamHeight, 0.10f * pulse, 0.55f * pulse, 0.22f * pulse);
+        RenderLootBeamColumn(base, kCoreWidth,  kBeamHeight, 0.18f * pulse, 0.95f * pulse, 0.40f * pulse);
+    }
+
+    EndSprite();
+
+    EnableCullFace();
+    EnableDepthTest();
+    EnableDepthMask();
+    DisableAlphaBlend();
 }
 
 void PartObjectColor(int Type, float Alpha, float Bright, vec3_t Light, bool ExtraMon)

@@ -4,7 +4,7 @@
 //
 // Two server-pushed windows share this state, both on the C2 / 0xCC channel:
 //   * 0x04 — difficulty options: the leader, on talking to a dungeon portal, receives the list of
-//     selectable difficulty tiers (scaling, entry requirements, loot preview). Drives
+//     selectable difficulty tiers (scaling, entry requirements, reward gear level range). Drives
 //     CNewUIDungeonDifficultySelectBox; the leader picks one and the client sends 0xCD back.
 //   * 0x02 — ready-check show/update (+ the chosen tier name/color): after the leader picks, every
 //     participant gets the ready-check window with a live "ready (X/N)" count. 0x03 dismisses it.
@@ -27,14 +27,6 @@ namespace BloodlustMU
         std::wstring itemName;
     };
 
-    // One loot-preview item (rendered as an inventory icon).
-    struct DungeonLootView
-    {
-        uint8_t itemGroup{0};
-        int16_t itemNumber{0};
-        uint8_t level{0};
-    };
-
     // One selectable difficulty tier.
     struct DungeonTierView
     {
@@ -48,7 +40,8 @@ namespace BloodlustMU
         bool         guaranteedChampion{false};
         bool         affordable{false};
         std::vector<DungeonReqView>  requirements;
-        std::vector<DungeonLootView> loot;
+        uint8_t      lootLevelLow{0};         // reward gear item-level range (low..high) for this tier
+        uint8_t      lootLevelHigh{0};
     };
 
     class DungeonReadyCheckState

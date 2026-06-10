@@ -110,15 +110,8 @@ bool DungeonReadyCheckState::ApplyDifficultyPacket(const uint8_t* ReceiveBuffer,
             t.requirements.push_back(std::move(req));
         }
 
-        const uint8_t lootCount = r.U8();
-        for (uint8_t j = 0; j < lootCount && r.ok; ++j)
-        {
-            DungeonLootView loot;
-            loot.itemGroup = r.U8();
-            loot.itemNumber = r.I16();
-            loot.level = r.U8();
-            t.loot.push_back(loot);
-        }
+        t.lootLevelLow = r.U8();
+        t.lootLevelHigh = r.U8();
 
         if (!r.ok) return false;
         tiers.push_back(std::move(t));

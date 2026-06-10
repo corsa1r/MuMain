@@ -1454,20 +1454,6 @@ CNewUIDungeonDifficultySelectBox::~CNewUIDungeonDifficultySelectBox()
     Release();
 }
 
-bool CNewUIDungeonDifficultySelectBox::GetLootIconRect(int lootCount, int k, float& x, float& y, float& w, float& h)
-{
-    if (lootCount <= 0 || k < 0 || k >= lootCount)
-        return false;
-    const float gap = 4.f;
-    const float totalW = lootCount * (kLootIcon + gap) - gap;
-    const float startX = (float)GetPos().x + (MSGBOX_WIDTH - totalW) / 2.f;
-    x = startX + k * (kLootIcon + gap);
-    y = (float)GetPos().y + 152.f;
-    w = kLootIcon;
-    h = kLootIcon;
-    return true;
-}
-
 bool CNewUIDungeonDifficultySelectBox::Create(float fPriority)
 {
     AddCallbackFunc(CNewUIDungeonDifficultySelectBox::LButtonUp, MSGBOX_EVENT_MOUSE_LBUTTON_UP);
@@ -1651,37 +1637,18 @@ bool CNewUIDungeonDifficultySelectBox::Render()
         RenderReadyCheckLine(centerX, GetPos().y + 134.f, req.c_str(), t.affordable ? 0xFF61F191 : 0xFFFF6060, MSGBOX_FONT_NORMAL);
     }
 
-    // Loot icons render in Render3D; find which one the mouse is over so its full item tooltip can be
-    // drawn last (on top of everything else).
-    int hoveredLoot = -1;
-    const int lootCount = (int)t.loot.size();
-    for (int k = 0; k < lootCount; ++k)
+    // Reward gear item-level range for this tier (scales with difficulty via the tier's level bonus).
+    if (t.lootLevelHigh > 0)
     {
-        float ix, iy, iw, ih;
-        if (GetLootIconRect(lootCount, k, ix, iy, iw, ih) && SEASON3B::CheckMouseIn((int)ix, (int)iy, (int)iw, (int)ih))
-        {
-            hoveredLoot = k;
-            break;
-        }
+        if (t.lootLevelLow < t.lootLevelHigh)
+            mu_swprintf(line, L"Reward gear: Lv %d-%d", (int)t.lootLevelLow, (int)t.lootLevelHigh);
+        else
+            mu_swprintf(line, L"Reward gear: Lv %d", (int)t.lootLevelHigh);
+        RenderReadyCheckLine(centerX, GetPos().y + 156.f, line, 0xFFFFD37A, MSGBOX_FONT_NORMAL);
     }
 
     m_BtnEnter.Render();
     m_BtnCancel.Render();
-
-    if (hoveredLoot >= 0)
-    {
-        const int type = t.loot[hoveredLoot].itemGroup * MAX_ITEM_INDEX + t.loot[hoveredLoot].itemNumber;
-        if (IsItemModelLoaded(type))
-        {
-            float ix, iy, iw, ih;
-            GetLootIconRect(lootCount, hoveredLoot, ix, iy, iw, ih);
-            ITEM item;
-            ZeroMemory(&item, sizeof(item));
-            item.Type = (short)type;
-            item.Level = t.loot[hoveredLoot].level;
-            RenderItemInfo((int)(ix + iw / 2.f), (int)(iy + ih / 2.f), &item, false);
-        }
-    }
 
     DisableAlphaBlend();
     return true;
@@ -1689,26 +1656,8 @@ bool CNewUIDungeonDifficultySelectBox::Render()
 
 void CNewUIDungeonDifficultySelectBox::Render3D()
 {
-    auto& state = BloodlustMU::DungeonReadyCheckState::Instance();
-    if (!state.IsDifficultyActive())
-        return;
-
-    const auto& tiers = state.GetTiers();
-    if (m_selected < 0 || m_selected >= (int)tiers.size())
-        return;
-
-    const auto& t = tiers[m_selected];
-    const int lootCount = (int)t.loot.size();
-    for (int k = 0; k < lootCount; ++k)
-    {
-        float ix, iy, iw, ih;
-        if (!GetLootIconRect(lootCount, k, ix, iy, iw, ih))
-            continue;
-        const int type = t.loot[k].itemGroup * MAX_ITEM_INDEX + t.loot[k].itemNumber;
-        if (!IsItemModelLoaded(type))
-            continue; // reward item whose 3D model isn't loaded — skip to avoid crashing the item renderer
-        RenderItem3D(ix, iy, kLootIcon, kLootIcon, type, t.loot[k].level, 0, 0, false);
-    }
+    // The difficulty window no longer renders 3D loot icons (it shows a reward gear level range instead),
+    // so there is nothing to draw here. Kept as a registered 3D-render object for symmetry / future use.
 }
 
 bool CNewUIDungeonDifficultySelectBox::IsVisible() const
