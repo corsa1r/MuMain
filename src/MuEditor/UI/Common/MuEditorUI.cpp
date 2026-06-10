@@ -11,6 +11,7 @@
 #include "../MuEditor/UI/Console/MuEditorConsoleUI.h"
 #include "../MuEditor/UI/DevEditor/DevEditorUI.h"
 #include "../MuEditor/UI/PostProcess/PostProcessEditorUI.h"
+#include "../MuEditor/UI/AoeTest/AoeTestUI.h"
 
 // UI Layout constants
 constexpr float TOOLBAR_HEIGHT = 40.0f;
@@ -169,6 +170,13 @@ void CMuEditorUI::RenderToolbarFull(bool& editorEnabled, bool& showItemEditor, b
         if (ImGui::Button("Post FX"))
         {
             g_PostProcessEditorUI.Toggle();
+        }
+
+        // AOE Effect panel (owns its own visibility; just toggle it).
+        ImGui::SameLine();
+        if (ImGui::Button("AOE Effect"))
+        {
+            g_AoeEffectUI.Toggle();
         }
 
         // Console toggle

@@ -501,6 +501,8 @@ static void RenderGameWorld(BYTE& byWaterMap, int width, int height)
     if (!g_Camera.TopViewEnable && renderDroppedItems)
         { FRAME_PROFILE(Items); RenderItems(); RenderItemLootBeams(); }
 
+    RenderAoeEffect(); // /aoe test-command ground decals (no-op when none active)
+
     RenderFishs();
     RenderMount();
 

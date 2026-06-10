@@ -67,6 +67,16 @@ void CreateEffect(int Type, vec3_t Position, vec3_t Angle, vec3_t Light, int Sub
     WORD SkillIndex = 0, WORD Skill = 0, WORD SkillSerialNum = 0, float Scale = 0.0f, short int sTargetIndex = -1);
 void MoveEffects();
 
+// AoE-effect system: a telegraphed ground zone (element: 1=fire 2=physical 3=ice 4=lightning) that, when
+// ability>0, repeatedly casts skill id `ability` between hidden dummy actors inside the radius (intensity =
+// casts/sec, castDelay = telegraph-only warning first). Effects target a real player inside the radius, else
+// scatter to random points. The editor "AOE Effect" panel configures/previews it; the gameplay/server path
+// drives elite & boss mechanics via SpawnAoeEffectAt (explicit position).
+void SpawnAoeEffectAt(float centerX, float centerY, int element, int radiusTiles, int ability, float durationSec = 5.f, int intensity = 2, float castDelaySec = 1.f); // gameplay/server entry (world pos)
+void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec = 5.f, int intensity = 2, float castDelaySec = 1.f);                              // convenience: at the local player's feet
+void ClearAoeEffects(); // remove all active zones + despawn their dummy actors (editor "Clear" button).
+void RenderAoeEffect(); // called once per frame from the world render pass.
+
 void RenderCircle(int Type, vec3_t ObjectPosition, float ScaleBottom, float ScaleTop, float Height, float Rotation = 0.f, float LightTop = 1.f, float TextureV = 0.f);
 void RenderCircle2D(int Type, vec3_t ObjectPosition, float ScaleBottom, float ScaleTop, float Height, float Rotation = 0.f, float TextureV = 0.f, float TextureVScale = 0.f);
 

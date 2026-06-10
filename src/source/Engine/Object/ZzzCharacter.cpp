@@ -4003,8 +4003,15 @@ void CreateWeaponBlur(CHARACTER* c, OBJECT* o, BMD* b)
     }
 }
 
+// Set true while a /aoe test-actor's skill is being processed (its buff/debuff registrations are suppressed
+// so the preview never applies real status icons). Defined here, declared extern in _GlobalFunctions.h.
+bool g_AoeSuppressBuffs = false;
+
 void MoveCharacter(CHARACTER* c, OBJECT* o)
 {
+    extern bool IsAoeEffectActor(int key);
+    g_AoeSuppressBuffs = IsAoeEffectActor(c->Key); // suppress buff/debuff apply for test-actor casts
+
     if (o->Type == MODEL_WARCRAFT)
     {
         wchar_t Text[100];
@@ -6523,14 +6530,15 @@ void MoveCharactersClient()
         if ((TerrainWall[i] & TW_CHARACTER) == TW_CHARACTER) TerrainWall[i] -= TW_CHARACTER;
     }
 
+    extern bool IsAoeEffectActor(int key);
     for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
     {
         CHARACTER* tc = &CharactersClient[i];
         OBJECT* to = &tc->Object;
-        if (to->Live && tc->Dead == 0 && to->Kind != KIND_TRAP)
+        if (to->Live && tc->Dead == 0 && to->Kind != KIND_TRAP && !IsAoeEffectActor(tc->Key))
         {
             int Index = TERRAIN_INDEX_REPEAT((tc->PositionX), (tc->PositionY));
-            TerrainWall[Index] |= TW_CHARACTER;
+            TerrainWall[Index] |= TW_CHARACTER; // /aoe dummies skip this so they don't block walking into the zone
         }
 
         to->Visible = TestFrustrum2D(to->Position[0] * 0.01f, to->Position[1] * 0.01f, -20.f);
@@ -6540,6 +6548,7 @@ void MoveCharactersClient()
     {
         MoveCharacterClient(&CharactersClient[i]);
     }
+    g_AoeSuppressBuffs = false; // clear after the move pass so real casts apply buffs normally
     MoveBlurs();
 }
 
@@ -8538,6 +8547,13 @@ void RenderCharacter(CHARACTER* c, OBJECT* o, int Select)
 
     if (byRender == CHARACTER_ANIMATION)
         Calc_ObjectAnimation(o, Translate, Select);
+
+    // /aoe skill-preview dummies: bone transforms are now computed (so on-target effects/joints — Death Stab
+    // electricity, projectile impacts, etc. — anchor to the hidden target correctly), but we stop here so the
+    // dummy BODY itself is never drawn. Only the skill's own effects show.
+    extern bool IsAoeEffectActor(int key);
+    if (IsAoeEffectActor(c->Key))
+        return;
 
     if (o->Alpha >= 0.5f && c->HideShadow == false)
     {

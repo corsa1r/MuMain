@@ -36,11 +36,16 @@ BuffStateValueControl& TheBuffStateValueControl();
 #define g_CharacterBuff( o, iterindex ) \
 	o->m_BuffMap.GetBuff( iterindex )
 
+// When the /aoe skill tester casts a skill, its caster is a hidden dummy and the target may be the real
+// player; we don't want the preview to apply real buffs/debuffs (status icons) to anyone. This flag is set
+// true only while a test-actor's skill is being processed, suppressing buff registration during it.
+extern bool g_AoeSuppressBuffs;
+
 #define g_CharacterRegisterBuff( o, bufftype ) \
-	o->m_BuffMap.RegisterBuff( bufftype )
+	do { if (!g_AoeSuppressBuffs) (o)->m_BuffMap.RegisterBuff( bufftype ); } while(0)
 
 #define g_CharacterRegisterBufflist( o, bufftypelist ) \
-	o->m_BuffMap.RegisterBuff( bufftypelist )
+	do { if (!g_AoeSuppressBuffs) (o)->m_BuffMap.RegisterBuff( bufftypelist ); } while(0)
 
 #define g_CharacterUnRegisterBuff( o, bufftype ) \
 	o->m_BuffMap.UnRegisterBuff( bufftype )

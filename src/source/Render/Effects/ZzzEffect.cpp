@@ -17997,8 +17997,209 @@ void MoveEffect(OBJECT* o, int iIndex)
     }
 }
 
+//-----------------------------------------------------------------------------
+// /aoe N R  — local-only ground-AoE telegraph tester. Renders a flat, pulsing
+// ground decal (translucent disc + outline ring) at the player's feet for ~10
+// seconds (no server, no damage) so we can prototype "danger lands here in N
+// seconds" markers. element colour mirrors the detonators: 1=fire (yellow)
+// 2=physical (red) 3=ice (cyan) 4=lightning (light blue).
+//-----------------------------------------------------------------------------
+namespace
+{
+    struct AoeEffectZone
+    {
+        int    element = 1;
+        vec3_t center = { 0.f, 0.f, 0.f };
+        float  radius = 0.f;        // world units
+        DWORD  expireTick = 0;
+        int    ability = 0;         // optional /aoe N R A: skill id cast inside the zone (0 = none)
+        DWORD  lastEmitTick = 0;
+        DWORD  emitIntervalMs = 500; // gap between casts = 1000 / intensity(casts-per-sec)
+        DWORD  castStartTick = 0;   // skill casting starts at this tick (telegraph-only before then)
+    };
+
+    std::vector<AoeEffectZone> g_aoeEffectZones;
+
+    // Colours mirror the detonator/combo elements.
+    void AoeEffectColor(int element, float& r, float& g, float& b)
+    {
+        switch (element)
+        {
+        case 2:  r = 0.95f; g = 0.25f; b = 0.20f; break; // physical (red)
+        case 3:  r = 0.25f; g = 0.95f; b = 0.80f; break; // ice (frost cyan-teal, green-leaning)
+        case 4:  r = 0.55f; g = 0.45f; b = 1.00f; break; // lightning (electric blue-violet)
+        default: r = 1.00f; g = 0.82f; b = 0.15f; break; // fire (yellow)
+        }
+    }
+
+
+    // Transforms a ground point (x,y on the terrain + a small lift) into camera space and emits it.
+    void GroundVertex(float x, float y)
+    {
+        vec3_t w = { x, y, RequestTerrainHeight(x, y) + 20.f };
+        vec3_t cam;
+        VectorTransform(w, g_Camera.Matrix, cam);
+        glVertex3f(cam[0], cam[1], cam[2]);
+    }
+
+    // Draws a clean, untextured, translucent colour-tinted disc on the ground with a brighter outline ring —
+    // a readable "hazard zone" footprint. Camera-space, so it must run inside a BeginSprite() bracket.
+    void RenderAoeEffectDisc(const vec3_t center, float radius, float r, float g, float b)
+    {
+        const int kSegments = 48;
+
+        // Pulse: a gentle, eased radius throb of ~1% of the base radius (sin is naturally ease-in-out).
+        const DWORD now = GetTickCount();
+        const float rad = radius * (1.0f + 0.01f * sinf(now * 0.005f));
+
+        glDisable(GL_TEXTURE_2D);
+
+        // Filled translucent disc (the crisp polygon edge marks the radius).
+        glColor4f(r, g, b, 0.28f);
+        glBegin(GL_TRIANGLE_FAN);
+        GroundVertex(center[0], center[1]);
+        for (int k = 0; k <= kSegments; ++k)
+        {
+            const float ang = (k % kSegments) / (float)kSegments * 6.2831853f;
+            GroundVertex(center[0] + cosf(ang) * rad, center[1] + sinf(ang) * rad);
+        }
+        glEnd();
+
+        // Brighter outline at the (throbbing) radius.
+        glLineWidth(3.f);
+        glColor4f(r, g, b, 0.85f);
+        glBegin(GL_LINE_LOOP);
+        for (int k = 0; k < kSegments; ++k)
+        {
+            const float ang = k / (float)kSegments * 6.2831853f;
+            GroundVertex(center[0] + cosf(ang) * rad, center[1] + sinf(ang) * rad);
+        }
+        glEnd();
+        glLineWidth(1.f);
+
+        glEnable(GL_TEXTURE_2D);
+    }
+}
+
+extern void CastAoeSkill(int skill, float cx, float cy, float radius); // spawns a fresh caster+target and casts.
+extern void UpdateAoeActors();                                         // despawns expired casters (per frame).
+extern void ClearAoeActors();                                          // despawns all dummy casters.
+
+// Gameplay/server entry point: spawn a telegraphed AoE-effect zone at an explicit WORLD position that casts
+// skill `ability` in its radius. An elite/boss mechanic drives this (via a packet) to drop a hazard anywhere;
+// element = telegraph tint, intensity = casts/sec, castDelay = telegraph-only warning before the skill starts.
+void SpawnAoeEffectAt(float centerX, float centerY, int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec)
+{
+    if (radiusTiles < 1) radiusTiles = 1;
+    if (radiusTiles > 12) radiusTiles = 12;
+    if (durationSec < 1.f) durationSec = 1.f;
+    if (intensity < 1) intensity = 1;
+    if (intensity > 10) intensity = 10;
+    if (castDelaySec < 0.f) castDelaySec = 0.f;
+
+    const DWORD now = GetTickCount();
+    AoeEffectZone a;
+    a.element = element;
+    a.center[0] = centerX;
+    a.center[1] = centerY;
+    a.center[2] = RequestTerrainHeight(centerX, centerY);
+    a.radius = radiusTiles * TERRAIN_SCALE;
+    a.castStartTick = now + (DWORD)(castDelaySec * 1000.f); // telegraph-only until here, then the skill casts
+    a.expireTick = now + (DWORD)(castDelaySec * 1000.f) + (DWORD)(durationSec * 1000.f);
+    a.ability = ability;
+    a.lastEmitTick = 0;
+    a.emitIntervalMs = (DWORD)(1000 / intensity);
+    g_aoeEffectZones.push_back(a);
+}
+
+// Convenience for the editor panel / chat command: spawn at the local player's feet.
+void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec)
+{
+    if (Hero == nullptr)
+        return;
+    SpawnAoeEffectAt(Hero->Object.Position[0], Hero->Object.Position[1], element, radiusTiles, ability, durationSec, intensity, castDelaySec);
+}
+
+// Editor "Clear" button: drop every active test zone and hard-despawn all dummy casters.
+void ClearAoeEffects()
+{
+    g_aoeEffectZones.clear();
+    ClearAoeActors();
+}
+
+// Update pass (from MoveEffects): for a zone with a skill set, periodically cast that skill between its OWN two
+// hidden actors placed inside the radius (client-side), so we can preview/handpick boss/elite hazards.
+void UpdateAoeEffectEmit()
+{
+    UpdateAoeActors(); // despawn expired casters every frame (keeps running after zones are gone)
+
+    if (g_aoeEffectZones.empty())
+    {
+        return;
+    }
+
+    const DWORD now = GetTickCount();
+    for (AoeEffectZone& a : g_aoeEffectZones)
+    {
+        if ((LONG)(a.expireTick - now) <= 0)
+        {
+            continue; // RenderAoeEffect removes expired zones.
+        }
+
+        if (a.ability <= 0 || now < a.castStartTick || now - a.lastEmitTick < a.emitIntervalMs)
+        {
+            continue; // telegraph-only until castStartTick, then cast at the chosen intensity.
+        }
+        a.lastEmitTick = now;
+        CastAoeSkill(a.ability, a.center[0], a.center[1], a.radius); // fresh caster+target each cast.
+    }
+}
+
+// Called once per frame from the world render pass (MODELVIEW = camera). Draws + expires the test zones.
+void RenderAoeEffect()
+{
+    if (g_aoeEffectZones.empty())
+    {
+        return;
+    }
+
+    const DWORD now = GetTickCount();
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // standard alpha (a tint, not an additive wash)
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_FOG);
+    EnableDepthTest();
+    DisableDepthMask();
+    DisableCullFace();
+    BeginSprite();      // MODELVIEW = identity for the camera-space vertices
+
+    for (size_t i = 0; i < g_aoeEffectZones.size();)
+    {
+        AoeEffectZone& a = g_aoeEffectZones[i];
+        if ((LONG)(a.expireTick - now) <= 0)
+        {
+            g_aoeEffectZones.erase(g_aoeEffectZones.begin() + i);
+            continue;
+        }
+
+        float r, g, b;
+        AoeEffectColor(a.element, r, g, b);
+        RenderAoeEffectDisc(a.center, a.radius, r, g, b);
+        ++i;
+    }
+
+    EndSprite();
+    EnableCullFace();
+    EnableDepthMask();
+    EnableDepthTest();
+    DisableAlphaBlend(); // disables blend + restores texture/fog
+}
+
 void MoveEffects()
 {
+    UpdateAoeEffectEmit(); // /aoe N R A: rain ability A inside the test zones
+
     if (SceneFlag == MAIN_SCENE)
     {
         g_pCatapultWindow->SetCameraPos();
@@ -18017,6 +18218,10 @@ void MoveEffects()
 
 void RenderWheelWeapon(OBJECT* o)
 {
+    extern bool IsAoeEffectActorObject(OBJECT* o);
+    if (IsAoeEffectActorObject(o->Owner))
+        return; // /aoe dummy caster: keep the weapon invisible (only the skill effect should show)
+
     vec3_t TempPosition, TempAngle;
     VectorCopy(o->Position, TempPosition);
     VectorCopy(o->Angle, TempAngle);
@@ -18051,6 +18256,10 @@ void RenderWheelWeapon(OBJECT* o)
 
 void RenderFuryStrike(OBJECT* o)
 {
+    extern bool IsAoeEffectActorObject(OBJECT* o);
+    if (IsAoeEffectActorObject(o->Owner))
+        return; // /aoe dummy caster: keep the weapon invisible (only the skill effect should show)
+
     if (o->LifeTime > 10.f && o->Kind == 0)
     {
         vec3_t p, Light, Angle;

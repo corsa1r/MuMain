@@ -4080,6 +4080,235 @@ BOOL ReceiveMonsterSkill(const BYTE* ReceiveBuffer, int Size, BOOL bEncrypted)
     return (TRUE);
 }
 
+BOOL ReceiveMagic(const BYTE* ReceiveBuffer, int Size, BOOL bEncrypted); // fwd decl for CastAoeSkill below
+
+// ---- /aoe test: artificial caster + target ---------------------------------------------------------------
+BOOL ReceiveMagicContinue(const BYTE* ReceiveBuffer, int Size, BOOL bEncrypted); // fwd decl (defined later)
+bool IsAoeEffectActor(int key);                                                  // fwd decl (defined later)
+
+// /aoe skill preview: a pool of hidden dummy players. EACH cast spawns a FRESH caster+target (next free pair)
+// so the caster's animation runs to completion uninterrupted — channeled/area skills (Inferno, Ice Storm,
+// Decay, …) reach their effect frame, and Intensity just spawns more casters rather than restarting one.
+// Each caster lives kCastLifetimeMs (long enough to fire its effect) then despawns. Client-side only.
+static const int   kAoeActorBase   = 0x7F80;
+static const int   kAoeMaxPairs    = 32;     // covers Intensity 10 * ~2.5s lifetime
+static const DWORD kCastLifetimeMs  = 2500;
+static DWORD s_pairBusyUntil[kAoeMaxPairs] = { 0 };
+static bool  s_anyAoeActors = false;
+
+static int PairCasterKey(int pair) { return kAoeActorBase + pair * 2; }
+static int PairTargetKey(int pair) { return kAoeActorBase + pair * 2 + 1; }
+
+static CHARACTER* EnsureAoeActor(int key)
+{
+    for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
+    {
+        if (CharactersClient[i].Object.Live && CharactersClient[i].Key == key)
+            return &CharactersClient[i];
+    }
+    CHARACTER* c = CreateCharacter(key, MODEL_PLAYER, Hero->PositionX, Hero->PositionY, 0);
+    if (c == &CharactersClient[MAX_CHARACTERS_CLIENT])
+        return nullptr;
+    return c;
+}
+
+static void PlaceAoeActor(CHARACTER* c, float wx, float wy)
+{
+    OBJECT* o = &c->Object;
+    o->Live = true;
+    o->Position[0] = wx;
+    o->Position[1] = wy;
+    o->Position[2] = RequestTerrainHeight(wx, wy);
+    float tx = wx / TERRAIN_SCALE; if (tx < 0.f) tx = 0.f; else if (tx > 255.f) tx = 255.f;
+    float ty = wy / TERRAIN_SCALE; if (ty < 0.f) ty = 0.f; else if (ty > 255.f) ty = 255.f;
+    c->PositionX = (unsigned char)tx;
+    c->PositionY = (unsigned char)ty;
+    o->HiddenMesh = 0; // the render/name/select passes skip these by key; this is just belt-and-suspenders.
+    o->Light[0] = o->Light[1] = o->Light[2] = 1.f; // many skill effects spawn with the caster's o->Light;
+    o->LightEnable = true;                          // a hidden dummy's light is 0 -> effect renders black/invisible.
+}
+
+// Classic single-target projectile spells render their effect via ReceiveMagic's own cast animation. The
+// continue packet would overwrite that action and kill the projectile (sound only), so these opt out of it.
+static bool SkillSkipsContinue(int skill)
+{
+    switch (skill)
+    {
+    case AT_SKILL_POISON:    case AT_SKILL_POISON_STR:
+    case AT_SKILL_METEO:
+    case AT_SKILL_LIGHTNING: case AT_SKILL_LIGHTNING_STR: case AT_SKILL_LIGHTNING_STR_MG:
+    case AT_SKILL_ENERGYBALL:
+    case AT_SKILL_POWERWAVE:
+    case AT_SKILL_ICE:       case AT_SKILL_ICE_STR:       case AT_SKILL_ICE_STR_MG:
+    case AT_SKILL_FIREBALL:
+    case AT_SKILL_JAVELIN:
+    case AT_SKILL_DEATH_CANNON:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Spawns a FRESH caster+target (next free pair) and drives the skill two ways: ReceiveMagic for instant/target
+// skills, then ReceiveMagicContinue which puts the caster into the right channel action so sustained/area
+// skills (Inferno, Ice Storm, Decay, …) spawn their effect via the animation. No reuse of an in-flight caster.
+void CastAoeSkill(int skill, float cx, float cy, float radius)
+{
+    if (Hero == nullptr || skill <= 0)
+        return;
+
+    const DWORD now = GetTickCount();
+    int pair = -1;
+    for (int i = 0; i < kAoeMaxPairs; i++)
+    {
+        if (now >= s_pairBusyUntil[i]) { pair = i; break; }
+    }
+    if (pair < 0)
+        return; // every caster busy — Intensity is ahead of the pool; skip this tick.
+    s_pairBusyUntil[pair] = now + kCastLifetimeMs;
+    s_anyAoeActors = true;
+
+    const int ckey = PairCasterKey(pair);
+    const int traw = PairTargetKey(pair);
+    CHARACTER* caster = EnsureAoeActor(ckey);
+    CHARACTER* target = EnsureAoeActor(traw);
+    if (caster == nullptr || target == nullptr)
+        return;
+
+    // Equip the caster like the Hero (class + weapons): weapon/item-using skills read the weapon and crash if
+    // it's absent. The dummy body + held weapon are already skipped in RenderCharacter, and the weapon-spin
+    // effects (Twisting-Slash wheel / Fury Strike) are gated for test actors, so the weapon stays invisible.
+    caster->Class = Hero->Class;
+    caster->Weapon[0] = Hero->Weapon[0];
+    caster->Weapon[1] = Hero->Weapon[1];
+
+    // Placement: caster a short offset from centre (directional skills stay contained); the dummy target at a
+    // RANDOM point in the circle so single-target effects scatter around the zone when no real player is inside.
+    const float a1 = (rand() % 360) * 0.0174532925f;
+    const float d1 = radius * 0.2f;
+    PlaceAoeActor(caster, cx + cosf(a1) * d1, cy + sinf(a1) * d1);
+    const float a2 = (rand() % 360) * 0.0174532925f;
+    const float d2 = radius * sqrtf((rand() % 1000) / 1000.f); // uniform over the disc
+    PlaceAoeActor(target, cx + cosf(a2) * d2, cy + sinf(a2) * d2);
+
+    // Prefer a real player standing inside the zone as the target (so the skill visibly lands on them); the
+    // moment no player is in the radius, fall back to that random dummy point — re-checked every cast.
+    int tgtIdx = (int)(target - &CharactersClient[0]);
+    int tgtKey = traw;
+    for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
+    {
+        CHARACTER* p = &CharactersClient[i];
+        OBJECT* po = &p->Object;
+        if (!po->Live || po->Kind != KIND_PLAYER || IsAoeEffectActor(p->Key))
+            continue;
+        const float dx = po->Position[0] - cx;
+        const float dy = po->Position[1] - cy;
+        if (dx * dx + dy * dy <= radius * radius)
+        {
+            tgtIdx = i;
+            tgtKey = p->Key;
+            break;
+        }
+    }
+
+    // Preview only: don't let the cast apply real buffs/debuffs (status icons) to the player or anyone.
+    extern bool g_AoeSuppressBuffs;
+    g_AoeSuppressBuffs = true;
+
+    // 1) initial cast — instant / target skills render their effect here.
+    PRECEIVE_MAGIC m;
+    memset(&m, 0, sizeof(m));
+    m.MagicH = (BYTE)((skill >> 8) & 0xFF);
+    m.MagicL = (BYTE)(skill & 0xFF);
+    m.SourceKeyH = (BYTE)((ckey >> 8) & 0xFF);
+    m.SourceKeyL = (BYTE)(ckey & 0xFF);
+    const int tkey = (tgtKey & 0x7FFF) | 0x8000; // success bit set so it isn't treated as a miss
+    m.TargetKeyH = (BYTE)((tkey >> 8) & 0xFF);
+    m.TargetKeyL = (BYTE)(tkey & 0xFF);
+    ReceiveMagic((const BYTE*)&m, sizeof(m), FALSE);
+
+    // 2) continue — puts the (non-Hero) caster into the correct channel action so sustained/area skills
+    //    (Inferno/Ice Storm/Decay/…) spawn their effect through the animation pass. Classic single-target
+    //    projectile spells opt out (the continue would overwrite their cast animation).
+    if (!SkillSkipsContinue(skill))
+    {
+        const float deg = CreateAngle2D(caster->Object.Position, CharactersClient[tgtIdx].Object.Position);
+        PRECEIVE_MAGIC_CONTINUE mc;
+        memset(&mc, 0, sizeof(mc));
+        mc.MagicH = m.MagicH;
+        mc.MagicL = m.MagicL;
+        mc.KeyH = m.SourceKeyH;
+        mc.KeyL = m.SourceKeyL;
+        mc.PositionX = caster->PositionX;
+        mc.PositionY = caster->PositionY;
+        mc.Angle = (BYTE)(((int)(deg / 360.f * 255.f)) & 0xFF);
+        ReceiveMagicContinue((const BYTE*)&mc, sizeof(mc), FALSE);
+    }
+
+    // The MoveCharacter skill-effect switch only spawns single-target effects (Poison/Meteor/etc.) when
+    // TargetCharacter != -1. ReceiveMagic's value isn't reliably sticking for the dummy, so pin it ourselves
+    // (to the real player when one is inside, else the dummy).
+    caster->TargetCharacter = tgtIdx;
+
+    g_AoeSuppressBuffs = false; // restore so real casts apply buffs normally
+}
+
+// Despawn casters whose lifetime expired (called once per frame from the effect update). Stops channeled
+// skills from lingering on idle dummies and frees the pair for reuse.
+void UpdateAoeActors()
+{
+    if (!s_anyAoeActors)
+        return;
+    const DWORD now = GetTickCount();
+    bool anyBusy = false;
+    for (int i = 0; i < kAoeMaxPairs; i++)
+    {
+        if (now < s_pairBusyUntil[i]) { anyBusy = true; continue; }
+        const int ck = PairCasterKey(i), tk = PairTargetKey(i);
+        for (int k = 0; k < MAX_CHARACTERS_CLIENT; k++)
+        {
+            if (CharactersClient[k].Object.Live && (CharactersClient[k].Key == ck || CharactersClient[k].Key == tk))
+                CharactersClient[k].Object.Live = false;
+        }
+    }
+    if (!anyBusy)
+        s_anyAoeActors = false;
+}
+
+// Hard despawn of every dummy actor (called when all test zones are gone).
+void ClearAoeActors()
+{
+    for (int i = 0; i < kAoeMaxPairs; i++)
+        s_pairBusyUntil[i] = 0;
+    for (int k = 0; k < MAX_CHARACTERS_CLIENT; k++)
+    {
+        const int key = CharactersClient[k].Key;
+        if (CharactersClient[k].Object.Live && key >= kAoeActorBase && key < kAoeActorBase + kAoeMaxPairs * 2)
+            CharactersClient[k].Object.Live = false;
+    }
+    s_anyAoeActors = false;
+}
+
+// True for any dummy actor key — render/name/selection passes skip them.
+bool IsAoeEffectActor(int key)
+{
+    return key >= kAoeActorBase && key < kAoeActorBase + kAoeMaxPairs * 2;
+}
+
+// Same test, but for an effect's OBJECT* Owner (maps it back to its CHARACTER by address). Used by the
+// weapon-spin effects (Twisting-Slash wheel / Fury Strike) to skip drawing the dummy caster's weapon.
+bool IsAoeEffectActorObject(OBJECT* o)
+{
+    if (o == nullptr)
+        return false;
+    for (int i = 0; i < MAX_CHARACTERS_CLIENT; i++)
+    {
+        if (&CharactersClient[i].Object == o)
+            return IsAoeEffectActor(CharactersClient[i].Key);
+    }
+    return false;
+}
+
 BOOL ReceiveMagic(const BYTE* ReceiveBuffer, int Size, BOOL bEncrypted)
 {
     auto Data = (LPPRECEIVE_MAGIC)ReceiveBuffer;
