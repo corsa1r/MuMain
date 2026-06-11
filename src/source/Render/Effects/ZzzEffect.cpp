@@ -18112,12 +18112,24 @@ void SpawnAoeEffectAt(float centerX, float centerY, int element, int radiusTiles
     g_aoeEffectZones.push_back(a);
 }
 
-// Convenience for the editor panel / chat command: spawn at the local player's feet.
-void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec)
+// Convenience for the editor panel / chat command. targetMode mirrors the server's placement choice so the
+// preview lands where the real mechanic would: 1=on a player (here: the Hero), 2=a random tile near the elite
+// (here: near the Hero), 3=on self (the Hero). It's config metadata for elites; the server resolves the real
+// position per mode and calls SpawnAoeEffectAt directly.
+void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec, int targetMode)
 {
     if (Hero == nullptr)
         return;
-    SpawnAoeEffectAt(Hero->Object.Position[0], Hero->Object.Position[1], element, radiusTiles, ability, durationSec, intensity, castDelaySec);
+    float cx = Hero->Object.Position[0];
+    float cy = Hero->Object.Position[1];
+    if (targetMode == 2) // "random tile near elite" — preview as a random tile a few steps from the player
+    {
+        const float ang = (rand() % 360) * 0.0174532925f;
+        const float dist = (float)((rand() % 4) + 2) * TERRAIN_SCALE; // 2-5 tiles out
+        cx += cosf(ang) * dist;
+        cy += sinf(ang) * dist;
+    }
+    SpawnAoeEffectAt(cx, cy, element, radiusTiles, ability, durationSec, intensity, castDelaySec);
 }
 
 // Editor "Clear" button: drop every active test zone and hard-despawn all dummy casters.
@@ -18150,6 +18162,21 @@ void UpdateAoeEffectEmit()
         {
             continue; // telegraph-only until castStartTick, then cast at the chosen intensity.
         }
+
+        // Stay silent for zones the local player has been moved far away from (death respawn, dungeon
+        // teleport, any warp) — otherwise the hazard keeps casting + playing its skill sounds from across
+        // the map. Only emit within audible range of the Hero; the zone still renders + auto-expires.
+        if (Hero != nullptr)
+        {
+            const float dx = a.center[0] - Hero->Object.Position[0];
+            const float dy = a.center[1] - Hero->Object.Position[1];
+            const float audibleRange = 25.f * TERRAIN_SCALE; // ~25 tiles
+            if ((dx * dx + dy * dy) > (audibleRange * audibleRange))
+            {
+                continue;
+            }
+        }
+
         a.lastEmitTick = now;
         CastAoeSkill(a.ability, a.center[0], a.center[1], a.radius); // fresh caster+target each cast.
     }

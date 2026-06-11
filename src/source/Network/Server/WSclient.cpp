@@ -2062,6 +2062,10 @@ BOOL ReceiveTeleport(const BYTE* ReceiveBuffer, BOOL bEncrypted)
 {
     SEASON3B::CNewUIInventoryCtrl::BackupPickedItem();
 
+    // The player is leaving this spot (death respawn, warp, gate, GM teleport) — drop any active AOE-effect
+    // zones so they don't keep casting + playing their skill sounds from the area we just left.
+    ClearAoeEffects();
+
     auto Data = (LPPRECEIVE_TELEPORT_POSITION)ReceiveBuffer;
     Hero->PositionX = Data->PositionX;
     Hero->PositionY = Data->PositionY;
@@ -9359,6 +9363,8 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
     constexpr int32_t kEliteInfoMinSize   = 12;
     constexpr BYTE    kSubOpDropOwner     = 0x09;
     constexpr int32_t kDropOwnerMinSize   = 9;
+    constexpr BYTE    kSubOpAoeEffect     = 0x0A;
+    constexpr int32_t kAoeEffectSize      = 15;
 
     const BYTE subOp = buf[3];
 
@@ -9475,6 +9481,25 @@ static void ReceivePrimeStatus(const BYTE* buf, int32_t size)
         }
 
         GameLogic::DropOwner::Set(dropId, name, bindSeconds);
+    }
+    else if (subOp == kSubOpAoeEffect && size >= kAoeEffectSize)
+    {
+        // Monster AOE mechanic: spawn a telegraphed ground hazard that repeatedly casts a skill inside its
+        // radius (the visual half of the elite/boss mechanic — the server applies the matching damage). The
+        // tile centre is converted to world units the same way the engine places characters.
+        const uint8_t element   = buf[4];
+        const uint8_t radius    = buf[5];
+        const auto skillNumber  = static_cast<uint16_t>((buf[6] << 8) | buf[7]);
+        const auto durationMs   = static_cast<uint16_t>((buf[8] << 8) | buf[9]);
+        const uint8_t intensity = buf[10];
+        const auto castDelayMs  = static_cast<uint16_t>((buf[11] << 8) | buf[12]);
+        const BYTE posX         = buf[13];
+        const BYTE posY         = buf[14];
+
+        const float worldX = ((float)posX + 0.5f) * TERRAIN_SCALE;
+        const float worldY = ((float)posY + 0.5f) * TERRAIN_SCALE;
+        SpawnAoeEffectAt(worldX, worldY, element, radius, skillNumber,
+                         durationMs / 1000.0f, intensity, castDelayMs / 1000.0f);
     }
 }
 

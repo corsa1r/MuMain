@@ -38,6 +38,7 @@ private:
     float m_duration  = 5.0f;   // zone lifetime in seconds
     float m_castDelay = 1.0f;   // telegraph-only warning before the skill starts (seconds)
     int   m_intensity = 2;      // casts per second (1-10)
+    int   m_targetMode = 2;     // 1=on a player, 2=random tile near elite, 3=on self (server placement)
     int   m_lastSkill = 0;      // last skill cast from the grid (shown in the copyable /aoe command)
     char  m_filter[64] = "";    // case-insensitive name filter for the skill grid
     bool  m_visible   = false;

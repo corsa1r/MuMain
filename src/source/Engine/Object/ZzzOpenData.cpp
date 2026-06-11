@@ -5449,8 +5449,11 @@ void OpenTextData()
     OpenMacro(L"Data\\Macro.txt");
 }
 
+void ClearAoeEffects(); // from ZzzEffect.cpp — drop AOE-effect zones + their dummy actors on scene teardown.
+
 void ReleaseMainData()
 {
+    ClearAoeEffects(); // before ClearCharacters(), while the dummy-actor array is still valid.
     gMapManager.DeleteObjects();
     DeleteNpcs();
     DeleteMonsters();

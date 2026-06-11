@@ -14,7 +14,7 @@
 
 // Engine globals / entry points (declared here to avoid pulling heavy headers).
 extern SKILL_ATTRIBUTE* SkillAttribute;   // loaded skill table (ZzzInfomation.cpp), MAX_SKILLS entries
-void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec); // ZzzEffect.cpp
+void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec, int intensity, float castDelaySec, int targetMode); // ZzzEffect.cpp
 void ClearAoeEffects();                                                                                               // ZzzEffect.cpp
 
 CAoeEffectUI& CAoeEffectUI::GetInstance()
@@ -46,12 +46,18 @@ void CAoeEffectUI::Render()
     ImGui::SliderFloat("Duration (sec)", &m_duration, 1.0f, 30.0f, "%.0f");
     ImGui::SliderFloat("Cast Delay (sec)", &m_castDelay, 0.0f, 5.0f, "%.1f");
     ImGui::SliderInt("Intensity (casts/sec)", &m_intensity, 1, 10);
+
+    const char* targets[] = { "1  On a player", "2  Random tile near elite", "3  On self" };
+    int tgtIdx = m_targetMode - 1;
+    if (tgtIdx < 0 || tgtIdx > 2) tgtIdx = 1;
+    if (ImGui::Combo("Target", &tgtIdx, targets, IM_ARRAYSIZE(targets)))
+        m_targetMode = tgtIdx + 1;
     ImGui::TextDisabled("Telegraph shows immediately; skill starts after Cast Delay.");
 
     // Live chat command for the current settings (skill = the last one you cast). Copy it to save favourites.
     char cmd[160];
-    snprintf(cmd, sizeof(cmd), "/aoe %d %d %d %g %d %g",
-        m_type, m_range, m_lastSkill, (double)m_duration, m_intensity, (double)m_castDelay);
+    snprintf(cmd, sizeof(cmd), "/aoe %d %d %d %g %d %g %d",
+        m_type, m_range, m_lastSkill, (double)m_duration, m_intensity, (double)m_castDelay, m_targetMode);
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.65f, 0.90f, 1.0f, 1.0f), "%s", cmd);
     ImGui::SameLine();
@@ -60,7 +66,7 @@ void CAoeEffectUI::Render()
 
     ImGui::Separator();
     if (ImGui::Button("Telegraph only"))
-        SpawnAoeEffect(m_type, m_range, 0, m_duration, m_intensity, m_castDelay);
+        SpawnAoeEffect(m_type, m_range, 0, m_duration, m_intensity, m_castDelay, m_targetMode);
     ImGui::SameLine();
     if (ImGui::Button("Clear all"))
         ClearAoeEffects();
@@ -115,7 +121,7 @@ void CAoeEffectUI::Render()
         if (ImGui::Button(label, ImVec2(btnW, 0)))
         {
             m_lastSkill = i;
-            SpawnAoeEffect(m_type, m_range, i, m_duration, m_intensity, m_castDelay);
+            SpawnAoeEffect(m_type, m_range, i, m_duration, m_intensity, m_castDelay, m_targetMode);
         }
         ++shown;
     }

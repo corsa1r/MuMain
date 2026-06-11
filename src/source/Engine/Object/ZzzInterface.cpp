@@ -4030,16 +4030,18 @@ bool CheckCommand(wchar_t* Text, bool bMacroText)
     // the Hero repeatedly casts client-side so we can preview/handpick which skills look good).
     if (_wcsnicmp(Text, L"/aoe", 4) == 0 && (Text[4] == L' ' || Text[4] == L'\0'))
     {
-        // /aoe <element> <range> <skill> <duration> <intensity> <castDelay> — matches the AOE Test panel's
-        // copyable command. Trailing params are optional (defaults applied for any that are omitted).
+        // /aoe <element> <range> <skill> <duration> <intensity> <castDelay> <targetMode> — matches the AOE
+        // Effect panel's copyable command. Trailing params are optional (defaults applied for any omitted).
+        // targetMode: 1=on a player, 2=random tile near elite (default), 3=on self.
         int element = 1;
         int radius = 3;
         int ability = 0;
         int intensity = 2;
         float durationSec = 5.f;
         float castDelaySec = 1.f;
-        swscanf_s(Text, L"%*s %d %d %d %f %d %f", &element, &radius, &ability, &durationSec, &intensity, &castDelaySec);
-        SpawnAoeEffect(element, radius, ability, durationSec, intensity, castDelaySec);
+        int targetMode = 2;
+        swscanf_s(Text, L"%*s %d %d %d %f %d %f %d", &element, &radius, &ability, &durationSec, &intensity, &castDelaySec, &targetMode);
+        SpawnAoeEffect(element, radius, ability, durationSec, intensity, castDelaySec, targetMode);
         g_pSystemLogBox->AddText(L"[test] AoE spawned at your feet.", SEASON3B::TYPE_SYSTEM_MESSAGE);
         return true; // handled locally; do not send to the server
     }

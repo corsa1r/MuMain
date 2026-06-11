@@ -73,7 +73,7 @@ void MoveEffects();
 // scatter to random points. The editor "AOE Effect" panel configures/previews it; the gameplay/server path
 // drives elite & boss mechanics via SpawnAoeEffectAt (explicit position).
 void SpawnAoeEffectAt(float centerX, float centerY, int element, int radiusTiles, int ability, float durationSec = 5.f, int intensity = 2, float castDelaySec = 1.f); // gameplay/server entry (world pos)
-void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec = 5.f, int intensity = 2, float castDelaySec = 1.f);                              // convenience: at the local player's feet
+void SpawnAoeEffect(int element, int radiusTiles, int ability, float durationSec = 5.f, int intensity = 2, float castDelaySec = 1.f, int targetMode = 2);          // convenience: previews at the player (targetMode 1/2/3)
 void ClearAoeEffects(); // remove all active zones + despawn their dummy actors (editor "Clear" button).
 void RenderAoeEffect(); // called once per frame from the world render pass.
 
