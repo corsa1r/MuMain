@@ -411,18 +411,10 @@ void SEASON3B::CNewUIMainFrameWindow::RenderExperience()
     double x, y, width, height;
     const auto buildExpSegment = [](const double ratio, int& digit, double& fraction)
     {
-        const double clampedRatio = std::clamp(ratio, 0.0, 1.0);
-        if (clampedRatio >= 1.0)
-        {
-            digit = 9;
-            fraction = 1.0;
-            return;
-        }
-
-        const double scaled = clampedRatio * 10.0;
-        digit = std::clamp(static_cast<int>(scaled), 0, 9);
-        fraction = scaled - static_cast<double>(static_cast<long long>(scaled));
-        fraction = std::clamp(fraction, 0.0, 1.0);
+        // Single continuous experience bar (no 10 pages): the fraction is the full level progress (0..1) and
+        // the page digit is unused. The bar fills once across the whole level — filling it is a level up.
+        digit = 0;
+        fraction = std::clamp(ratio, 0.0, 1.0);
     };
 
     if (gCharacterManager.IsMasterExperienceActive(CharacterAttribute->Class, CharacterAttribute->Level) == true)
@@ -530,9 +522,6 @@ void SEASON3B::CNewUIMainFrameWindow::RenderExperience()
             RenderBitmap(IMAGE_MASTER_GAUGE_BAR, x, y, width, height, 0.f, 0.f, 6.f / 8.f, 4.f / 4.f);
         }
 
-        x = 635.f; y = 469.f;
-        SEASON3B::RenderNumber(x, y, iExp);
-
         x = 2.f; y = 473.f; width = 629.f; height = 4.f;
         if (SEASON3B::CheckMouseIn(x, y, width, height) == true)
         {
@@ -622,9 +611,6 @@ void SEASON3B::CNewUIMainFrameWindow::RenderExperience()
             x = 2.f; y = 473.f; width = fProgress * 629.f; height = 4.f;
             RenderBitmap(IMAGE_GAUGE_EXBAR, x, y, width, height, 0.f, 0.f, 6.f / 8.f, 4.f / 4.f);
         }
-
-        x = 635.f; y = 469.f;
-        SEASON3B::RenderNumber(x, y, iExp);
 
         x = 2.f; y = 473.f; width = 629.f; height = 4.f;
         if (SEASON3B::CheckMouseIn(x, y, width, height) == true)

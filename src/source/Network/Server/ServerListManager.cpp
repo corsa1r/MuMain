@@ -73,7 +73,8 @@ void CServerListManager::LoadServerListScript()
         ::fread(szDescript, sServerGroupScript.m_nDescriptLen, 1, fp);
         BuxConvert((BYTE*)szDescript, sServerGroupScript.m_nDescriptLen);
 
-        CMultiLanguage::ConvertFromUtf8(sServerGroupInfo.m_szName, sServerGroupScript.m_szName);
+        // Server-group button label: "Bloodlust MU" (overrides the ServerList.bmd group name, was "Valhalla").
+        ::wcscpy(sServerGroupInfo.m_szName, L"Bloodlust MU");
 
         sServerGroupInfo.m_byPos = sServerGroupScript.m_byPos;
         sServerGroupInfo.m_bySequence = sServerGroupScript.m_bySequence;
@@ -166,42 +167,8 @@ void CServerListManager::InsertServer(CServerGroup* pServerGroup, int iConnectIn
     pServerInfo->m_iPercent = iServerPercent;
     pServerInfo->m_byNonPvP = pServerGroup->m_abyNonPvpServer[pServerInfo->m_iIndex - 1];
 
-    int iTextIndex;
-    if (iServerPercent >= 128)
-    {
-        iTextIndex = 560;
-    }
-    else if (iServerPercent >= 100)
-    {
-        iTextIndex = 561;
-    }
-    else
-    {
-        iTextIndex = 562;
-    }
-
-    switch (pServerInfo->m_byNonPvP)
-    {
-    case 0:
-        mu_swprintf(pServerInfo->m_bName, L"%ls-%d %ls", pServerGroup->m_szName,
-            pServerInfo->m_iIndex, GlobalText[iTextIndex]);
-        break;
-
-    case 1:
-        mu_swprintf(pServerInfo->m_bName, L"%ls-%d(Non-PVP) %ls", pServerGroup->m_szName,
-            pServerInfo->m_iIndex, GlobalText[iTextIndex]);
-        break;
-
-    case 2:
-        mu_swprintf(pServerInfo->m_bName, L"%ls-%d(Gold PVP) %ls", pServerGroup->m_szName,
-            pServerInfo->m_iIndex, GlobalText[iTextIndex]);
-        break;
-
-    case 3:
-        mu_swprintf(pServerInfo->m_bName, L"%ls-%d(Gold) %ls", pServerGroup->m_szName,
-            pServerInfo->m_iIndex, GlobalText[iTextIndex]);
-        break;
-    }
+    // Server entry label: fixed "Main" (single server; drop the per-server "-N(type) Connect" suffix).
+    wcscpy(pServerInfo->m_bName, L"Main");
 
     pServerGroup->InsertServerInfo(pServerInfo);
 }
